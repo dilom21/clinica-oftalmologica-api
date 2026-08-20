@@ -1,9 +1,9 @@
 from sqlalchemy import create_engine
 
-from app.core.config import settings
+from app.core.config import DATABASE_URL
 
 
 engine = create_engine(
-    settings.DATABASE_URL,
+    DATABASE_URL,
     pool_pre_ping=True
 )

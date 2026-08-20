@@ -1,0 +1,180 @@
+from datetime import datetime
+
+from pydantic import BaseModel, ConfigDict
+
+
+# =========================================================
+# USUARIO
+# =========================================================
+
+class UsuarioCrear(BaseModel):
+    correo: str
+    password: str
+    estado: bool = True
+
+
+class UsuarioActualizar(BaseModel):
+    correo: str | None = None
+    password: str | None = None
+    estado: bool | None = None
+
+
+class UsuarioRespuesta(BaseModel):
+    id: int
+    correo: str
+    estado: bool
+    fecha_creacion: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# =========================================================
+# LOGIN
+# CU01
+# =========================================================
+
+class LoginRequest(BaseModel):
+    correo: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+
+
+# =========================================================
+# RECUPERACIÓN DE CONTRASEÑA
+# CU03
+# =========================================================
+
+class RecuperarPasswordRequest(BaseModel):
+    correo: str
+
+
+class RestablecerPasswordRequest(BaseModel):
+    token: str
+    nueva_password: str
+
+
+# =========================================================
+# ROL
+# =========================================================
+
+class RolCrear(BaseModel):
+    nombre: str
+    descripcion: str | None = None
+    estado: bool = True
+
+
+class RolActualizar(BaseModel):
+    nombre: str | None = None
+    descripcion: str | None = None
+    estado: bool | None = None
+
+
+class RolRespuesta(BaseModel):
+    id: int
+    nombre: str
+    descripcion: str | None
+    estado: bool
+    fecha_creacion: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# =========================================================
+# MÓDULO
+# =========================================================
+
+class ModuloCrear(BaseModel):
+    nombre: str
+    descripcion: str | None = None
+    estado: bool = True
+
+
+class ModuloRespuesta(BaseModel):
+    id: int
+    nombre: str
+    descripcion: str | None
+    estado: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# =========================================================
+# FUNCIÓN
+# =========================================================
+
+class FuncionCrear(BaseModel):
+    modulo_id: int
+    nombre: str
+    descripcion: str | None = None
+    estado: bool = True
+
+
+class FuncionRespuesta(BaseModel):
+    id: int
+    modulo_id: int
+    nombre: str
+    descripcion: str | None
+    estado: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# =========================================================
+# ACCIÓN
+# =========================================================
+
+class AccionCrear(BaseModel):
+    nombre: str
+    descripcion: str | None = None
+    estado: bool = True
+
+
+class AccionRespuesta(BaseModel):
+    id: int
+    nombre: str
+    descripcion: str | None
+    estado: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# =========================================================
+# ASIGNACIÓN USUARIO - ROL
+# =========================================================
+
+class UsuarioRolCrear(BaseModel):
+    usuario_id: int
+    rol_id: int
+
+
+# =========================================================
+# PERMISO ROL - FUNCIÓN - ACCIÓN
+# =========================================================
+
+class RolFuncionCrear(BaseModel):
+    rol_id: int
+    funcion_id: int
+    accion_id: int
+    descripcion: str | None = None
+
+
+# =========================================================
+# BITÁCORA
+# CU06
+# =========================================================
+
+class BitacoraRespuesta(BaseModel):
+    id: int
+    usuario_id: int | None
+    fecha_hora: datetime
+    ip: str | None
+    accion: str
+    entidad_afectada: str | None
+    id_registro_afectado: int | None
+    descripcion: str | None
+
+    model_config = ConfigDict(from_attributes=True)

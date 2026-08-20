@@ -1,10 +1,91 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.orm import Session
+
+from app.database.session import get_db
+
+from app.modules.gestion_pacientes.schemas.schemas import (
+    PacienteCrear,
+    PacienteActualizar,
+    PacienteRespuesta,
+)
+
+from app.modules.gestion_pacientes.services import service
+
 
 router = APIRouter(
     prefix="/pacientes",
-    tags=["Gestión de Pacientes"]
+    tags=["Pacientes"],
 )
 
-@router.get("/")
-def obtener_modulo():
-    return {"mensaje": "Módulo de pacientes funcionando"}
+
+# =========================================================
+# CU07 - GESTIONAR PACIENTES
+# =========================================================
+
+@router.post(
+    "",
+    response_model=PacienteRespuesta,
+    status_code=201,
+)
+def crear_paciente(
+    datos: PacienteCrear,
+    db: Session = Depends(get_db),
+):
+    return service.crear_paciente(
+        db,
+        datos,
+    )
+
+
+@router.get(
+    "",
+    response_model=list[PacienteRespuesta],
+)
+def listar_pacientes(
+    db: Session = Depends(get_db),
+):
+    return service.listar_pacientes(db)
+
+
+@router.get(
+    "/{paciente_id}",
+    response_model=PacienteRespuesta,
+)
+def obtener_paciente(
+    paciente_id: int,
+    db: Session = Depends(get_db),
+):
+    return service.obtener_paciente(
+        db,
+        paciente_id,
+    )
+
+
+@router.put(
+    "/{paciente_id}",
+    response_model=PacienteRespuesta,
+)
+def actualizar_paciente(
+    paciente_id: int,
+    datos: PacienteActualizar,
+    db: Session = Depends(get_db),
+):
+    return service.actualizar_paciente(
+        db,
+        paciente_id,
+        datos,
+    )
+
+
+@router.delete(
+    "/{paciente_id}",
+    response_model=PacienteRespuesta,
+)
+def eliminar_paciente(
+    paciente_id: int,
+    db: Session = Depends(get_db),
+):
+    return service.eliminar_paciente(
+        db,
+        paciente_id,
+    )

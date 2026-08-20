@@ -1,13 +1,9 @@
-from pydantic_settings import BaseSettings, SettingsConfigDict
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
 
-class Settings(BaseSettings):
-    DATABASE_URL: str
+DATABASE_URL = os.getenv("DATABASE_URL")
 
-    model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8"
-    )
-
-
-settings = Settings()
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL no está configurada en el archivo .env")
