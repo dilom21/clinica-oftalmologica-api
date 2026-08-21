@@ -6,7 +6,6 @@ from sqlalchemy.orm import Session
 from app.modules.gestion_usuarios_seguridad.models.models import (
     Usuario,
     Rol,
-    UsuarioRol,
     Modulo,
     Funcion,
     Accion,
@@ -87,37 +86,6 @@ def crear_rol(
     db.refresh(rol)
 
     return rol
-
-
-# =========================================================
-# USUARIO - ROL
-# =========================================================
-
-def asignar_rol_usuario(
-    db: Session,
-    usuario_id: int,
-    rol_id: int,
-):
-    asignacion = UsuarioRol(
-        usuario_id=usuario_id,
-        rol_id=rol_id,
-        fecha_asignacion=datetime.now(timezone.utc),
-    )
-
-    db.add(asignacion)
-    db.flush()
-
-    return asignacion
-
-
-def obtener_roles_usuario(db: Session, usuario_id: int):
-    stmt = (
-        select(Rol)
-        .join(UsuarioRol, UsuarioRol.rol_id == Rol.id)
-        .where(UsuarioRol.usuario_id == usuario_id)
-    )
-
-    return db.scalars(stmt).all()
 
 
 # =========================================================

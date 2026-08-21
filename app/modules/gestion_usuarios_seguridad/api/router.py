@@ -4,21 +4,42 @@ from sqlalchemy.orm import Session
 from app.database.session import get_db
 
 from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
+    LoginRequest,
+    LoginResponse,
     UsuarioCrear,
     UsuarioRespuesta,
     RolCrear,
     RolRespuesta,
-    UsuarioRolCrear,
     BitacoraRespuesta,
 )
 
-from app.modules.gestion_usuarios_seguridad.services import service
+from app.modules.gestion_usuarios_seguridad.services import (
+    auth_service,
+    bitacora_service,
+    rol_service,
+    usuario_service,
+)
 
 
 router = APIRouter(
     prefix="/seguridad",
     tags=["Usuarios y Seguridad"],
 )
+
+
+# =========================================================
+# CU01 - INICIAR SESIÓN
+# =========================================================
+
+@router.post(
+    "/login",
+    response_model=LoginResponse,
+)
+def iniciar_sesion(
+    datos: LoginRequest,
+    db: Session = Depends(get_db),
+):
+    return auth_service.iniciar_sesion(db, datos)
 
 
 # =========================================================
@@ -34,7 +55,7 @@ def crear_usuario(
     datos: UsuarioCrear,
     db: Session = Depends(get_db),
 ):
-    return service.crear_usuario(db, datos)
+    return usuario_service.crear_usuario(db, datos)
 
 
 @router.get(
@@ -44,7 +65,7 @@ def crear_usuario(
 def listar_usuarios(
     db: Session = Depends(get_db),
 ):
-    return service.listar_usuarios(db)
+    return usuario_service.listar_usuarios(db)
 
 
 @router.get(
@@ -55,7 +76,7 @@ def obtener_usuario(
     usuario_id: int,
     db: Session = Depends(get_db),
 ):
-    return service.obtener_usuario(
+    return usuario_service.obtener_usuario(
         db,
         usuario_id,
     )
@@ -74,7 +95,7 @@ def crear_rol(
     datos: RolCrear,
     db: Session = Depends(get_db),
 ):
-    return service.crear_rol(db, datos)
+    return rol_service.crear_rol(db, datos)
 
 
 @router.get(
@@ -84,23 +105,7 @@ def crear_rol(
 def listar_roles(
     db: Session = Depends(get_db),
 ):
-    return service.listar_roles(db)
-
-
-@router.post("/usuarios/asignar-rol")
-def asignar_rol(
-    datos: UsuarioRolCrear,
-    db: Session = Depends(get_db),
-):
-    service.asignar_rol(
-        db,
-        datos.usuario_id,
-        datos.rol_id,
-    )
-
-    return {
-        "mensaje": "Rol asignado correctamente"
-    }
+    return rol_service.listar_roles(db)
 
 
 # =========================================================
@@ -114,4 +119,4 @@ def asignar_rol(
 def consultar_bitacora(
     db: Session = Depends(get_db),
 ):
-    return service.consultar_bitacora(db)
+    return bitacora_service.consultar_bitacora(db)

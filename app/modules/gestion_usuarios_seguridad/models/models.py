@@ -44,6 +44,12 @@ class Usuario(Base):
         nullable=False
     )
 
+    rol_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("rol.id", ondelete="RESTRICT"),
+        nullable=False
+    )
+
 
 class Rol(Base):
     __tablename__ = "rol"
@@ -74,27 +80,6 @@ class Rol(Base):
     )
 
 
-class UsuarioRol(Base):
-    __tablename__ = "usuario_rol"
-
-    usuario_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("usuario.id", ondelete="CASCADE"),
-        primary_key=True
-    )
-
-    rol_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("rol.id", ondelete="CASCADE"),
-        primary_key=True
-    )
-
-    fecha_asignacion: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False
-    )
-
-
 class Modulo(Base):
     __tablename__ = "modulo"
 
@@ -117,6 +102,7 @@ class Modulo(Base):
         nullable=False,
         default=True
     )
+    
 
 
 class Funcion(Base):
@@ -126,7 +112,7 @@ class Funcion(Base):
         BigInteger,
         primary_key=True
     )
-
+    
     modulo_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("modulo.id", ondelete="CASCADE"),
