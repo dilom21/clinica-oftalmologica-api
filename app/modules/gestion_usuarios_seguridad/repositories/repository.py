@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.orm import Session
 
 from app.modules.gestion_usuarios_seguridad.models.models import (
@@ -53,6 +53,19 @@ def crear_usuario(
     db.refresh(usuario)
 
     return usuario
+
+
+def actualizar_password_usuario(
+    db: Session,
+    usuario_id: int,
+    nuevo_password_hash: str,
+):
+    stmt = (
+        update(Usuario)
+        .where(Usuario.id == usuario_id)
+        .values(password_hash=nuevo_password_hash)
+    )
+    db.execute(stmt)
 
 
 # =========================================================
@@ -227,6 +240,33 @@ def obtener_token_por_hash(db: Session, token_hash: str):
     )
 
     return db.scalar(stmt)
+
+
+def marcar_token_como_usado(
+    db: Session,
+    token_id: int,
+):
+    stmt = (
+        update(TokenRecuperacion)
+        .where(TokenRecuperacion.id == token_id)
+        .values(usado=True)
+    )
+    db.execute(stmt)
+
+
+def invalidar_tokens_activos_usuario(
+    db: Session,
+    usuario_id: int,
+):
+    stmt = (
+        update(TokenRecuperacion)
+        .where(
+            TokenRecuperacion.usuario_id == usuario_id,
+            TokenRecuperacion.usado.is_(False),
+        )
+        .values(usado=True)
+    )
+    db.execute(stmt)
 
 
 # =========================================================

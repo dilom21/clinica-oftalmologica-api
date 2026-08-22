@@ -6,6 +6,8 @@ from app.database.session import get_db
 from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     LoginRequest,
     LoginResponse,
+    RecuperarPasswordRequest,
+    RestablecerPasswordRequest,
     UsuarioCrear,
     UsuarioRespuesta,
     RolCrear,
@@ -16,6 +18,7 @@ from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
 from app.modules.gestion_usuarios_seguridad.services import (
     auth_service,
     bitacora_service,
+    password_service,
     rol_service,
     usuario_service,
 )
@@ -40,6 +43,26 @@ def iniciar_sesion(
     db: Session = Depends(get_db),
 ):
     return auth_service.iniciar_sesion(db, datos)
+
+
+# =========================================================
+# CU03 - RECUPERAR CONTRASEÑA
+# =========================================================
+
+@router.post("/password/recuperar")
+def recuperar_password(
+    datos: RecuperarPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    return password_service.solicitar_recuperacion_password(db, datos)
+
+
+@router.post("/password/restablecer")
+def restablecer_password(
+    datos: RestablecerPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    return password_service.restablecer_password(db, datos)
 
 
 # =========================================================
