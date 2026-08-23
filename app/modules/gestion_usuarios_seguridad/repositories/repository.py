@@ -97,6 +97,15 @@ def listar_modulos(db: Session):
     return db.scalars(stmt).all()
 
 
+def listar_modulos_activos(db: Session):
+    stmt = (
+        select(Modulo)
+        .where(Modulo.estado.is_(True))
+        .order_by(Modulo.id)
+    )
+    return db.scalars(stmt).all()
+
+
 def crear_modulo(
     db: Session,
     nombre: str,
@@ -121,6 +130,15 @@ def crear_modulo(
 
 def listar_funciones(db: Session):
     stmt = select(Funcion).order_by(Funcion.nombre)
+    return db.scalars(stmt).all()
+
+
+def listar_funciones_activas(db: Session):
+    stmt = (
+        select(Funcion)
+        .where(Funcion.estado.is_(True))
+        .order_by(Funcion.id)
+    )
     return db.scalars(stmt).all()
 
 

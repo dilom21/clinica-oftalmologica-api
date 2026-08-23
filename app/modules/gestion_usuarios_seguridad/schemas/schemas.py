@@ -178,3 +178,21 @@ class BitacoraRespuesta(BaseModel):
     descripcion: str | None
 
     model_config = ConfigDict(from_attributes=True)
+
+# =========================================================
+# MENÚ DINÁMICO
+# =========================================================
+
+class MenuFuncionRespuesta(BaseModel):
+    id: int
+    nombre: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class MenuModuloRespuesta(BaseModel):
+    id: int
+    nombre: str
+    funciones: list[MenuFuncionRespuesta] = []
+
+    model_config = ConfigDict(from_attributes=True)

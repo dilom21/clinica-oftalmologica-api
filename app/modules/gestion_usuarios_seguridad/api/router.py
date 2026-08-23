@@ -11,11 +11,13 @@ from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     RolCrear,
     RolRespuesta,
     BitacoraRespuesta,
+    MenuModuloRespuesta,
 )
 
 from app.modules.gestion_usuarios_seguridad.services import (
     auth_service,
     bitacora_service,
+    menu_service,
     rol_service,
     usuario_service,
 )
@@ -120,3 +122,17 @@ def consultar_bitacora(
     db: Session = Depends(get_db),
 ):
     return bitacora_service.consultar_bitacora(db)
+
+
+# =========================================================
+# MENÚ DINÁMICO
+# =========================================================
+
+@router.get(
+    "/menu",
+    response_model=list[MenuModuloRespuesta],
+)
+def obtener_menu(
+    db: Session = Depends(get_db),
+):
+    return menu_service.obtener_menu(db)
