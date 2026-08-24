@@ -1,5 +1,8 @@
 from fastapi import FastAPI
 
+from app.database.base import Base
+from app.database.connection import engine
+from app.modules.gestion_usuarios_seguridad.models.usuario import Usuario
 from app.modules.gestion_usuarios_seguridad.api.router import router as usuarios_seguridad_router
 from app.modules.gestion_pacientes.api.router import router as pacientes_router
 from app.modules.gestion_agenda_citas.api.router import router as agenda_citas_router
@@ -14,7 +17,9 @@ app = FastAPI(
     title="API Clínica Oftalmológica",
     version="1.0.0"
 )
-
+@app.on_event("startup")
+def startup_event():
+    Base.metadata.create_all(bind=engine)
 
 app.include_router(usuarios_seguridad_router)
 app.include_router(pacientes_router)
