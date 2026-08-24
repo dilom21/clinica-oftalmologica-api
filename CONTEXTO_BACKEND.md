@@ -559,6 +559,15 @@ PUT    /pacientes/{paciente_id}
 DELETE /pacientes/{paciente_id}
 ```
 
+La consulta `GET /seguridad/bitacora` requiere un JWT de un usuario cuyo rol
+sea `ADMINISTRADOR` o `ADMIN`. Admite los filtros opcionales `usuario_id`,
+`accion`, `entidad_afectada`, `id_registro_afectado`, `desde` y `hasta`.
+Las fechas deben enviarse en formato ISO 8601 y `desde` no puede ser
+posterior a `hasta`. Para paginar se pueden enviar `page` y `page_size`
+(`page_size` entre 1 y 100); la respuesta paginada contiene `items`, `total`,
+`page`, `page_size` y `total_pages`. Las solicitudes sin estos parámetros
+conservan la respuesta histórica como lista completa.
+
 Swagger:
 
 ```text

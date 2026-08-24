@@ -220,6 +220,23 @@ class BitacoraRespuesta(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class BitacoraPaginadaRespuesta(BaseModel):
+    items: list[BitacoraRespuesta]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class BitacoraFiltros(BaseModel):
+    usuario_id: int | None = None
+    accion: str | None = None
+    entidad_afectada: str | None = None
+    id_registro_afectado: int | None = None
+    desde: datetime | None = None
+    hasta: datetime | None = None
+
 # =========================================================
 # MENÚ DINÁMICO
 # =========================================================

@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
+from app.core.dependencies import obtener_administrador_actual
 
 from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     LoginRequest,
@@ -18,6 +19,8 @@ from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     ModuloConFuncionesRespuesta,
     AccionRespuesta,
     BitacoraRespuesta,
+    BitacoraPaginadaRespuesta,
+    BitacoraFiltros,
     MenuModuloRespuesta,
 )
 
@@ -46,10 +49,15 @@ router = APIRouter(
     response_model=LoginResponse,
 )
 def iniciar_sesion(
+    request: Request,
     datos: LoginRequest,
     db: Session = Depends(get_db),
 ):
-    return auth_service.iniciar_sesion(db, datos)
+    return auth_service.iniciar_sesion(
+        db,
+        datos,
+        request.client.host if request.client else None,
+    )
 
 
 # =========================================================
@@ -229,12 +237,34 @@ def listar_acciones(
 
 @router.get(
     "/bitacora",
-    response_model=list[BitacoraRespuesta],
+    response_model=list[BitacoraRespuesta] | BitacoraPaginadaRespuesta,
 )
 def consultar_bitacora(
+    request: Request,
+    filtros: BitacoraFiltros = Depends(),
     db: Session = Depends(get_db),
+    administrador=Depends(obtener_administrador_actual),
+    page: int | None = Query(None, ge=1),
+    page_size: int | None = Query(None, ge=1, le=100),
 ):
-    return bitacora_service.consultar_bitacora(db)
+    registros = bitacora_service.consultar_bitacora(
+        db=db,
+        usuario_id=filtros.usuario_id,
+        accion=filtros.accion,
+        entidad_afectada=filtros.entidad_afectada,
+        id_registro_afectado=filtros.id_registro_afectado,
+        desde=filtros.desde,
+        hasta=filtros.hasta,
+        page=page,
+        page_size=page_size,
+    )
+
+    bitacora_service.registrar_consulta(
+        db=db,
+        usuario_id=administrador.id,
+        ip=request.client.host if request.client else None,
+    )
+    return registros
 
 
 # =========================================================

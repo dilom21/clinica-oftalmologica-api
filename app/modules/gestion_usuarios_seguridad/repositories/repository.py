@@ -444,9 +444,68 @@ def registrar_bitacora(
     return registro
 
 
-def listar_bitacora(db: Session):
-    stmt = select(Bitacora).order_by(
-        Bitacora.fecha_hora.desc()
+def listar_bitacora(
+    db: Session,
+    usuario_id: int | None = None,
+    accion: str | None = None,
+    entidad_afectada: str | None = None,
+    id_registro_afectado: int | None = None,
+    desde: datetime | None = None,
+    hasta: datetime | None = None,
+    offset: int | None = None,
+    limit: int | None = None,
+):
+    filtros = []
+    if usuario_id is not None:
+        filtros.append(Bitacora.usuario_id == usuario_id)
+    if accion is not None:
+        filtros.append(func.lower(Bitacora.accion) == accion.lower())
+    if entidad_afectada is not None:
+        filtros.append(
+            func.lower(Bitacora.entidad_afectada) == entidad_afectada.lower()
+        )
+    if id_registro_afectado is not None:
+        filtros.append(Bitacora.id_registro_afectado == id_registro_afectado)
+    if desde is not None:
+        filtros.append(Bitacora.fecha_hora >= desde)
+    if hasta is not None:
+        filtros.append(Bitacora.fecha_hora <= hasta)
+
+    stmt = select(Bitacora).where(*filtros).order_by(
+        Bitacora.fecha_hora.desc(),
+        Bitacora.id.desc(),
     )
+    if offset is not None:
+        stmt = stmt.offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
 
     return db.scalars(stmt).all()
+
+
+def contar_bitacora(
+    db: Session,
+    usuario_id: int | None = None,
+    accion: str | None = None,
+    entidad_afectada: str | None = None,
+    id_registro_afectado: int | None = None,
+    desde: datetime | None = None,
+    hasta: datetime | None = None,
+):
+    filtros = []
+    if usuario_id is not None:
+        filtros.append(Bitacora.usuario_id == usuario_id)
+    if accion is not None:
+        filtros.append(func.lower(Bitacora.accion) == accion.lower())
+    if entidad_afectada is not None:
+        filtros.append(
+            func.lower(Bitacora.entidad_afectada) == entidad_afectada.lower()
+        )
+    if id_registro_afectado is not None:
+        filtros.append(Bitacora.id_registro_afectado == id_registro_afectado)
+    if desde is not None:
+        filtros.append(Bitacora.fecha_hora >= desde)
+    if hasta is not None:
+        filtros.append(Bitacora.fecha_hora <= hasta)
+
+    return db.scalar(select(func.count()).select_from(Bitacora).where(*filtros)) or 0

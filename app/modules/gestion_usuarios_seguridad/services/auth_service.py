@@ -12,6 +12,7 @@ from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
 def iniciar_sesion(
     db: Session,
     datos: LoginRequest,
+    ip: str | None = None,
 ) -> LoginResponse:
     usuario = repo.obtener_usuario_por_correo(
         db,
@@ -38,6 +39,21 @@ def iniciar_sesion(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Correo o contraseña incorrectos",
         )
+
+    try:
+        repo.registrar_bitacora(
+            db=db,
+            usuario_id=usuario.id,
+            ip=ip,
+            accion="LOGIN",
+            entidad_afectada="usuario",
+            id_registro_afectado=usuario.id,
+            descripcion="Inicio de sesión exitoso",
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
 
     access_token = crear_access_token(
         usuario_id=usuario.id,
