@@ -6,10 +6,17 @@ from app.database.session import get_db
 from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     LoginRequest,
     LoginResponse,
+    RecuperarPasswordRequest,
+    RestablecerPasswordRequest,
     UsuarioCrear,
     UsuarioRespuesta,
-    RolCrear,
+    AsignarRolRequest,
+    RolCrearConPermisos,
+    RolActualizarConPermisos,
     RolRespuesta,
+    PermisoRolRespuesta,
+    ModuloConFuncionesRespuesta,
+    AccionRespuesta,
     BitacoraRespuesta,
     MenuModuloRespuesta,
 )
@@ -18,6 +25,7 @@ from app.modules.gestion_usuarios_seguridad.services import (
     auth_service,
     bitacora_service,
     menu_service,
+    password_service,
     rol_service,
     usuario_service,
 )
@@ -42,6 +50,26 @@ def iniciar_sesion(
     db: Session = Depends(get_db),
 ):
     return auth_service.iniciar_sesion(db, datos)
+
+
+# =========================================================
+# CU03 - RECUPERAR CONTRASEÑA
+# =========================================================
+
+@router.post("/password/recuperar")
+def recuperar_password(
+    datos: RecuperarPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    return password_service.solicitar_recuperacion_password(db, datos)
+
+
+@router.post("/password/restablecer")
+def restablecer_password(
+    datos: RestablecerPasswordRequest,
+    db: Session = Depends(get_db),
+):
+    return password_service.restablecer_password(db, datos)
 
 
 # =========================================================
@@ -84,9 +112,29 @@ def obtener_usuario(
     )
 
 
+@router.post(
+    "/usuarios/{usuario_id}/rol",
+    response_model=UsuarioRespuesta,
+)
+def asignar_rol(
+    usuario_id: int,
+    datos: AsignarRolRequest,
+    db: Session = Depends(get_db),
+):
+    return usuario_service.asignar_rol_usuario(
+        db,
+        usuario_id,
+        datos.rol_id,
+    )
+
+
 # =========================================================
-# CU05 - ROLES
+# CU05 - ROLES Y PERMISOS
 # =========================================================
+# Nota de seguridad: estos endpoints deben quedar protegidos,
+# una vez exista la dependencia JWT/permisos, exigiendo un usuario
+# autenticado con permiso equivalente a GESTION_ROLES_Y_PERMISOS.
+# TODO(seguridad): agregar Depends(obtener_usuario_actual) + validar permiso.
 
 @router.post(
     "/roles",
@@ -94,10 +142,10 @@ def obtener_usuario(
     status_code=201,
 )
 def crear_rol(
-    datos: RolCrear,
+    datos: RolCrearConPermisos,
     db: Session = Depends(get_db),
 ):
-    return rol_service.crear_rol(db, datos)
+    return rol_service.crear_rol_con_permisos(db, datos)
 
 
 @router.get(
@@ -108,6 +156,71 @@ def listar_roles(
     db: Session = Depends(get_db),
 ):
     return rol_service.listar_roles(db)
+
+
+@router.get(
+    "/roles/{rol_id}",
+    response_model=RolRespuesta,
+)
+def obtener_rol(
+    rol_id: int,
+    db: Session = Depends(get_db),
+):
+    return rol_service.obtener_rol(db, rol_id)
+
+
+@router.get(
+    "/roles/{rol_id}/permisos",
+    response_model=list[PermisoRolRespuesta],
+)
+def obtener_permisos_rol(
+    rol_id: int,
+    db: Session = Depends(get_db),
+):
+    return rol_service.obtener_permisos_rol(db, rol_id)
+
+
+@router.put(
+    "/roles/{rol_id}",
+    response_model=RolRespuesta,
+)
+def actualizar_rol(
+    rol_id: int,
+    datos: RolActualizarConPermisos,
+    db: Session = Depends(get_db),
+):
+    return rol_service.actualizar_rol_con_permisos(db, rol_id, datos)
+
+
+@router.delete(
+    "/roles/{rol_id}",
+    response_model=RolRespuesta,
+)
+def desactivar_rol(
+    rol_id: int,
+    db: Session = Depends(get_db),
+):
+    return rol_service.desactivar_rol(db, rol_id)
+
+
+@router.get(
+    "/modulos-funciones",
+    response_model=list[ModuloConFuncionesRespuesta],
+)
+def listar_modulos_funciones(
+    db: Session = Depends(get_db),
+):
+    return rol_service.listar_modulos_con_funciones(db)
+
+
+@router.get(
+    "/acciones",
+    response_model=list[AccionRespuesta],
+)
+def listar_acciones(
+    db: Session = Depends(get_db),
+):
+    return rol_service.listar_acciones(db)
 
 
 # =========================================================

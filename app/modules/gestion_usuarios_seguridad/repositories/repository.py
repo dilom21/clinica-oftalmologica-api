@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update, delete
 from sqlalchemy.orm import Session
 
 from app.modules.gestion_usuarios_seguridad.models.models import (
@@ -39,11 +39,13 @@ def crear_usuario(
     db: Session,
     correo: str,
     password_hash: str,
+    rol_id: int,
     estado: bool = True,
 ):
     usuario = Usuario(
         correo=correo,
         password_hash=password_hash,
+        rol_id=rol_id,
         estado=estado,
         fecha_creacion=datetime.now(timezone.utc),
     )
@@ -55,12 +57,45 @@ def crear_usuario(
     return usuario
 
 
+def asignar_rol_usuario(
+    db: Session,
+    usuario_id: int,
+    rol_id: int,
+):
+    stmt = (
+        update(Usuario)
+        .where(Usuario.id == usuario_id)
+        .values(rol_id=rol_id)
+    )
+    db.execute(stmt)
+
+
+def actualizar_password_usuario(
+    db: Session,
+    usuario_id: int,
+    nuevo_password_hash: str,
+):
+    stmt = (
+        update(Usuario)
+        .where(Usuario.id == usuario_id)
+        .values(password_hash=nuevo_password_hash)
+    )
+    db.execute(stmt)
+
+
 # =========================================================
 # ROLES
 # =========================================================
 
 def obtener_rol_por_id(db: Session, rol_id: int):
     return db.get(Rol, rol_id)
+
+
+def obtener_rol_por_nombre(db: Session, nombre: str):
+    stmt = select(Rol).where(
+        func.lower(Rol.nombre) == nombre.lower()
+    )
+    return db.scalar(stmt)
 
 
 def listar_roles(db: Session):
@@ -86,6 +121,48 @@ def crear_rol(
     db.refresh(rol)
 
     return rol
+
+
+def actualizar_rol(
+    db: Session,
+    rol: Rol,
+    nombre: str | None = None,
+    descripcion: str | None = None,
+    estado: bool | None = None,
+):
+    if nombre is not None:
+        rol.nombre = nombre
+    if descripcion is not None:
+        rol.descripcion = descripcion
+    if estado is not None:
+        rol.estado = estado
+
+    db.flush()
+    db.refresh(rol)
+
+    return rol
+
+
+def desactivar_rol(
+    db: Session,
+    rol: Rol,
+):
+    rol.estado = False
+
+    db.flush()
+    db.refresh(rol)
+
+    return rol
+
+
+def contar_usuarios_por_rol(
+    db: Session,
+    rol_id: int,
+):
+    stmt = select(func.count(Usuario.id)).where(
+        Usuario.rol_id == rol_id
+    )
+    return db.scalar(stmt)
 
 
 # =========================================================
@@ -142,6 +219,10 @@ def listar_funciones_activas(db: Session):
     return db.scalars(stmt).all()
 
 
+def obtener_funcion_por_id(db: Session, funcion_id: int):
+    return db.get(Funcion, funcion_id)
+
+
 def crear_funcion(
     db: Session,
     modulo_id: int,
@@ -169,6 +250,10 @@ def crear_funcion(
 def listar_acciones(db: Session):
     stmt = select(Accion).order_by(Accion.nombre)
     return db.scalars(stmt).all()
+
+
+def obtener_accion_por_id(db: Session, accion_id: int):
+    return db.get(Accion, accion_id)
 
 
 def crear_accion(
@@ -214,6 +299,62 @@ def asignar_permiso(
     return permiso
 
 
+def eliminar_permisos_rol(
+    db: Session,
+    rol_id: int,
+):
+    stmt = (
+        delete(RolFuncion)
+        .where(RolFuncion.rol_id == rol_id)
+    )
+    db.execute(stmt)
+
+
+def obtener_permisos_rol(
+    db: Session,
+    rol_id: int,
+):
+    stmt = (
+        select(
+            RolFuncion.rol_id.label("rol_id"),
+            Funcion.id.label("funcion_id"),
+            Funcion.nombre.label("funcion_nombre"),
+            Modulo.id.label("modulo_id"),
+            Modulo.nombre.label("modulo_nombre"),
+            Accion.id.label("accion_id"),
+            Accion.nombre.label("accion_nombre"),
+        )
+        .join(Funcion, Funcion.id == RolFuncion.funcion_id)
+        .join(Modulo, Modulo.id == Funcion.modulo_id)
+        .join(Accion, Accion.id == RolFuncion.accion_id)
+        .where(RolFuncion.rol_id == rol_id)
+        .order_by(Modulo.id, Funcion.id)
+    )
+
+    return db.execute(stmt).mappings().all()
+
+
+def listar_modulos_con_funciones(db: Session):
+    stmt = (
+        select(
+            Modulo.id.label("modulo_id"),
+            Modulo.nombre.label("modulo_nombre"),
+            Funcion.id.label("funcion_id"),
+            Funcion.nombre.label("funcion_nombre"),
+            Funcion.descripcion.label("funcion_descripcion"),
+        )
+        .outerjoin(
+            Funcion,
+            (Funcion.modulo_id == Modulo.id)
+            & (Funcion.estado.is_(True)),
+        )
+        .where(Modulo.estado.is_(True))
+        .order_by(Modulo.id, Funcion.id)
+    )
+
+    return db.execute(stmt).mappings().all()
+
+
 # =========================================================
 # TOKEN RECUPERACIÓN
 # =========================================================
@@ -245,6 +386,33 @@ def obtener_token_por_hash(db: Session, token_hash: str):
     )
 
     return db.scalar(stmt)
+
+
+def marcar_token_como_usado(
+    db: Session,
+    token_id: int,
+):
+    stmt = (
+        update(TokenRecuperacion)
+        .where(TokenRecuperacion.id == token_id)
+        .values(usado=True)
+    )
+    db.execute(stmt)
+
+
+def invalidar_tokens_activos_usuario(
+    db: Session,
+    usuario_id: int,
+):
+    stmt = (
+        update(TokenRecuperacion)
+        .where(
+            TokenRecuperacion.usuario_id == usuario_id,
+            TokenRecuperacion.usado.is_(False),
+        )
+        .values(usado=True)
+    )
+    db.execute(stmt)
 
 
 # =========================================================

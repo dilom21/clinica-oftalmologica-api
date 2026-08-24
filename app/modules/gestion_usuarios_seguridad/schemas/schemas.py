@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict
 class UsuarioCrear(BaseModel):
     correo: str
     password: str
+    rol_id: int
     estado: bool = True
 
 
@@ -78,6 +79,7 @@ class RolRespuesta(BaseModel):
     nombre: str
     descripcion: str | None
     estado: bool
+    protegido: bool
     fecha_creacion: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -143,11 +145,11 @@ class AccionRespuesta(BaseModel):
 
 
 # =========================================================
-# ASIGNACIÓN USUARIO - ROL
+# ASIGNACIÓN DE ROL A USUARIO
+# La relación real es usuario.rol_id -> rol.id (no existe usuario_rol).
 # =========================================================
 
-class UsuarioRolCrear(BaseModel):
-    usuario_id: int
+class AsignarRolRequest(BaseModel):
     rol_id: int
 
 
@@ -160,6 +162,45 @@ class RolFuncionCrear(BaseModel):
     funcion_id: int
     accion_id: int
     descripcion: str | None = None
+
+
+# =========================================================
+# CU05 - ROL CON PERMISOS
+# =========================================================
+
+class PermisoRolCrear(BaseModel):
+    funcion_id: int
+    accion_id: int
+
+
+class RolCrearConPermisos(BaseModel):
+    nombre: str
+    descripcion: str | None = None
+    estado: bool = True
+    permisos: list[PermisoRolCrear] = []
+
+
+class RolActualizarConPermisos(BaseModel):
+    nombre: str | None = None
+    descripcion: str | None = None
+    estado: bool | None = None
+    permisos: list[PermisoRolCrear] | None = None
+
+
+class PermisoRolRespuesta(BaseModel):
+    rol_id: int
+    funcion_id: int
+    funcion_nombre: str
+    modulo_id: int
+    modulo_nombre: str
+    accion_id: int
+    accion_nombre: str
+
+
+class ModuloConFuncionesRespuesta(BaseModel):
+    id: int
+    nombre: str
+    funciones: list[FuncionRespuesta] = []
 
 
 # =========================================================

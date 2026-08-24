@@ -74,6 +74,12 @@ class Rol(Base):
         default=True
     )
 
+    protegido: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False
+    )
+
     fecha_creacion: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False
@@ -201,8 +207,7 @@ class RolFuncion(Base):
         UniqueConstraint(
             "rol_id",
             "funcion_id",
-            "accion_id",
-            name="uq_rol_funcion_accion"
+            name="uq_rol_funcion",
         ),
     )
 
