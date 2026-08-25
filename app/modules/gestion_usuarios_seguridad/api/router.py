@@ -279,3 +279,6 @@ def obtener_menu(
     db: Session = Depends(get_db),
 ):
     return menu_service.obtener_menu(db)
+
+
+
