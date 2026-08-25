@@ -15,42 +15,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.database.base import Base
 
 
-class Usuario(Base):
-    __tablename__ = "usuario"
-
-    id: Mapped[int] = mapped_column(
-        BigInteger,
-        primary_key=True
-    )
-
-    correo: Mapped[str] = mapped_column(
-        String(150),
-        nullable=False
-    )
-
-    password_hash: Mapped[str] = mapped_column(
-        String(255),
-        nullable=False
-    )
-
-    estado: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=True
-    )
-
-    fecha_creacion: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        nullable=False
-    )
-
-    rol_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("rol.id", ondelete="RESTRICT"),
-        nullable=False
-    )
-
-
 class Rol(Base):
     __tablename__ = "rol"
 

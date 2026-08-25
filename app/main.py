@@ -7,7 +7,7 @@ from app.database.connection import engine
 # --- IMPORTACIÓN DE MODELOS PARA CREACIÓN DE TABLAS ---
 from app.modules.gestion_usuarios_seguridad.models.usuario import Usuario
 # Si Josías agregó un modelo de Rol, debería ir importado aquí abajo:
-# from app.modules.gestion_usuarios_seguridad.models.rol import Rol
+from app.modules.gestion_usuarios_seguridad.models.models import Rol
 
 # --- IMPORTACIÓN DE RUTAS ---
 from app.modules.gestion_usuarios_seguridad.api.router import router as usuarios_seguridad_router

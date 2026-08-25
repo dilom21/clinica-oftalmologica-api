@@ -13,7 +13,7 @@ class Usuario(Base):
     Fecha_creacion = Column(DateTime, default=datetime.utcnow)
     
     # Clave foránea según la relación con la tabla Rol del diagrama
-    Id_Rol = Column(Integer, ForeignKey("roles.ID"), nullable=False)
+    Id_Rol = Column(Integer, ForeignKey("rol.id"), nullable=False)
 
     # Relaciones (opcional si ya tienes el modelo Rol definido)
     # rol = relationship("Rol", back_populates="usuarios")

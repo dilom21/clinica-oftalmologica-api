@@ -2,9 +2,8 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select, func, update, delete
 from sqlalchemy.orm import Session
-
+from app.modules.gestion_usuarios_seguridad.models.usuario import Usuario
 from app.modules.gestion_usuarios_seguridad.models.models import (
-    Usuario,
     Rol,
     Modulo,
     Funcion,
@@ -450,3 +449,56 @@ def listar_bitacora(db: Session):
     )
 
     return db.scalars(stmt).all()
+
+def obtener_usuario_por_correo(db: Session, correo: str):
+    # Busca en la tabla Usuario el primer registro que coincida con el correo
+    return db.query(Usuario).filter(Usuario.Correo == correo).first()
+
+def crear_usuario(db: Session, usuario_data):
+    # Fíjate cómo ahora los nombres de la izquierda empiezan con Mayúscula (igual que tu modelo)
+    # y los de la derecha siguen en minúscula (que es lo que viene de Angular)
+    nuevo_usuario = Usuario(
+        Correo=usuario_data.correo,
+        Password_hash=usuario_data.password_hash,
+        Id_Rol=usuario_data.rol_id,
+        Estado=usuario_data.estado
+        # Borré Fecha_creacion porque tu modelo ya dice "default=datetime.utcnow", 
+        # así que la base de datos lo pondrá solita.
+    )
+    
+    db.add(nuevo_usuario)
+    db.commit()
+    db.refresh(nuevo_usuario)
+    
+    return nuevo_usuario
+
+def obtener_usuarios(db: Session):
+    return db.query(Usuario).all()
+
+def dar_de_baja_usuario(db: Session, usuario_id: int):
+    # Buscamos al usuario por su ID
+    usuario = db.query(Usuario).filter(Usuario.ID == usuario_id).first()
+    
+    if usuario:
+        usuario.Estado = False # Lo desactivamos
+        db.commit()            # Guardamos los cambios
+        db.refresh(usuario)
+        
+    return usuario
+
+def actualizar_usuario(db: Session, usuario_id: int, usuario_data):
+    # Buscamos el usuario original en la base de datos
+    usuario = db.query(Usuario).filter(Usuario.ID == usuario_id).first()
+    
+    if usuario:
+        # Si lo encuentra, sobrescribimos los datos con los que llegan del formulario
+        usuario.Correo = usuario_data.correo
+        usuario.Password_hash = usuario_data.password_hash
+        usuario.Id_Rol = usuario_data.rol_id
+        usuario.Estado = usuario_data.estado
+        
+        # Guardamos los cambios definitivamente
+        db.commit()
+        db.refresh(usuario)
+        
+    return usuario
