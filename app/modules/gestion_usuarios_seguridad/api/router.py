@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
-from app.core.dependencies import obtener_administrador_actual
+from app.core.dependencies import obtener_administrador_actual, requerir_permiso
 
 from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     LoginRequest,
@@ -10,6 +10,8 @@ from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     RecuperarPasswordRequest,
     RestablecerPasswordRequest,
     UsuarioCrear,
+    UsuarioActualizar,
+    UsuarioEstadoActualizar,
     UsuarioRespuesta,
     AsignarRolRequest,
     RolCrearConPermisos,
@@ -90,10 +92,17 @@ def restablecer_password(
     status_code=201,
 )
 def crear_usuario(
+    request: Request,
     datos: UsuarioCrear,
     db: Session = Depends(get_db),
+    administrador=Depends(obtener_administrador_actual),
 ):
-    return usuario_service.crear_usuario(db, datos)
+    return usuario_service.crear_usuario(
+        db,
+        datos,
+        administrador,
+        request.client.host if request.client else None,
+    )
 
 
 @router.get(
@@ -102,6 +111,7 @@ def crear_usuario(
 )
 def listar_usuarios(
     db: Session = Depends(get_db),
+    administrador=Depends(obtener_administrador_actual),
 ):
     return usuario_service.listar_usuarios(db)
 
@@ -113,10 +123,51 @@ def listar_usuarios(
 def obtener_usuario(
     usuario_id: int,
     db: Session = Depends(get_db),
+    administrador=Depends(obtener_administrador_actual),
 ):
     return usuario_service.obtener_usuario(
         db,
         usuario_id,
+    )
+
+
+@router.put(
+    "/usuarios/{usuario_id}",
+    response_model=UsuarioRespuesta,
+)
+def actualizar_usuario(
+    request: Request,
+    usuario_id: int,
+    datos: UsuarioActualizar,
+    db: Session = Depends(get_db),
+    administrador=Depends(obtener_administrador_actual),
+):
+    return usuario_service.actualizar_usuario(
+        db,
+        usuario_id,
+        datos,
+        administrador,
+        request.client.host if request.client else None,
+    )
+
+
+@router.patch(
+    "/usuarios/{usuario_id}/estado",
+    response_model=UsuarioRespuesta,
+)
+def actualizar_estado_usuario(
+    request: Request,
+    usuario_id: int,
+    datos: UsuarioEstadoActualizar,
+    db: Session = Depends(get_db),
+    administrador=Depends(obtener_administrador_actual),
+):
+    return usuario_service.actualizar_estado_usuario(
+        db,
+        usuario_id,
+        datos,
+        administrador,
+        request.client.host if request.client else None,
     )
 
 
@@ -125,24 +176,25 @@ def obtener_usuario(
     response_model=UsuarioRespuesta,
 )
 def asignar_rol(
+    request: Request,
     usuario_id: int,
     datos: AsignarRolRequest,
     db: Session = Depends(get_db),
+    administrador=Depends(obtener_administrador_actual),
 ):
     return usuario_service.asignar_rol_usuario(
         db,
         usuario_id,
         datos.rol_id,
+        administrador,
+        request.client.host if request.client else None,
     )
 
 
 # =========================================================
 # CU05 - ROLES Y PERMISOS
 # =========================================================
-# Nota de seguridad: estos endpoints deben quedar protegidos,
-# una vez exista la dependencia JWT/permisos, exigiendo un usuario
-# autenticado con permiso equivalente a GESTION_ROLES_Y_PERMISOS.
-# TODO(seguridad): agregar Depends(obtener_usuario_actual) + validar permiso.
+permiso_gestion_roles = requerir_permiso("GESTION_ROLES_Y_PERMISOS")
 
 @router.post(
     "/roles",
@@ -152,6 +204,7 @@ def asignar_rol(
 def crear_rol(
     datos: RolCrearConPermisos,
     db: Session = Depends(get_db),
+    _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.crear_rol_con_permisos(db, datos)
 
@@ -162,6 +215,7 @@ def crear_rol(
 )
 def listar_roles(
     db: Session = Depends(get_db),
+    _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.listar_roles(db)
 
@@ -173,6 +227,7 @@ def listar_roles(
 def obtener_rol(
     rol_id: int,
     db: Session = Depends(get_db),
+    _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.obtener_rol(db, rol_id)
 
@@ -184,6 +239,7 @@ def obtener_rol(
 def obtener_permisos_rol(
     rol_id: int,
     db: Session = Depends(get_db),
+    _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.obtener_permisos_rol(db, rol_id)
 
@@ -196,6 +252,7 @@ def actualizar_rol(
     rol_id: int,
     datos: RolActualizarConPermisos,
     db: Session = Depends(get_db),
+    _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.actualizar_rol_con_permisos(db, rol_id, datos)
 
@@ -207,6 +264,7 @@ def actualizar_rol(
 def desactivar_rol(
     rol_id: int,
     db: Session = Depends(get_db),
+    _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.desactivar_rol(db, rol_id)
 
@@ -217,6 +275,7 @@ def desactivar_rol(
 )
 def listar_modulos_funciones(
     db: Session = Depends(get_db),
+    _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.listar_modulos_con_funciones(db)
 
@@ -227,6 +286,7 @@ def listar_modulos_funciones(
 )
 def listar_acciones(
     db: Session = Depends(get_db),
+    _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.listar_acciones(db)
 

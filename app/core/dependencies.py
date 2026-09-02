@@ -1,11 +1,16 @@
 import jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import JWT_ALGORITHM, JWT_SECRET_KEY
 from app.database.session import SessionLocal
-from app.modules.gestion_usuarios_seguridad.models.models import Usuario
+from app.modules.gestion_usuarios_seguridad.models.models import (
+    Funcion,
+    RolFuncion,
+    Usuario,
+)
 
 
 bearer_scheme = HTTPBearer()
@@ -60,3 +65,29 @@ def obtener_administrador_actual(
         )
 
     return usuario
+
+
+def requerir_permiso(nombre_funcion: str):
+    def validar_permiso(
+        usuario: Usuario = Depends(obtener_usuario_actual),
+        db: Session = Depends(get_db),
+    ) -> Usuario:
+        permiso = db.scalar(
+            select(RolFuncion.id)
+            .join(Funcion, Funcion.id == RolFuncion.funcion_id)
+            .where(
+                RolFuncion.rol_id == usuario.rol_id,
+                Funcion.nombre == nombre_funcion,
+                Funcion.estado.is_(True),
+            )
+            .limit(1)
+        )
+        if permiso is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"No tiene permiso para {nombre_funcion}",
+            )
+
+        return usuario
+
+    return validar_permiso

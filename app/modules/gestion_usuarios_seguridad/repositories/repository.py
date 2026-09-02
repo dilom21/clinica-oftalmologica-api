@@ -83,6 +83,39 @@ def actualizar_password_usuario(
     db.execute(stmt)
 
 
+def actualizar_usuario(
+    db: Session,
+    usuario: Usuario,
+    correo: str | None = None,
+    rol_id: int | None = None,
+    password_hash: str | None = None,
+):
+    if correo is not None:
+        usuario.correo = correo
+    if rol_id is not None:
+        usuario.rol_id = rol_id
+    if password_hash is not None:
+        usuario.password_hash = password_hash
+
+    db.flush()
+    db.refresh(usuario)
+
+    return usuario
+
+
+def actualizar_estado_usuario(
+    db: Session,
+    usuario: Usuario,
+    estado: bool,
+):
+    usuario.estado = estado
+
+    db.flush()
+    db.refresh(usuario)
+
+    return usuario
+
+
 # =========================================================
 # ROLES
 # =========================================================
