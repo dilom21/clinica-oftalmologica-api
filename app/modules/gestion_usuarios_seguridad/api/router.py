@@ -194,7 +194,7 @@ def asignar_rol(
 # =========================================================
 # CU05 - ROLES Y PERMISOS
 # =========================================================
-permiso_gestion_roles = requerir_permiso("GESTION_ROLES_Y_PERMISOS")
+permiso_gestion_roles = requerir_permiso("Gestionar roles y permisos")
 
 @router.post(
     "/roles",
