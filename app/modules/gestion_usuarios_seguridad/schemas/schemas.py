@@ -19,6 +19,7 @@ def validar_politica_password(password: str) -> str:
     - al menos una letra mayúscula
     - al menos una letra minúscula
     - al menos un número
+    - al menos un carácter especial
     """
     if len(password) < 8:
         raise ValueError("La contraseña debe tener al menos 8 caracteres")
@@ -32,6 +33,10 @@ def validar_politica_password(password: str) -> str:
         )
     if not re.search(r"[0-9]", password):
         raise ValueError("La contraseña debe incluir al menos un número")
+    if not re.search(r"[^A-Za-z0-9\s]", password):
+        raise ValueError(
+            "La contraseña debe incluir al menos un carácter especial"
+        )
 
     return password
 
@@ -133,6 +138,11 @@ class RecuperarPasswordRequest(BaseModel):
 class RestablecerPasswordRequest(BaseModel):
     token: str
     nueva_password: str
+
+    @field_validator("nueva_password")
+    @classmethod
+    def validar_password(cls, password: str) -> str:
+        return validar_politica_password(password)
 
 
 # =========================================================
