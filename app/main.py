@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.cors import CORSMiddleware
 
 from app.modules.gestion_usuarios_seguridad.api.router import (
     router as seguridad_router,
@@ -20,6 +20,7 @@ allowed_origins = [
     "http://127.0.0.1:4201",
     "http://localhost:4200",
     "http://127.0.0.1:4200",
+    "https://clinica-oftalmologica-web.vercel.app",
 ]
 
 app.add_middleware(

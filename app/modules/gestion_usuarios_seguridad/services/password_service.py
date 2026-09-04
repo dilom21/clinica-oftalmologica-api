@@ -31,13 +31,14 @@ def solicitar_recuperacion_password(
 ) -> dict:
 	usuario = repo.obtener_usuario_por_correo(db, datos.correo)
 
-	# Respuesta uniforme para no filtrar qué correos existen.
-	respuesta_base = {
-		"mensaje": "Si el correo existe, se enviaron instrucciones para recuperar la contraseña"
-	}
-
 	if not usuario or not usuario.estado:
-		return respuesta_base
+		return {
+			"mensaje": "El correo no existe en el sistema y no se han enviado instrucciones para cambiar la contraseña"
+		}
+
+	respuesta_base = {
+		"mensaje": "Se enviaron instrucciones para recuperar la contraseña"
+	}
 
 	token_plano = secrets.token_urlsafe(48)
 	token_hash = _hash_token(token_plano)

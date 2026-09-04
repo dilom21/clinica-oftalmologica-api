@@ -10,7 +10,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import INET
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
 
@@ -50,6 +50,8 @@ class Usuario(Base):
         nullable=False
     )
 
+    rol: Mapped["Rol"] = relationship()
+
 
 class Rol(Base):
     __tablename__ = "rol"
@@ -72,6 +74,12 @@ class Rol(Base):
         Boolean,
         nullable=False,
         default=True
+    )
+
+    protegido: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False
     )
 
     fecha_creacion: Mapped[datetime] = mapped_column(
@@ -201,8 +209,7 @@ class RolFuncion(Base):
         UniqueConstraint(
             "rol_id",
             "funcion_id",
-            "accion_id",
-            name="uq_rol_funcion_accion"
+            name="uq_rol_funcion",
         ),
     )
 
