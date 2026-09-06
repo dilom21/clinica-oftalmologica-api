@@ -367,6 +367,41 @@ def obtener_permisos_rol(
     return db.execute(stmt).mappings().all()
 
 
+def listar_menu_por_rol(
+    db: Session,
+    rol_id: int,
+):
+    """Módulos y funciones permitidos a un rol según `rol_funcion`.
+
+    Solo incluye módulos, funciones y acciones activas. Devuelve filas
+    ordenadas para construir el menú dinámico del usuario autenticado.
+    """
+    stmt = (
+        select(
+            Modulo.id.label("modulo_id"),
+            Modulo.nombre.label("modulo_nombre"),
+            Funcion.id.label("funcion_id"),
+            Funcion.nombre.label("funcion_nombre"),
+            Funcion.descripcion.label("funcion_descripcion"),
+            Accion.id.label("accion_id"),
+            Accion.nombre.label("accion_nombre"),
+        )
+        .select_from(RolFuncion)
+        .join(Funcion, Funcion.id == RolFuncion.funcion_id)
+        .join(Modulo, Modulo.id == Funcion.modulo_id)
+        .join(Accion, Accion.id == RolFuncion.accion_id)
+        .where(
+            RolFuncion.rol_id == rol_id,
+            Modulo.estado.is_(True),
+            Funcion.estado.is_(True),
+            Accion.estado.is_(True),
+        )
+        .order_by(Modulo.id, Funcion.id)
+    )
+
+    return db.execute(stmt).mappings().all()
+
+
 def listar_modulos_con_funciones(db: Session):
     stmt = (
         select(

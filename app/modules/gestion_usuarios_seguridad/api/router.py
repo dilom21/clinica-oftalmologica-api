@@ -2,7 +2,11 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.database.session import get_db
-from app.core.dependencies import obtener_administrador_actual, requerir_permiso
+from app.core.dependencies import (
+    obtener_administrador_actual,
+    obtener_usuario_actual,
+    requerir_permiso,
+)
 
 from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     LoginRequest,
@@ -337,8 +341,9 @@ def consultar_bitacora(
 )
 def obtener_menu(
     db: Session = Depends(get_db),
+    usuario=Depends(obtener_usuario_actual),
 ):
-    return menu_service.obtener_menu(db)
+    return menu_service.obtener_menu(db, rol_id=usuario.rol_id)
 
 
 
