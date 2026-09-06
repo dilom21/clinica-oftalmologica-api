@@ -321,6 +321,8 @@ class BitacoraFiltros(BaseModel):
 class MenuFuncionRespuesta(BaseModel):
     id: int
     nombre: str
+    accion_id: int
+    accion_nombre: str
 
     model_config = ConfigDict(from_attributes=True)
 
