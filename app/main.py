@@ -8,6 +8,9 @@ from app.modules.gestion_usuarios_seguridad.api.router import (
 from app.modules.gestion_pacientes.api.router import (
     router as pacientes_router,
 )
+from app.modules.gestion_historial_clinico.api.router import (
+    router as historial_clinico_router,
+)
 
 
 app = FastAPI(
@@ -34,6 +37,7 @@ app.add_middleware(
 
 app.include_router(seguridad_router)
 app.include_router(pacientes_router)
+app.include_router(historial_clinico_router)
 
 
 @app.get("/")
