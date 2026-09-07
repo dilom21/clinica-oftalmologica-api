@@ -1,12 +1,15 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import get_current_user_id
 from app.database.session import get_db
 
 from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteCrear,
     PacienteActualizar,
     PacienteRespuesta,
+    MiPerfilPacienteActualizar,
+    MiPerfilPacienteRespuesta,
 )
 
 from app.modules.gestion_pacientes.services import service
@@ -45,6 +48,29 @@ def listar_pacientes(
     db: Session = Depends(get_db),
 ):
     return service.listar_pacientes(db)
+
+
+@router.get(
+    "/me",
+    response_model=MiPerfilPacienteRespuesta,
+)
+def obtener_mi_perfil(
+    usuario_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    return service.obtener_mi_perfil(db, usuario_id)
+
+
+@router.put(
+    "/me",
+    response_model=MiPerfilPacienteRespuesta,
+)
+def actualizar_mi_perfil(
+    datos: MiPerfilPacienteActualizar,
+    usuario_id: int = Depends(get_current_user_id),
+    db: Session = Depends(get_db),
+):
+    return service.actualizar_mi_perfil(db, usuario_id, datos)
 
 
 @router.get(

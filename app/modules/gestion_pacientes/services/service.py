@@ -6,7 +6,9 @@ from app.modules.gestion_pacientes.repositories import repository as repo
 from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteCrear,
     PacienteActualizar,
+    MiPerfilPacienteActualizar,
 )
+from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 
 from app.modules.gestion_usuarios_seguridad.repositories.repository import (
     registrar_bitacora,
@@ -60,6 +62,62 @@ def crear_paciente(
 
 def listar_pacientes(db: Session):
     return repo.listar_pacientes(db)
+
+
+def obtener_mi_perfil(db: Session, usuario_id: int):
+    paciente = repo.obtener_paciente_por_usuario_id(db, usuario_id)
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Perfil de paciente no encontrado")
+
+    usuario = db.get(Usuario, usuario_id)
+    return _perfil_con_correo(paciente, usuario.correo if usuario else "")
+
+
+def actualizar_mi_perfil(
+    db: Session,
+    usuario_id: int,
+    datos: MiPerfilPacienteActualizar,
+):
+    paciente = repo.obtener_paciente_por_usuario_id(db, usuario_id)
+    if not paciente:
+        raise HTTPException(status_code=404, detail="Perfil de paciente no encontrado")
+
+    try:
+        cambios = datos.model_dump(exclude_unset=True)
+        for campo, valor in cambios.items():
+            setattr(paciente, campo, valor)
+
+        db.flush()
+        db.refresh(paciente)
+        registrar_bitacora(
+            db=db,
+            usuario_id=usuario_id,
+            accion="ACTUALIZAR_MI_PERFIL",
+            entidad_afectada="paciente",
+            id_registro_afectado=paciente.id,
+            descripcion="El paciente actualizó sus datos autorizados",
+        )
+        db.commit()
+        return obtener_mi_perfil(db, usuario_id)
+    except Exception:
+        db.rollback()
+        raise
+
+
+def _perfil_con_correo(paciente, correo: str):
+    return {
+        "id": paciente.id,
+        "correo": correo,
+        "nombres": paciente.nombres,
+        "apellidos": paciente.apellidos,
+        "ci": paciente.ci,
+        "fecha_nacimiento": paciente.fecha_nacimiento,
+        "sexo": paciente.sexo,
+        "telefono": paciente.telefono,
+        "contacto_emergencia": paciente.contacto_emergencia,
+        "direccion": paciente.direccion,
+        "estado": paciente.estado,
+    }
 
 
 def obtener_paciente(
