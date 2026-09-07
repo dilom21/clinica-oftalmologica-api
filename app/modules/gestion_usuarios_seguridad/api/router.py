@@ -65,16 +65,16 @@ def registrar_usuario(usuario: UsuarioRegistro, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Este correo ya está registrado.")
     
     # 2. Si no existe, procedemos a guardarlo normalmente
-    nuevo_usuario = repository.crear_usuario(db, usuario)
-    return {
-         "mensaje": "¡Usuario guardado permanentemente en la base de datos!",
-        "id_generado": nuevo_usuario.ID,
-        "correo": nuevo_usuario.Correo
-    }
+    nuevo_usuario = repository.crear_usuario(
+        db=db,
+        correo=usuario.correo,
+        password_hash=usuario.password_hash,
+        rol_id=usuario.rol_id
+    )
 
 @router.get("/usuarios")
 def listar_usuarios(db: Session = Depends(get_db)):
-    usuarios = repository.obtener_usuarios(db)
+    usuarios = repository.listar_usuarios(db)
     return usuarios
 
 @router.delete("/usuarios/{usuario_id}")

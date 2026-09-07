@@ -5,7 +5,7 @@ from app.database.base import Base
 from app.database.connection import engine
 
 # --- IMPORTACIÓN DE MODELOS PARA CREACIÓN DE TABLAS ---
-from app.modules.gestion_usuarios_seguridad.models.usuario import Usuario
+from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 # Si Josías agregó un modelo de Rol, debería ir importado aquí abajo:
 from app.modules.gestion_usuarios_seguridad.models.models import Rol
 
@@ -40,9 +40,9 @@ allowed_origins = [
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
-    allow_credentials=False,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_credentials=True,  # ¡Este es el cambio clave para que pase el login!
+    allow_methods=["*"],     # Usar "*" evita bloqueos de métodos
+    allow_headers=["*"],     # Usar "*" permite que Angular envíe cualquier encabezado necesario
 )
 
 # --- CREACIÓN DE TABLAS AL INICIAR ---
