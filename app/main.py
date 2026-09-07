@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.cors import CORSMiddleware
 
 from app.database.base import Base
 from app.database.connection import engine
@@ -18,6 +18,10 @@ from app.modules.gestion_inventario_proveedores.api.router import router as inve
 from app.modules.gestion_pagos.api.router import router as pagos_router
 from app.modules.notificaciones_interaccion_chatbot.api.router import router as notificaciones_chatbot_router
 from app.modules.reportes_panel_administrativo.api.router import router as reportes_panel_router
+from app.modules.gestion_agenda_citas.api.router import (
+    router as agenda_router,
+)
+
 
 app = FastAPI(
     title="API Clínica Oftalmológica",
@@ -30,6 +34,7 @@ allowed_origins = [
     "http://127.0.0.1:4201",
     "http://localhost:4200",
     "http://127.0.0.1:4200",
+    "https://clinica-oftalmologica-web.vercel.app",
 ]
 
 app.add_middleware(
@@ -48,12 +53,16 @@ def startup_event():
 # --- INCLUSIÓN DE RUTAS EN LA API ---
 app.include_router(usuarios_seguridad_router)
 app.include_router(pacientes_router)
+<<<<<<< HEAD
 app.include_router(agenda_citas_router)
 app.include_router(historial_clinico_router)
 app.include_router(inventario_proveedores_router)
 app.include_router(pagos_router)
 app.include_router(notificaciones_chatbot_router)
 app.include_router(reportes_panel_router)
+=======
+app.include_router(agenda_router)
+>>>>>>> 60cf664107ac716042a130922fa83e5d85fa683e
 
 # --- RUTA PRINCIPAL ---
 @app.get("/")

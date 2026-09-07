@@ -1,6 +1,47 @@
+import re
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
+
+
+# =========================================================
+# VALIDACIONES REUTILIZABLES
+# =========================================================
+
+_EMAIL_REGEX = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def validar_politica_password(password: str) -> str:
+    """Valida la política de contraseñas del CU-04.
+
+    Requisitos:
+    - mínimo 8 caracteres
+    - al menos una letra mayúscula
+    - al menos una letra minúscula
+    - al menos un número
+    """
+    if len(password) < 8:
+        raise ValueError("La contraseña debe tener al menos 8 caracteres")
+    if not re.search(r"[A-Z]", password):
+        raise ValueError(
+            "La contraseña debe incluir al menos una letra mayúscula"
+        )
+    if not re.search(r"[a-z]", password):
+        raise ValueError(
+            "La contraseña debe incluir al menos una letra minúscula"
+        )
+    if not re.search(r"[0-9]", password):
+        raise ValueError("La contraseña debe incluir al menos un número")
+
+    return password
+
+
+def normalizar_correo(correo: str) -> str:
+    correo_normalizado = correo.strip().lower()
+    if not _EMAIL_REGEX.match(correo_normalizado):
+        raise ValueError("El correo electrónico no es válido")
+
+    return correo_normalizado
 
 
 # =========================================================
@@ -11,13 +52,47 @@ class UsuarioCrear(BaseModel):
     correo: str
     password: str
     rol_id: int
-    estado: bool = True
+
+    @field_validator("correo")
+    @classmethod
+    def validar_correo(cls, correo: str) -> str:
+        return normalizar_correo(correo)
+
+    @field_validator("password")
+    @classmethod
+    def validar_password(cls, password: str) -> str:
+        return validar_politica_password(password)
 
 
 class UsuarioActualizar(BaseModel):
     correo: str | None = None
     password: str | None = None
-    estado: bool | None = None
+    rol_id: int | None = None
+
+    @field_validator("correo")
+    @classmethod
+    def validar_correo(cls, correo: str | None) -> str | None:
+        if correo is None:
+            return None
+        return normalizar_correo(correo)
+
+    @field_validator("password")
+    @classmethod
+    def validar_password(cls, password: str | None) -> str | None:
+        if password is None:
+            return None
+        return validar_politica_password(password)
+
+
+class UsuarioEstadoActualizar(BaseModel):
+    estado: bool
+
+
+class RolUsuarioRespuesta(BaseModel):
+    id: int
+    nombre: str
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UsuarioRespuesta(BaseModel):
@@ -25,6 +100,8 @@ class UsuarioRespuesta(BaseModel):
     correo: str
     estado: bool
     fecha_creacion: datetime
+    rol_id: int
+    rol: RolUsuarioRespuesta
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -220,6 +297,23 @@ class BitacoraRespuesta(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+
+class BitacoraPaginadaRespuesta(BaseModel):
+    items: list[BitacoraRespuesta]
+    total: int
+    page: int
+    page_size: int
+    total_pages: int
+
+
+class BitacoraFiltros(BaseModel):
+    usuario_id: int | None = None
+    accion: str | None = None
+    entidad_afectada: str | None = None
+    id_registro_afectado: int | None = None
+    desde: datetime | None = None
+    hasta: datetime | None = None
+
 # =========================================================
 # MENÚ DINÁMICO
 # =========================================================
@@ -227,6 +321,8 @@ class BitacoraRespuesta(BaseModel):
 class MenuFuncionRespuesta(BaseModel):
     id: int
     nombre: str
+    accion_id: int
+    accion_nombre: str
 
     model_config = ConfigDict(from_attributes=True)
 

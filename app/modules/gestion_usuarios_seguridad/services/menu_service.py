@@ -7,28 +7,37 @@ from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
 )
 
 
-def obtener_menu(db: Session) -> list[MenuModuloRespuesta]:
-    modulos = repo.listar_modulos_activos(db)
-    funciones = repo.listar_funciones_activas(db)
+def obtener_menu(
+    db: Session,
+    rol_id: int,
+) -> list[MenuModuloRespuesta]:
+    """Menú dinámico del rol a partir de `rol_funcion`.
 
-    menu: list[MenuModuloRespuesta] = []
+    Devuelve únicamente los módulos con al menos una función asignada al
+    rol y cada función con la acción otorgada en `rol_funcion`/`accion`.
+    Se ignoran módulos, funciones y acciones inactivas.
+    """
+    filas = repo.listar_menu_por_rol(db, rol_id)
 
-    for modulo in modulos:
-        funciones_modulo = [
-            MenuFuncionRespuesta(
-                id=funcion.id,
-                nombre=funcion.nombre,
+    modulos: dict[int, MenuModuloRespuesta] = {}
+
+    for fila in filas:
+        modulo_id = fila["modulo_id"]
+
+        if modulo_id not in modulos:
+            modulos[modulo_id] = MenuModuloRespuesta(
+                id=modulo_id,
+                nombre=fila["modulo_nombre"],
+                funciones=[],
             )
-            for funcion in funciones
-            if funcion.modulo_id == modulo.id
-        ]
 
-        menu.append(
-            MenuModuloRespuesta(
-                id=modulo.id,
-                nombre=modulo.nombre,
-                funciones=funciones_modulo,
+        modulos[modulo_id].funciones.append(
+            MenuFuncionRespuesta(
+                id=fila["funcion_id"],
+                nombre=fila["funcion_nombre"],
+                accion_id=fila["accion_id"],
+                accion_nombre=fila["accion_nombre"],
             )
         )
 
-    return menu
+    return list(modulos.values())

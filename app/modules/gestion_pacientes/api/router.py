@@ -7,6 +7,9 @@ from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteCrear,
     PacienteActualizar,
     PacienteRespuesta,
+    AntecedenteClinicoCrear,
+    AntecedenteClinicoActualizar,
+    AntecedenteClinicoRespuesta,
 )
 
 from app.modules.gestion_pacientes.services import service
@@ -88,4 +91,52 @@ def eliminar_paciente(
     return service.eliminar_paciente(
         db,
         paciente_id,
+    )
+
+# =========================================================
+# CU14 - GESTIONAR ANTECEDENTES CLÍNICOS
+# =========================================================
+
+@router.get(
+    "/historial/{historial_clinico_id}/antecedentes",
+    response_model=list[AntecedenteClinicoRespuesta],
+)
+def listar_antecedentes(
+    historial_clinico_id: int,
+    db: Session = Depends(get_db),
+):
+    return service.listar_antecedentes_por_historial(
+        db,
+        historial_clinico_id,
+    )
+
+
+@router.post(
+    "/antecedentes",
+    response_model=AntecedenteClinicoRespuesta,
+    status_code=201,
+)
+def crear_antecedente(
+    datos: AntecedenteClinicoCrear,
+    db: Session = Depends(get_db),
+):
+    return service.crear_antecedente(
+        db,
+        datos,
+    )
+
+
+@router.put(
+    "/antecedentes/{antecedente_id}",
+    response_model=AntecedenteClinicoRespuesta,
+)
+def actualizar_antecedente(
+    antecedente_id: int,
+    datos: AntecedenteClinicoActualizar,
+    db: Session = Depends(get_db),
+):
+    return service.actualizar_antecedente(
+        db,
+        antecedente_id,
+        datos,
     )

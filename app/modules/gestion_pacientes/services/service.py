@@ -6,6 +6,8 @@ from app.modules.gestion_pacientes.repositories import repository as repo
 from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteCrear,
     PacienteActualizar,
+    AntecedenteClinicoCrear,
+    AntecedenteClinicoActualizar,
 )
 
 from app.modules.gestion_usuarios_seguridad.repositories.repository import (
@@ -147,3 +149,86 @@ def eliminar_paciente(
     except Exception:
         db.rollback()
         raise
+# =========================================================
+# CU14 - GESTIONAR ANTECEDENTES CLÍNICOS
+# =========================================================
+
+def listar_antecedentes_por_historial(
+    db: Session,
+    historial_clinico_id: int,
+):
+    return repo.listar_antecedentes_por_historial(
+        db,
+        historial_clinico_id,
+    )
+
+
+def crear_antecedente(
+    db: Session,
+    datos: AntecedenteClinicoCrear,
+):
+    try:
+        antecedente = repo.crear_antecedente(
+            db,
+            datos,
+        )
+
+        registrar_bitacora(
+            db=db,
+            usuario_id=None,
+            accion="CREAR_ANTECEDENTE",
+            entidad_afectada="antecedente_clinico",
+            id_registro_afectado=antecedente.id,
+            descripcion="Antecedente clínico registrado",
+        )
+
+        db.commit()
+        db.refresh(antecedente)
+
+        return antecedente
+
+    except Exception:
+        db.rollback()
+        raise
+
+
+def actualizar_antecedente(
+    db: Session,
+    antecedente_id: int,
+    datos: AntecedenteClinicoActualizar,
+):
+    antecedente = repo.obtener_antecedente_por_id(
+        db,
+        antecedente_id,
+    )
+
+    if not antecedente:
+        raise HTTPException(
+            status_code=404,
+            detail="Antecedente clínico no encontrado",
+        )
+
+    try:
+        antecedente = repo.actualizar_antecedente(
+            db,
+            antecedente,
+            datos,
+        )
+
+        registrar_bitacora(
+            db=db,
+            usuario_id=None,
+            accion="ACTUALIZAR_ANTECEDENTE",
+            entidad_afectada="antecedente_clinico",
+            id_registro_afectado=antecedente.id,
+            descripcion="Antecedente clínico actualizado",
+        )
+
+        db.commit()
+        db.refresh(antecedente)
+
+        return antecedente
+
+    except Exception:
+        db.rollback()
+        raise   

@@ -82,6 +82,39 @@ def actualizar_password_usuario(
     db.execute(stmt)
 
 
+def actualizar_usuario(
+    db: Session,
+    usuario: Usuario,
+    correo: str | None = None,
+    rol_id: int | None = None,
+    password_hash: str | None = None,
+):
+    if correo is not None:
+        usuario.correo = correo
+    if rol_id is not None:
+        usuario.rol_id = rol_id
+    if password_hash is not None:
+        usuario.password_hash = password_hash
+
+    db.flush()
+    db.refresh(usuario)
+
+    return usuario
+
+
+def actualizar_estado_usuario(
+    db: Session,
+    usuario: Usuario,
+    estado: bool,
+):
+    usuario.estado = estado
+
+    db.flush()
+    db.refresh(usuario)
+
+    return usuario
+
+
 # =========================================================
 # ROLES
 # =========================================================
@@ -333,6 +366,41 @@ def obtener_permisos_rol(
     return db.execute(stmt).mappings().all()
 
 
+def listar_menu_por_rol(
+    db: Session,
+    rol_id: int,
+):
+    """Módulos y funciones permitidos a un rol según `rol_funcion`.
+
+    Solo incluye módulos, funciones y acciones activas. Devuelve filas
+    ordenadas para construir el menú dinámico del usuario autenticado.
+    """
+    stmt = (
+        select(
+            Modulo.id.label("modulo_id"),
+            Modulo.nombre.label("modulo_nombre"),
+            Funcion.id.label("funcion_id"),
+            Funcion.nombre.label("funcion_nombre"),
+            Funcion.descripcion.label("funcion_descripcion"),
+            Accion.id.label("accion_id"),
+            Accion.nombre.label("accion_nombre"),
+        )
+        .select_from(RolFuncion)
+        .join(Funcion, Funcion.id == RolFuncion.funcion_id)
+        .join(Modulo, Modulo.id == Funcion.modulo_id)
+        .join(Accion, Accion.id == RolFuncion.accion_id)
+        .where(
+            RolFuncion.rol_id == rol_id,
+            Modulo.estado.is_(True),
+            Funcion.estado.is_(True),
+            Accion.estado.is_(True),
+        )
+        .order_by(Modulo.id, Funcion.id)
+    )
+
+    return db.execute(stmt).mappings().all()
+
+
 def listar_modulos_con_funciones(db: Session):
     stmt = (
         select(
@@ -443,62 +511,68 @@ def registrar_bitacora(
     return registro
 
 
-def listar_bitacora(db: Session):
-    stmt = select(Bitacora).order_by(
-        Bitacora.fecha_hora.desc()
+def listar_bitacora(
+    db: Session,
+    usuario_id: int | None = None,
+    accion: str | None = None,
+    entidad_afectada: str | None = None,
+    id_registro_afectado: int | None = None,
+    desde: datetime | None = None,
+    hasta: datetime | None = None,
+    offset: int | None = None,
+    limit: int | None = None,
+):
+    filtros = []
+    if usuario_id is not None:
+        filtros.append(Bitacora.usuario_id == usuario_id)
+    if accion is not None:
+        filtros.append(func.lower(Bitacora.accion) == accion.lower())
+    if entidad_afectada is not None:
+        filtros.append(
+            func.lower(Bitacora.entidad_afectada) == entidad_afectada.lower()
+        )
+    if id_registro_afectado is not None:
+        filtros.append(Bitacora.id_registro_afectado == id_registro_afectado)
+    if desde is not None:
+        filtros.append(Bitacora.fecha_hora >= desde)
+    if hasta is not None:
+        filtros.append(Bitacora.fecha_hora <= hasta)
+
+    stmt = select(Bitacora).where(*filtros).order_by(
+        Bitacora.fecha_hora.desc(),
+        Bitacora.id.desc(),
     )
+    if offset is not None:
+        stmt = stmt.offset(offset)
+    if limit is not None:
+        stmt = stmt.limit(limit)
 
     return db.scalars(stmt).all()
 
-def obtener_usuario_por_correo(db: Session, correo: str):
-    # Busca en la tabla Usuario el primer registro que coincida con el correo
-    return db.query(Usuario).filter(Usuario.Correo == correo).first()
 
-def crear_usuario(db: Session, usuario_data):
-    # Fíjate cómo ahora los nombres de la izquierda empiezan con Mayúscula (igual que tu modelo)
-    # y los de la derecha siguen en minúscula (que es lo que viene de Angular)
-    nuevo_usuario = Usuario(
-        Correo=usuario_data.correo,
-        Password_hash=usuario_data.password_hash,
-        Id_Rol=usuario_data.rol_id,
-        Estado=usuario_data.estado
-        # Borré Fecha_creacion porque tu modelo ya dice "default=datetime.utcnow", 
-        # así que la base de datos lo pondrá solita.
-    )
-    
-    db.add(nuevo_usuario)
-    db.commit()
-    db.refresh(nuevo_usuario)
-    
-    return nuevo_usuario
+def contar_bitacora(
+    db: Session,
+    usuario_id: int | None = None,
+    accion: str | None = None,
+    entidad_afectada: str | None = None,
+    id_registro_afectado: int | None = None,
+    desde: datetime | None = None,
+    hasta: datetime | None = None,
+):
+    filtros = []
+    if usuario_id is not None:
+        filtros.append(Bitacora.usuario_id == usuario_id)
+    if accion is not None:
+        filtros.append(func.lower(Bitacora.accion) == accion.lower())
+    if entidad_afectada is not None:
+        filtros.append(
+            func.lower(Bitacora.entidad_afectada) == entidad_afectada.lower()
+        )
+    if id_registro_afectado is not None:
+        filtros.append(Bitacora.id_registro_afectado == id_registro_afectado)
+    if desde is not None:
+        filtros.append(Bitacora.fecha_hora >= desde)
+    if hasta is not None:
+        filtros.append(Bitacora.fecha_hora <= hasta)
 
-def obtener_usuarios(db: Session):
-    return db.query(Usuario).all()
-
-def dar_de_baja_usuario(db: Session, usuario_id: int):
-    # Buscamos al usuario por su ID
-    usuario = db.query(Usuario).filter(Usuario.ID == usuario_id).first()
-    
-    if usuario:
-        usuario.Estado = False # Lo desactivamos
-        db.commit()            # Guardamos los cambios
-        db.refresh(usuario)
-        
-    return usuario
-
-def actualizar_usuario(db: Session, usuario_id: int, usuario_data):
-    # Buscamos el usuario original en la base de datos
-    usuario = db.query(Usuario).filter(Usuario.ID == usuario_id).first()
-    
-    if usuario:
-        # Si lo encuentra, sobrescribimos los datos con los que llegan del formulario
-        usuario.Correo = usuario_data.correo
-        usuario.Password_hash = usuario_data.password_hash
-        usuario.Id_Rol = usuario_data.rol_id
-        usuario.Estado = usuario_data.estado
-        
-        # Guardamos los cambios definitivamente
-        db.commit()
-        db.refresh(usuario)
-        
-    return usuario
+    return db.scalar(select(func.count()).select_from(Bitacora).where(*filtros)) or 0

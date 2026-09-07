@@ -82,3 +82,78 @@ def eliminar_logicamente_paciente(
     db.refresh(paciente)
 
     return paciente
+
+from app.modules.gestion_pacientes.models.models import (
+    HistorialClinico,
+    AntecedenteClinico,
+)
+from app.modules.gestion_pacientes.schemas.schemas import (
+    AntecedenteClinicoCrear,
+    AntecedenteClinicoActualizar,
+)
+
+
+def obtener_historial_por_paciente_id(
+    db: Session,
+    paciente_id: int,
+):
+    stmt = select(HistorialClinico).where(
+        HistorialClinico.paciente_id == paciente_id
+    )
+    return db.scalar(stmt)
+
+
+def listar_antecedentes_por_historial(
+    db: Session,
+    historial_clinico_id: int,
+):
+    stmt = select(AntecedenteClinico).where(
+        AntecedenteClinico.historial_clinico_id == historial_clinico_id,
+        AntecedenteClinico.estado == True
+    ).order_by(AntecedenteClinico.fecha_registro.desc())
+
+    return db.scalars(stmt).all()
+
+
+def obtener_antecedente_por_id(
+    db: Session,
+    antecedente_id: int,
+):
+    return db.get(AntecedenteClinico, antecedente_id)
+
+
+def crear_antecedente(
+    db: Session,
+    datos: AntecedenteClinicoCrear,
+):
+    antecedente = AntecedenteClinico(
+        **datos.model_dump(),
+        fecha_registro=datetime.now(timezone.utc),
+    )
+    if antecedente.tipo:
+        antecedente.tipo = antecedente.tipo.upper()
+
+    db.add(antecedente)
+    db.flush()
+    db.refresh(antecedente)
+
+    return antecedente
+
+
+def actualizar_antecedente(
+    db: Session,
+    antecedente: AntecedenteClinico,
+    datos: AntecedenteClinicoActualizar,
+):
+    cambios = datos.model_dump(exclude_unset=True)
+
+    if "tipo" in cambios and cambios["tipo"] is not None:
+        cambios["tipo"] = cambios["tipo"].upper()
+
+    for campo, valor in cambios.items():
+        setattr(antecedente, campo, valor)
+
+    db.flush()
+    db.refresh(antecedente)
+
+    return antecedente
