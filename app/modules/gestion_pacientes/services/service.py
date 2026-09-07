@@ -1,11 +1,13 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import nombre_rol_actual
 from app.modules.gestion_pacientes.repositories import repository as repo
 
 from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteCrear,
     PacienteActualizar,
+    MiPerfilPacienteResponse,
 )
 
 from app.modules.gestion_usuarios_seguridad.repositories.repository import (
@@ -147,3 +149,54 @@ def eliminar_paciente(
     except Exception:
         db.rollback()
         raise
+
+
+# =========================================================
+# CU08 - MI PERFIL (APP MÓVIL DE PACIENTES)
+# =========================================================
+
+def obtener_mi_perfil(
+    db: Session,
+    usuario,
+) -> MiPerfilPacienteResponse:
+    """Devuelve el perfil del paciente autenticado.
+
+    El paciente se resuelve exclusivamente a partir del usuario del JWT
+    (usuario.id == paciente.usuario_id); nunca recibe paciente_id del cliente.
+    """
+    if nombre_rol_actual(usuario) != "paciente":
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso disponible únicamente para pacientes.",
+        )
+
+    paciente = repo.obtener_paciente_por_usuario_id(
+        db,
+        usuario.id,
+    )
+
+    if not paciente:
+        raise HTTPException(
+            status_code=404,
+            detail="No se encontró el perfil del paciente asociado a esta cuenta.",
+        )
+
+    if not paciente.estado:
+        raise HTTPException(
+            status_code=403,
+            detail="El paciente está inactivo.",
+        )
+
+    return MiPerfilPacienteResponse(
+        id=paciente.id,
+        correo=usuario.correo,
+        nombres=paciente.nombres,
+        apellidos=paciente.apellidos,
+        ci=paciente.ci,
+        fecha_nacimiento=paciente.fecha_nacimiento,
+        sexo=paciente.sexo,
+        telefono=paciente.telefono,
+        contacto_emergencia=paciente.contacto_emergencia,
+        direccion=paciente.direccion,
+        estado=paciente.estado,
+    )

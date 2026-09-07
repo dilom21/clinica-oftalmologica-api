@@ -1,0 +1,30 @@
+backuppp bas
+BD_Motos.sql
+Cisco Packet Tracer Student.lnk
+Cisco Packet Tracer.lnk
+Clinic-Mobile
+Clinica-Client
+Clinica-Server
+Commerce-client
+Commerce-mobile
+Commerce-server
+estructura_bd.sql
+FastApiCRUD
+FastApiDb
+Microsoft Edge.lnk
+Motos
+Postman.lnk
+pruebagpt
+Pruebas vs
+Roblox Player.lnk
+Roblox Studio.lnk
+Segundo_Parcial
+SQL Server Management Studio 22.lnk
+Visual Studio Code.lnk
+Visual Studio.lnk
+VRChat.url
+Zoom Workplace.lnk
+=== 
+c:\Users\Harold\Desktop\Clinic-Mobile\clinica-oftalmologica-mobile\pubspec.yaml
+=== 
+No se encuentra el archivo

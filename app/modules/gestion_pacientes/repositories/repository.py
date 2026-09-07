@@ -29,6 +29,17 @@ def obtener_paciente_por_ci(
     return db.scalar(stmt)
 
 
+def obtener_paciente_por_usuario_id(
+    db: Session,
+    usuario_id: int,
+):
+    stmt = select(Paciente).where(
+        Paciente.usuario_id == usuario_id
+    )
+
+    return db.scalar(stmt)
+
+
 def listar_pacientes(db: Session):
     stmt = select(Paciente).order_by(
         Paciente.apellidos,
@@ -77,6 +88,19 @@ def eliminar_logicamente_paciente(
     paciente: Paciente,
 ):
     paciente.estado = False
+
+    db.flush()
+    db.refresh(paciente)
+
+    return paciente
+
+
+def asignar_usuario_a_paciente(
+    db: Session,
+    paciente: Paciente,
+    usuario_id: int,
+):
+    paciente.usuario_id = usuario_id
 
     db.flush()
     db.refresh(paciente)

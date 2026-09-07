@@ -13,6 +13,8 @@ from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     LoginResponse,
     RecuperarPasswordRequest,
     RestablecerPasswordRequest,
+    MensajeRespuesta,
+    RegistroPacienteRequest,
     UsuarioCrear,
     UsuarioActualizar,
     UsuarioEstadoActualizar,
@@ -35,6 +37,7 @@ from app.modules.gestion_usuarios_seguridad.services import (
     bitacora_service,
     menu_service,
     password_service,
+    registro_paciente_service,
     rol_service,
     usuario_service,
 )
@@ -84,6 +87,43 @@ def restablecer_password(
     db: Session = Depends(get_db),
 ):
     return password_service.restablecer_password(db, datos)
+
+
+# =========================================================
+# REGISTRO Y LOGIN MÓVIL (EXCLUSIVO PACIENTES)
+# =========================================================
+
+@router.post(
+    "/registro-paciente",
+    response_model=MensajeRespuesta,
+    status_code=201,
+)
+def registrar_cuenta_paciente(
+    request: Request,
+    datos: RegistroPacienteRequest,
+    db: Session = Depends(get_db),
+):
+    return registro_paciente_service.registrar_cuenta_paciente(
+        db,
+        datos,
+        request.client.host if request.client else None,
+    )
+
+
+@router.post(
+    "/login/paciente",
+    response_model=LoginResponse,
+)
+def iniciar_sesion_paciente(
+    request: Request,
+    datos: LoginRequest,
+    db: Session = Depends(get_db),
+):
+    return auth_service.iniciar_sesion_paciente(
+        db,
+        datos,
+        request.client.host if request.client else None,
+    )
 
 
 # =========================================================

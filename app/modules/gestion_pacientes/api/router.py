@@ -1,12 +1,14 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import obtener_usuario_actual
 from app.database.session import get_db
 
 from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteCrear,
     PacienteActualizar,
     PacienteRespuesta,
+    MiPerfilPacienteResponse,
 )
 
 from app.modules.gestion_pacientes.services import service
@@ -45,6 +47,26 @@ def listar_pacientes(
     db: Session = Depends(get_db),
 ):
     return service.listar_pacientes(db)
+
+
+# =========================================================
+# CU08 - MI PERFIL (APP MÓVIL DE PACIENTES)
+# La ruta estática /me se declara ANTES de /{paciente_id}
+# para evitar que "me" sea capturado como paciente_id.
+# =========================================================
+
+@router.get(
+    "/me",
+    response_model=MiPerfilPacienteResponse,
+)
+def obtener_mi_perfil(
+    usuario=Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    return service.obtener_mi_perfil(
+        db,
+        usuario,
+    )
 
 
 @router.get(

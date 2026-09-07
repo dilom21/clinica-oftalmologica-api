@@ -59,3 +59,23 @@ class PacienteRespuesta(BaseModel):
     estado: bool
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class MiPerfilPacienteResponse(BaseModel):
+    """Perfil del paciente autenticado (CU08 - app móvil)."""
+
+    id: int
+    correo: str
+
+    nombres: str
+    apellidos: str
+
+    ci: str | None
+    fecha_nacimiento: date | None
+    sexo: str | None
+
+    telefono: str | None
+    contacto_emergencia: str | None
+
+    direccion: str | None
+    estado: bool
