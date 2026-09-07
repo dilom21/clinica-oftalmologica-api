@@ -53,16 +53,13 @@ def startup_event():
 # --- INCLUSIÓN DE RUTAS EN LA API ---
 app.include_router(usuarios_seguridad_router)
 app.include_router(pacientes_router)
-<<<<<<< HEAD
 app.include_router(agenda_citas_router)
 app.include_router(historial_clinico_router)
 app.include_router(inventario_proveedores_router)
 app.include_router(pagos_router)
 app.include_router(notificaciones_chatbot_router)
 app.include_router(reportes_panel_router)
-=======
 app.include_router(agenda_router)
->>>>>>> 60cf664107ac716042a130922fa83e5d85fa683e
 
 # --- RUTA PRINCIPAL ---
 @app.get("/")

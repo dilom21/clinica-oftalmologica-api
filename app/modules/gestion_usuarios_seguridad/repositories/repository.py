@@ -24,7 +24,7 @@ def obtener_usuario_por_id(db: Session, usuario_id: int):
 
 def obtener_usuario_por_correo(db: Session, correo: str):
     stmt = select(Usuario).where(
-        func.lower(Usuario.correo) == correo.lower()
+        func.lower(Usuario.Correo) == correo.lower()
     )
     return db.scalar(stmt)
 

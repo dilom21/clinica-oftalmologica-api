@@ -1,18 +1,26 @@
-<<<<<<< HEAD
-from fastapi import APIRouter, Depends, HTTPException
-=======
-from fastapi import APIRouter, Depends, Query, Request
->>>>>>> 60cf664107ac716042a130922fa83e5d85fa683e
+from fastapi import APIRouter, Depends, Query, Request, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-# Importamos la conexión a la base de datos y el repositorio
+# Importamos la conexión a la base de datos y el repositorio principal
 from app.database.session import get_db
 from app.core.dependencies import (
     obtener_administrador_actual,
     obtener_usuario_actual,
     requerir_permiso,
 )
+
+# === IMPORTACIONES DE SERVICIOS Y REPOSITORIOS QUE FALTABAN ===
+from app.modules.gestion_usuarios_seguridad.services import (
+    auth_service,
+    password_service,
+    usuario_service,
+    rol_service,
+    bitacora_service,
+    menu_service
+)
+from app.modules.gestion_usuarios_seguridad.repositories import repository
+# ==============================================================
 
 from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     LoginRequest,
@@ -36,7 +44,7 @@ from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     MenuModuloRespuesta,
 )
 
-# El "molde" de los datos que envía Angular
+router = APIRouter(prefix="/seguridad", tags=["Seguridad"]) # El "molde" de los datos que envía Angular
 class UsuarioRegistro(BaseModel):
     correo: str
     password_hash: str
@@ -78,21 +86,6 @@ def eliminar_usuario(usuario_id: int, db: Session = Depends(get_db)):
         
     return {"mensaje": f"El usuario {usuario_id} fue dado de baja exitosamente."}
 
-<<<<<<< HEAD
-@router.put("/usuarios/{usuario_id}")
-def actualizar_usuario_endpoint(usuario_id: int, usuario: UsuarioRegistro, db: Session = Depends(get_db)):
-    
-    # Mandamos al repositorio a actualizar los datos
-    usuario_actualizado = repository.actualizar_usuario(db, usuario_id, usuario)
-    
-    if not usuario_actualizado:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        
-    return {
-        "mensaje": "¡Usuario actualizado exitosamente!",
-        "id_generado": usuario_actualizado.ID
-    }
-=======
 @router.post(
     "/login",
     response_model=LoginResponse,
@@ -390,4 +383,3 @@ def obtener_menu(
 
 
 
->>>>>>> 60cf664107ac716042a130922fa83e5d85fa683e
