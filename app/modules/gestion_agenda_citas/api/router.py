@@ -15,6 +15,10 @@ from app.modules.gestion_agenda_citas.schemas.schemas import (
     BloqueoHorarioActualizar,
     BloqueoHorarioCrear,
     BloqueoHorarioRespuesta,
+    CitaCreate,
+    CitaEstadoUpdate,
+    CitaResponse,
+    CitaUpdate,
     ConfiguracionDisponibilidadRespuesta,
     DisponibilidadRespuesta,
     EstadoDisponibilidadActualizar,
@@ -25,6 +29,7 @@ from app.modules.gestion_agenda_citas.schemas.schemas import (
 )
 
 from app.modules.gestion_agenda_citas.services import (
+    citas,
     configuracion,
     service,
 )
@@ -257,6 +262,113 @@ def cambiar_estado_bloqueo_horario(
         db,
         oftalmologo_id,
         bloqueo_id,
+        datos.estado,
+        usuario,
+    )
+
+
+# =========================================================
+# CU10 - GESTIONAR CITAS MÉDICAS
+# Función: "Gestionar citas médicas"
+# =========================================================
+
+NOMBRE_FUNCION_GESTIONAR_CITAS = "Gestionar citas médicas"
+
+permiso_consultar_citas = requerir_permiso(
+    NOMBRE_FUNCION_GESTIONAR_CITAS,
+    ACCION_LECTURA,
+)
+
+permiso_escribir_citas = requerir_permiso(
+    NOMBRE_FUNCION_GESTIONAR_CITAS,
+    ACCION_ESCRITURA,
+)
+
+
+@router.post(
+    "/citas",
+    response_model=CitaResponse,
+    status_code=201,
+)
+def registrar_cita(
+    datos: CitaCreate,
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso_escribir_citas),
+):
+    return citas.registrar_cita(
+        db,
+        datos,
+        usuario,
+    )
+
+
+@router.get(
+    "/citas",
+    response_model=list[CitaResponse],
+)
+def consultar_citas(
+    fecha: date | None = None,
+    paciente_id: int | None = None,
+    oftalmologo_id: int | None = None,
+    estado: str | None = None,
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_consultar_citas),
+):
+    return citas.listar_citas(
+        db,
+        fecha=fecha,
+        paciente_id=paciente_id,
+        oftalmologo_id=oftalmologo_id,
+        estado=estado,
+    )
+
+
+@router.get(
+    "/citas/{cita_id}",
+    response_model=CitaResponse,
+)
+def obtener_cita(
+    cita_id: int,
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_consultar_citas),
+):
+    return citas.obtener_cita(
+        db,
+        cita_id,
+    )
+
+
+@router.put(
+    "/citas/{cita_id}",
+    response_model=CitaResponse,
+)
+def reprogramar_cita(
+    cita_id: int,
+    datos: CitaUpdate,
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso_escribir_citas),
+):
+    return citas.reprogramar_cita(
+        db,
+        cita_id,
+        datos,
+        usuario,
+    )
+
+
+@router.patch(
+    "/citas/{cita_id}/estado",
+    response_model=CitaResponse,
+)
+def cambiar_estado_cita(
+    cita_id: int,
+    datos: CitaEstadoUpdate,
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso_escribir_citas),
+):
+    return citas.cambiar_estado_cita(
+        db,
+        cita_id,
         datos.estado,
         usuario,
     )

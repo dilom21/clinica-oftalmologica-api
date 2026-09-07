@@ -323,3 +323,181 @@ def cambiar_estado_bloqueo_horario(
     db.refresh(bloqueo)
 
     return bloqueo
+
+# =========================================================
+# CU10 - GESTIONAR CITAS MÉDICAS
+# =========================================================
+
+
+def _se_solapan(inicio_a, fin_a, inicio_b, fin_b) -> bool:
+    return inicio_a < fin_b and inicio_b < fin_a
+
+
+def crear_cita(
+    db: Session,
+    *,
+    paciente_id: int,
+    oftalmologo_id: int,
+    fecha: date,
+    hora_inicio,
+    hora_fin,
+    motivo: str | None = None,
+    observaciones: str | None = None,
+    estado: str,
+    creado_por_usuario_id: int | None = None,
+) -> Cita:
+    ahora = datetime.now(timezone.utc)
+    cita = Cita(
+        paciente_id=paciente_id,
+        oftalmologo_id=oftalmologo_id,
+        fecha=fecha,
+        hora_inicio=hora_inicio,
+        hora_fin=hora_fin,
+        motivo=motivo,
+        observaciones=observaciones,
+        estado=estado,
+        creado_por_usuario_id=creado_por_usuario_id,
+        fecha_registro=ahora,
+        fecha_actualizacion=ahora,
+    )
+
+    db.add(cita)
+    db.flush()
+    db.refresh(cita)
+
+    return cita
+
+
+def listar_citas(
+    db: Session,
+    *,
+    fecha: date | None = None,
+    paciente_id: int | None = None,
+    oftalmologo_id: int | None = None,
+    estado: str | None = None,
+):
+    condiciones = []
+    if fecha is not None:
+        condiciones.append(Cita.fecha == fecha)
+    if paciente_id is not None:
+        condiciones.append(Cita.paciente_id == paciente_id)
+    if oftalmologo_id is not None:
+        condiciones.append(Cita.oftalmologo_id == oftalmologo_id)
+    if estado is not None:
+        condiciones.append(Cita.estado == estado)
+
+    stmt = select(Cita)
+    if condiciones:
+        stmt = stmt.where(*condiciones)
+    stmt = stmt.order_by(
+        Cita.fecha,
+        Cita.hora_inicio,
+        Cita.id,
+    )
+
+    return db.scalars(stmt).all()
+
+
+def obtener_cita_por_id(
+    db: Session,
+    cita_id: int,
+):
+    return db.get(Cita, cita_id)
+
+
+def actualizar_cita(
+    db: Session,
+    cita: Cita,
+    *,
+    fecha: date,
+    hora_inicio,
+    hora_fin,
+    motivo: str | None = None,
+    observaciones: str | None = None,
+) -> Cita:
+    cita.fecha = fecha
+    cita.hora_inicio = hora_inicio
+    cita.hora_fin = hora_fin
+    cita.motivo = motivo
+    cita.observaciones = observaciones
+    cita.fecha_actualizacion = datetime.now(timezone.utc)
+
+    db.flush()
+    db.refresh(cita)
+
+    return cita
+
+
+def actualizar_estado_cita(
+    db: Session,
+    cita: Cita,
+    estado: str,
+) -> Cita:
+    cita.estado = estado
+    cita.fecha_actualizacion = datetime.now(timezone.utc)
+
+    db.flush()
+    db.refresh(cita)
+
+    return cita
+
+
+def verificar_disponibilidad_horario(
+    db: Session,
+    *,
+    oftalmologo_id: int,
+    fecha: date,
+    hora_inicio,
+    hora_fin,
+    excluir_cita_id: int | None = None,
+) -> bool:
+    """Indica si un intervalo cae dentro del horario configurado y no choca
+    con bloqueos activos ni con otras citas que ocupan horario.
+
+    Reutiliza la misma regla de ocupación que CU09 (solo CANCELADA libera).
+    """
+    dia_semana = fecha.isoweekday()
+    horarios = obtener_horarios_por_oftalmologo_y_dia(
+        db,
+        oftalmologo_id,
+        dia_semana,
+    )
+
+    if not any(
+        h.hora_inicio <= hora_inicio and hora_fin <= h.hora_fin
+        for h in horarios
+    ):
+        return False
+
+    bloqueos = obtener_bloqueos_por_oftalmologo_y_fecha(
+        db,
+        oftalmologo_id,
+        fecha,
+    )
+    for bloqueo in bloqueos:
+        if _se_solapan(
+            hora_inicio,
+            hora_fin,
+            bloqueo.hora_inicio,
+            bloqueo.hora_fin,
+        ):
+            return False
+
+    citas = obtener_citas_por_oftalmologo_y_fecha(
+        db,
+        oftalmologo_id,
+        fecha,
+    )
+    for cita in citas:
+        if excluir_cita_id is not None and cita.id == excluir_cita_id:
+            continue
+        if _se_solapan(
+            hora_inicio,
+            hora_fin,
+            cita.hora_inicio,
+            cita.hora_fin,
+        ):
+            return False
+
+    return True
+

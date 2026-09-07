@@ -1,6 +1,12 @@
 from datetime import date, datetime, time
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 
 # =========================================================
@@ -136,3 +142,88 @@ class ConfiguracionDisponibilidadRespuesta(BaseModel):
     oftalmologo: OftalmologoResumidoRespuesta
     horarios: list[HorarioOftalmologoRespuesta] = []
     bloqueos: list[BloqueoHorarioRespuesta] = []
+
+
+# =========================================================
+# CU10 - GESTIONAR CITAS MÉDICAS
+# =========================================================
+
+ESTADOS_CITA_VALIDOS = (
+    "PROGRAMADA",
+    "CONFIRMADA",
+    "EN_ESPERA",
+    "ATENDIDA",
+    "CANCELADA",
+    "NO_ASISTIO",
+)
+
+ESTADO_CITA_INICIAL = "PROGRAMADA"
+ESTADO_CITA_CANCELADA = "CANCELADA"
+
+
+def _normalizar_estado_cita(estado: str) -> str:
+    normalizado = (estado or "").strip().upper()
+    if normalizado not in ESTADOS_CITA_VALIDOS:
+        raise ValueError(
+            f"Estado de cita inválido: {estado}. "
+            f"Valores válidos: {', '.join(ESTADOS_CITA_VALIDOS)}"
+        )
+    return normalizado
+
+
+class CitaCreate(BaseModel):
+    paciente_id: int
+    oftalmologo_id: int
+    fecha: date
+    hora_inicio: time
+    motivo: str | None = None
+    observaciones: str | None = None
+
+
+class CitaUpdate(BaseModel):
+    fecha: date | None = None
+    hora_inicio: time | None = None
+    motivo: str | None = None
+    observaciones: str | None = None
+
+    @model_validator(mode="after")
+    def _exigir_al_menos_un_campo(self):
+        if all(
+            campo is None
+            for campo in (
+                self.fecha,
+                self.hora_inicio,
+                self.motivo,
+                self.observaciones,
+            )
+        ):
+            raise ValueError(
+                "Debe indicar al menos un campo a modificar "
+                "(fecha, hora_inicio, motivo u observaciones)"
+            )
+        return self
+
+
+class CitaEstadoUpdate(BaseModel):
+    estado: str
+
+    @field_validator("estado")
+    @classmethod
+    def _estado_valido(cls, valor: str) -> str:
+        return _normalizar_estado_cita(valor)
+
+
+class CitaResponse(BaseModel):
+    id: int
+    paciente_id: int
+    oftalmologo_id: int
+    fecha: date
+    hora_inicio: time
+    hora_fin: time
+    motivo: str | None = None
+    observaciones: str | None = None
+    estado: str
+    fecha_registro: datetime | None = None
+    fecha_actualizacion: datetime | None = None
+
+    model_config = ConfigDict(from_attributes=True)
