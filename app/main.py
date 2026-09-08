@@ -13,6 +13,9 @@ from app.modules.gestion_agenda_citas.api.router import (
     router as agenda_router,
 )
 
+from app.modules.gestion_historial_clinico.api.router import (
+    router as historial_clinico_router,
+)
 
 app = FastAPI(
     title="API Clínica Oftalmológica",
@@ -39,6 +42,7 @@ app.add_middleware(
 app.include_router(seguridad_router)
 app.include_router(pacientes_router)
 app.include_router(agenda_router)
+app.include_router(historial_clinico_router)
 
 
 @app.get("/")

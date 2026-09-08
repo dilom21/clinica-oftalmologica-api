@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import (
@@ -10,6 +10,7 @@ from app.core.dependencies import (
 )
 from app.database.session import get_db
 
+from app.modules.gestion_agenda_citas.schemas.historial import HistorialCitasRespuesta
 from app.modules.gestion_agenda_citas.schemas.schemas import (
     AgendaRespuesta,
     BloqueoHorarioActualizar,
@@ -31,6 +32,7 @@ from app.modules.gestion_agenda_citas.schemas.schemas import (
 from app.modules.gestion_agenda_citas.services import (
     citas,
     configuracion,
+    historial,
     service,
 )
 
@@ -371,4 +373,40 @@ def cambiar_estado_cita(
         cita_id,
         datos.estado,
         usuario,
+    )
+
+
+# =========================================================
+# CU12 - CONSULTAR HISTORIAL DE CITAS
+# =========================================================
+
+permiso_consultar_historial_citas = requerir_permiso(
+    "Consultar historial de citas",
+    ACCION_LECTURA,
+)
+
+
+@router.get("/historial", response_model=HistorialCitasRespuesta)
+def consultar_historial_citas(
+    paciente_id: int | None = Query(default=None, gt=0, le=2**63 - 1),
+    nombre: str | None = Query(default=None, min_length=1),
+    codigo: int | None = Query(
+        default=None, gt=0, le=2**63 - 1, description="ID numérico del paciente",
+    ),
+    identificacion: str | None = Query(default=None, min_length=1),
+    fecha_desde: date | None = None,
+    fecha_hasta: date | None = None,
+    estado: str | None = Query(default=None, min_length=1, max_length=20),
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_consultar_historial_citas),
+):
+    return historial.consultar_historial_citas(
+        db,
+        paciente_id=paciente_id,
+        nombre=nombre,
+        codigo=codigo,
+        identificacion=identificacion,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        estado=estado,
     )
