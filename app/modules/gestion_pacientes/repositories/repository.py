@@ -18,23 +18,20 @@ def obtener_paciente_por_id(
     return db.get(Paciente, paciente_id)
 
 
+def obtener_paciente_por_usuario_id(
+    db: Session,
+    usuario_id: int,
+):
+    stmt = select(Paciente).where(Paciente.usuario_id == usuario_id)
+    return db.scalar(stmt)
+
+
 def obtener_paciente_por_ci(
     db: Session,
     ci: str,
 ):
     stmt = select(Paciente).where(
         Paciente.ci == ci
-    )
-
-    return db.scalar(stmt)
-
-
-def obtener_paciente_por_usuario_id(
-    db: Session,
-    usuario_id: int,
-):
-    stmt = select(Paciente).where(
-        Paciente.usuario_id == usuario_id
     )
 
     return db.scalar(stmt)

@@ -38,6 +38,16 @@ class PacienteActualizar(BaseModel):
     estado: bool | None = None
 
 
+class MiPerfilPacienteActualizar(BaseModel):
+    nombres: str | None = None
+    apellidos: str | None = None
+    fecha_nacimiento: date | None = None
+    sexo: str | None = None
+    telefono: str | None = None
+    contacto_emergencia: str | None = None
+    direccion: str | None = None
+
+
 class PacienteRespuesta(BaseModel):
     id: int
 

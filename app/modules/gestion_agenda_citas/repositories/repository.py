@@ -501,3 +501,5 @@ def verificar_disponibilidad_horario(
 
     return True
 
+
+

@@ -227,3 +227,5 @@ class CitaResponse(BaseModel):
     fecha_actualizacion: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
