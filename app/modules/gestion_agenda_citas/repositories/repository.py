@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.gestion_agenda_citas.models.models import (
@@ -9,6 +9,7 @@ from app.modules.gestion_agenda_citas.models.models import (
     HorarioOftalmologo,
     Oftalmologo,
 )
+from app.modules.gestion_pacientes.models.models import Paciente
 
 
 # =========================================================
@@ -500,4 +501,77 @@ def verificar_disponibilidad_horario(
             return False
 
     return True
+
+# =========================================================
+# CU12 - CONSULTAR HISTORIAL DE CITAS
+# =========================================================
+
+def buscar_paciente(
+    db: Session,
+    paciente_id: int | None = None,
+    nombre: str | None = None,
+    codigo: str | None = None,
+    identificacion: str | None = None,
+):
+    """Busca un paciente por id, nombre/apellidos, código (id) o CI.
+
+    `codigo` corresponde al id del paciente y `identificacion` a su CI,
+    según el modelo real de `Paciente`.
+    """
+    if paciente_id is not None:
+        return db.get(Paciente, paciente_id)
+
+    condiciones = []
+    if nombre and nombre.strip():
+        patron = f"%{nombre.strip()}%"
+        condiciones.append(
+            Paciente.nombres.ilike(patron) | Paciente.apellidos.ilike(patron)
+        )
+    if codigo and codigo.strip().isdigit():
+        condiciones.append(Paciente.id == int(codigo.strip()))
+    if identificacion and identificacion.strip():
+        condiciones.append(Paciente.ci == identificacion.strip())
+
+    if not condiciones:
+        return None
+
+    stmt = select(Paciente)
+    for condicion in condiciones:
+        stmt = stmt.where(condicion)
+    stmt = stmt.order_by(
+        Paciente.apellidos,
+        Paciente.nombres,
+    ).limit(1)
+
+    return db.scalar(stmt)
+
+
+def listar_citas_paciente(
+    db: Session,
+    paciente_id: int,
+    fecha_desde=None,
+    fecha_hasta=None,
+    estado: str | None = None,
+):
+    condiciones = [Cita.paciente_id == paciente_id]
+
+    if fecha_desde is not None:
+        condiciones.append(Cita.fecha >= fecha_desde)
+    if fecha_hasta is not None:
+        condiciones.append(Cita.fecha <= fecha_hasta)
+    if estado is not None:
+        condiciones.append(func.upper(Cita.estado) == estado.upper())
+
+    stmt = (
+        select(Cita)
+        .where(*condiciones)
+        .order_by(
+            Cita.fecha.asc(),
+            Cita.hora_inicio.asc(),
+            Cita.id.asc(),
+        )
+    )
+
+    return db.scalars(stmt).all()
+
 

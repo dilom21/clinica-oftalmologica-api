@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import (
@@ -26,6 +26,7 @@ from app.modules.gestion_agenda_citas.schemas.schemas import (
     HorarioOftalmologoCrear,
     HorarioOftalmologoRespuesta,
     OftalmologoResumidoRespuesta,
+    HistorialCitasRespuesta,
 )
 
 from app.modules.gestion_agenda_citas.services import (
@@ -99,6 +100,53 @@ def obtener_agenda_por_oftalmologo(
         oftalmologo_id,
         fecha,
         usuario=_usuario,
+    )
+
+
+# =========================================================
+# CU12 - CONSULTAR HISTORIAL DE CITAS
+# Función: "Consultar historial de citas"
+# Ruta estática /historial: se declara antes de cualquier ruta dinámica.
+# =========================================================
+
+NOMBRE_FUNCION_CONSULTAR_HISTORIAL_CITAS = "Consultar historial de citas"
+
+permiso_consultar_historial_citas = requerir_permiso(
+    NOMBRE_FUNCION_CONSULTAR_HISTORIAL_CITAS,
+    ACCION_LECTURA,
+)
+
+
+@router.get(
+    "/historial",
+    response_model=HistorialCitasRespuesta,
+)
+def consultar_historial_citas(
+    paciente_id: int | None = Query(default=None),
+    nombre: str | None = Query(default=None, min_length=1),
+    codigo: str | None = Query(default=None, min_length=1),
+    identificacion: str | None = Query(default=None, min_length=1),
+    fecha_desde: date | None = Query(default=None),
+    fecha_hasta: date | None = Query(default=None),
+    estado: str | None = Query(default=None, min_length=1, max_length=20),
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_consultar_historial_citas),
+):
+    if paciente_id is None and not any((nombre, codigo, identificacion)):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Debe indicar paciente_id, nombre, codigo o identificacion",
+        )
+
+    return service.consultar_historial_citas(
+        db,
+        paciente_id=paciente_id,
+        nombre=nombre,
+        codigo=codigo,
+        identificacion=identificacion,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        estado=estado,
     )
 
 

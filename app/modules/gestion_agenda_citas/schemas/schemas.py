@@ -227,3 +227,38 @@ class CitaResponse(BaseModel):
     fecha_actualizacion: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# =========================================================
+# CU12 - CONSULTAR HISTORIAL DE CITAS
+# =========================================================
+
+class PacienteHistorialRespuesta(BaseModel):
+    id: int
+    nombres: str
+    apellidos: str
+    ci: str | None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CitaHistorialRespuesta(BaseModel):
+    id: int
+    paciente_id: int
+    oftalmologo_id: int
+    fecha: date
+    hora_inicio: time
+    hora_fin: time
+    motivo: str | None = None
+    observaciones: str | None = None
+    estado: str
+    canal: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class HistorialCitasRespuesta(BaseModel):
+    paciente: PacienteHistorialRespuesta
+    citas: list[CitaHistorialRespuesta]
+    mensaje: str | None = None
+
