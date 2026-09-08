@@ -557,7 +557,22 @@ POST   /pacientes
 GET    /pacientes/{paciente_id}
 PUT    /pacientes/{paciente_id}
 DELETE /pacientes/{paciente_id}
+
+GET    /historial-clinico/{paciente_id}
 ```
+
+`GET /historial-clinico/{paciente_id}` requiere un JWT válido y el permiso
+`Consultar historial clínico`. Consulta únicamente la información clínica
+existente en las tablas `historial_clinico` y `antecedente_clinico`, y devuelve
+los antecedentes activos ordenados por fecha descendente. La respuesta incluye
+los datos del paciente y `historial: null` cuando el paciente existe pero aún
+no tiene un historial clínico activo. Si el paciente no existe responde `404`;
+sin autenticación responde `401` y sin el permiso responde `403`.
+
+Las consultas, diagnósticos, tratamientos, recetas, exámenes y controles no se
+incluyen todavía porque esas entidades no existen en el esquema actual y
+corresponden a CU15-CU19. Se incorporarán a esta consulta cuando sus módulos
+creen las relaciones respectivas.
 
 La consulta `GET /seguridad/bitacora` requiere un JWT de un usuario cuyo rol
 sea `ADMINISTRADOR` o `ADMIN`. Admite los filtros opcionales `usuario_id`,
