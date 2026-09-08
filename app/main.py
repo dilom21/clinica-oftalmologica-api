@@ -16,7 +16,6 @@ from app.modules.gestion_agenda_citas.api.router import (
     router as agenda_router,
 )
 
-
 app = FastAPI(
     title="API Clínica Oftalmológica",
     version="1.0.0",
