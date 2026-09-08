@@ -9,6 +9,7 @@ from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteActualizar,
     PacienteRespuesta,
     MiPerfilPacienteResponse,
+    MiPerfilPacienteActualizar,
 )
 
 from app.modules.gestion_pacientes.services import service
@@ -66,6 +67,22 @@ def obtener_mi_perfil(
     return service.obtener_mi_perfil(
         db,
         usuario,
+    )
+
+
+@router.put(
+    "/me",
+    response_model=MiPerfilPacienteResponse,
+)
+def actualizar_mi_perfil(
+    datos: MiPerfilPacienteActualizar,
+    usuario=Depends(obtener_usuario_actual),
+    db: Session = Depends(get_db),
+):
+    return service.actualizar_mi_perfil(
+        db,
+        usuario,
+        datos,
     )
 
 

@@ -8,6 +8,7 @@ from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteCrear,
     PacienteActualizar,
     MiPerfilPacienteResponse,
+    MiPerfilPacienteActualizar,
 )
 
 from app.modules.gestion_usuarios_seguridad.repositories.repository import (
@@ -150,7 +151,6 @@ def eliminar_paciente(
         db.rollback()
         raise
 
-
 # =========================================================
 # CU08 - MI PERFIL (APP MÓVIL DE PACIENTES)
 # =========================================================
@@ -200,3 +200,59 @@ def obtener_mi_perfil(
         direccion=paciente.direccion,
         estado=paciente.estado,
     )
+
+
+def actualizar_mi_perfil(
+    db: Session,
+    usuario,
+    datos: MiPerfilPacienteActualizar,
+) -> MiPerfilPacienteResponse:
+    """Actualiza los datos autorizados del paciente autenticado (CU08)."""
+    if nombre_rol_actual(usuario) != "paciente":
+        raise HTTPException(
+            status_code=403,
+            detail="Acceso disponible únicamente para pacientes.",
+        )
+
+    paciente = repo.obtener_paciente_por_usuario_id(
+        db,
+        usuario.id,
+    )
+
+    if not paciente:
+        raise HTTPException(
+            status_code=404,
+            detail="No se encontró el perfil del paciente asociado a esta cuenta.",
+        )
+
+    if not paciente.estado:
+        raise HTTPException(
+            status_code=403,
+            detail="El paciente está inactivo.",
+        )
+
+    try:
+        # Solo se actualizan los campos enviados en el request.
+        paciente = repo.actualizar_paciente(
+            db,
+            paciente,
+            datos,
+        )
+
+        registrar_bitacora(
+            db=db,
+            usuario_id=usuario.id,
+            accion="ACTUALIZAR_MI_PERFIL",
+            entidad_afectada="paciente",
+            id_registro_afectado=paciente.id,
+            descripcion="El paciente actualizó su perfil",
+        )
+
+        db.commit()
+
+        return obtener_mi_perfil(db, usuario)
+
+    except Exception:
+        db.rollback()
+        raise
+
