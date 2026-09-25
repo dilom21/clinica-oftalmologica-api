@@ -18,6 +18,14 @@ def obtener_paciente_por_id(
     return db.get(Paciente, paciente_id)
 
 
+def obtener_paciente_por_usuario_id(
+    db: Session,
+    usuario_id: int,
+):
+    stmt = select(Paciente).where(Paciente.usuario_id == usuario_id)
+    return db.scalar(stmt)
+
+
 def obtener_paciente_por_ci(
     db: Session,
     ci: str,
@@ -157,3 +165,15 @@ def actualizar_antecedente(
     db.refresh(antecedente)
 
     return antecedente
+
+def asignar_usuario_a_paciente(
+    db: Session,
+    paciente: Paciente,
+    usuario_id: int,
+):
+    paciente.usuario_id = usuario_id
+
+    db.flush()
+    db.refresh(paciente)
+
+    return paciente

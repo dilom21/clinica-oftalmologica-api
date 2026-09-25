@@ -8,6 +8,12 @@ from app.database.connection import engine
 from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 # Si Josías agregó un modelo de Rol, debería ir importado aquí abajo:
 from app.modules.gestion_usuarios_seguridad.models.models import Rol
+from app.modules.gestion_pacientes.api.router import (
+    router as pacientes_router,
+)
+from app.modules.gestion_historial_clinico.api.router import (
+    router as historial_clinico_router,
+)
 
 # --- IMPORTACIÓN DE RUTAS ---
 from app.modules.gestion_usuarios_seguridad.api.router import router as usuarios_seguridad_router
@@ -21,7 +27,6 @@ from app.modules.reportes_panel_administrativo.api.router import router as repor
 from app.modules.gestion_agenda_citas.api.router import (
     router as agenda_router,
 )
-
 
 app = FastAPI(
     title="API Clínica Oftalmológica",
@@ -60,6 +65,7 @@ app.include_router(pagos_router)
 app.include_router(notificaciones_chatbot_router)
 app.include_router(reportes_panel_router)
 app.include_router(agenda_router)
+app.include_router(historial_clinico_router)
 
 # --- RUTA PRINCIPAL ---
 @app.get("/")

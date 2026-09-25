@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, field_validator
 
@@ -42,6 +42,22 @@ def normalizar_correo(correo: str) -> str:
         raise ValueError("El correo electrónico no es válido")
 
     return correo_normalizado
+
+
+def validar_politica_password_paciente(password: str) -> str:
+    """Valida la política de contraseñas del registro móvil de pacientes.
+
+    Reutiliza la política base del sistema (mínimo 8 caracteres, mayúscula,
+    minúscula y número) y además exige al menos un carácter especial.
+    """
+    validar_politica_password(password)
+
+    if not re.search(r"[!@#$%^&*?_\-]", password):
+        raise ValueError(
+            "La contraseña no cumple con los requisitos de seguridad."
+        )
+
+    return password
 
 
 # =========================================================
@@ -119,6 +135,64 @@ class LoginRequest(BaseModel):
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+
+
+# =========================================================
+# REGISTRO MÓVIL DE PACIENTES
+# El rol, estado y fecha_creacion los determina el backend.
+# =========================================================
+
+class MensajeRespuesta(BaseModel):
+    message: str
+
+
+class RegistroPacienteRequest(BaseModel):
+    ci: str
+    nombres: str
+    apellidos: str
+    fecha_nacimiento: date
+    sexo: str
+    telefono: str
+    contacto_emergencia: str | None = None
+    direccion: str | None = None
+    correo: str
+    password: str
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator(
+        "ci",
+        "nombres",
+        "apellidos",
+        "sexo",
+        "telefono",
+        "contacto_emergencia",
+        "direccion",
+    )
+    @classmethod
+    def _limpiar_texto(cls, valor: str | None, info) -> str | None:
+        if valor is None:
+            return None
+
+        texto = valor.strip()
+
+        if (
+            info.field_name in ("ci", "nombres", "apellidos", "sexo", "telefono")
+            and not texto
+        ):
+            raise ValueError("Este campo es obligatorio")
+
+        return texto or None
+
+    @field_validator("correo")
+    @classmethod
+    def _validar_correo(cls, correo: str) -> str:
+        return normalizar_correo(correo)
+
+    @field_validator("password")
+    @classmethod
+    def _validar_password(cls, password: str) -> str:
+        return validar_politica_password_paciente(password)
 
 
 # =========================================================

@@ -1,6 +1,7 @@
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import nombre_rol_actual
 from app.modules.gestion_pacientes.repositories import repository as repo
 
 from app.modules.gestion_pacientes.schemas.schemas import (
@@ -8,39 +9,25 @@ from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteActualizar,
     AntecedenteClinicoCrear,
     AntecedenteClinicoActualizar,
+    MiPerfilPacienteResponse,
+    MiPerfilPacienteActualizar,
 )
 
 from app.modules.gestion_usuarios_seguridad.repositories.repository import (
     registrar_bitacora,
 )
 
-
 # =========================================================
 # CU07 - GESTIONAR PACIENTES
 # =========================================================
 
-def crear_paciente(
-    db: Session,
-    datos: PacienteCrear,
-):
+def crear_paciente(db: Session, datos: PacienteCrear):
     if datos.ci:
-        existente = repo.obtener_paciente_por_ci(
-            db,
-            datos.ci,
-        )
-
+        existente = repo.obtener_paciente_por_ci(db, datos.ci)
         if existente:
-            raise HTTPException(
-                status_code=409,
-                detail="Ya existe un paciente con ese CI",
-            )
-
+            raise HTTPException(status_code=409, detail="Ya existe un paciente con ese CI")
     try:
-        paciente = repo.crear_paciente(
-            db,
-            datos,
-        )
-
+        paciente = repo.crear_paciente(db, datos)
         registrar_bitacora(
             db=db,
             usuario_id=None,
@@ -49,56 +36,26 @@ def crear_paciente(
             id_registro_afectado=paciente.id,
             descripcion="Paciente registrado",
         )
-
         db.commit()
         db.refresh(paciente)
-
         return paciente
-
     except Exception:
         db.rollback()
         raise
 
-
 def listar_pacientes(db: Session):
     return repo.listar_pacientes(db)
 
-
-def obtener_paciente(
-    db: Session,
-    paciente_id: int,
-):
-    paciente = repo.obtener_paciente_por_id(
-        db,
-        paciente_id,
-    )
-
+def obtener_paciente(db: Session, paciente_id: int):
+    paciente = repo.obtener_paciente_por_id(db, paciente_id)
     if not paciente:
-        raise HTTPException(
-            status_code=404,
-            detail="Paciente no encontrado",
-        )
-
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
     return paciente
 
-
-def actualizar_paciente(
-    db: Session,
-    paciente_id: int,
-    datos: PacienteActualizar,
-):
-    paciente = obtener_paciente(
-        db,
-        paciente_id,
-    )
-
+def actualizar_paciente(db: Session, paciente_id: int, datos: PacienteActualizar):
+    paciente = obtener_paciente(db, paciente_id)
     try:
-        paciente = repo.actualizar_paciente(
-            db,
-            paciente,
-            datos,
-        )
-
+        paciente = repo.actualizar_paciente(db, paciente, datos)
         registrar_bitacora(
             db=db,
             usuario_id=None,
@@ -107,32 +64,17 @@ def actualizar_paciente(
             id_registro_afectado=paciente.id,
             descripcion="Datos del paciente actualizados",
         )
-
         db.commit()
         db.refresh(paciente)
-
         return paciente
-
     except Exception:
         db.rollback()
         raise
 
-
-def eliminar_paciente(
-    db: Session,
-    paciente_id: int,
-):
-    paciente = obtener_paciente(
-        db,
-        paciente_id,
-    )
-
+def eliminar_paciente(db: Session, paciente_id: int):
+    paciente = obtener_paciente(db, paciente_id)
     try:
-        paciente = repo.eliminar_logicamente_paciente(
-            db,
-            paciente,
-        )
-
+        paciente = repo.eliminar_logicamente_paciente(db, paciente)
         registrar_bitacora(
             db=db,
             usuario_id=None,
@@ -141,38 +83,22 @@ def eliminar_paciente(
             id_registro_afectado=paciente.id,
             descripcion="Paciente desactivado",
         )
-
         db.commit()
-
         return paciente
-
     except Exception:
         db.rollback()
         raise
+
 # =========================================================
 # CU14 - GESTIONAR ANTECEDENTES CLÍNICOS
 # =========================================================
 
-def listar_antecedentes_por_historial(
-    db: Session,
-    historial_clinico_id: int,
-):
-    return repo.listar_antecedentes_por_historial(
-        db,
-        historial_clinico_id,
-    )
+def listar_antecedentes_por_historial(db: Session, historial_clinico_id: int):
+    return repo.listar_antecedentes_por_historial(db, historial_clinico_id)
 
-
-def crear_antecedente(
-    db: Session,
-    datos: AntecedenteClinicoCrear,
-):
+def crear_antecedente(db: Session, datos: AntecedenteClinicoCrear):
     try:
-        antecedente = repo.crear_antecedente(
-            db,
-            datos,
-        )
-
+        antecedente = repo.crear_antecedente(db, datos)
         registrar_bitacora(
             db=db,
             usuario_id=None,
@@ -181,40 +107,19 @@ def crear_antecedente(
             id_registro_afectado=antecedente.id,
             descripcion="Antecedente clínico registrado",
         )
-
         db.commit()
         db.refresh(antecedente)
-
         return antecedente
-
     except Exception:
         db.rollback()
         raise
 
-
-def actualizar_antecedente(
-    db: Session,
-    antecedente_id: int,
-    datos: AntecedenteClinicoActualizar,
-):
-    antecedente = repo.obtener_antecedente_por_id(
-        db,
-        antecedente_id,
-    )
-
+def actualizar_antecedente(db: Session, antecedente_id: int, datos: AntecedenteClinicoActualizar):
+    antecedente = repo.obtener_antecedente_por_id(db, antecedente_id)
     if not antecedente:
-        raise HTTPException(
-            status_code=404,
-            detail="Antecedente clínico no encontrado",
-        )
-
+        raise HTTPException(status_code=404, detail="Antecedente clínico no encontrado")
     try:
-        antecedente = repo.actualizar_antecedente(
-            db,
-            antecedente,
-            datos,
-        )
-
+        antecedente = repo.actualizar_antecedente(db, antecedente, datos)
         registrar_bitacora(
             db=db,
             usuario_id=None,
@@ -223,12 +128,63 @@ def actualizar_antecedente(
             id_registro_afectado=antecedente.id,
             descripcion="Antecedente clínico actualizado",
         )
-
         db.commit()
         db.refresh(antecedente)
-
         return antecedente
-
     except Exception:
         db.rollback()
-        raise   
+        raise
+
+# =========================================================
+# CU08 - MI PERFIL (APP MÓVIL DE PACIENTES)
+# =========================================================
+
+def obtener_mi_perfil(db: Session, usuario) -> MiPerfilPacienteResponse:
+    if nombre_rol_actual(usuario) != "paciente":
+        raise HTTPException(status_code=403, detail="Acceso disponible únicamente para pacientes.")
+    
+    paciente = repo.obtener_paciente_por_usuario_id(db, usuario.id)
+    if not paciente:
+        raise HTTPException(status_code=404, detail="No se encontró el perfil del paciente asociado a esta cuenta.")
+    if not paciente.estado:
+        raise HTTPException(status_code=403, detail="El paciente está inactivo.")
+        
+    return MiPerfilPacienteResponse(
+        id=paciente.id,
+        correo=usuario.correo,
+        nombres=paciente.nombres,
+        apellidos=paciente.apellidos,
+        ci=paciente.ci,
+        fecha_nacimiento=paciente.fecha_nacimiento,
+        sexo=paciente.sexo,
+        telefono=paciente.telefono,
+        contacto_emergencia=paciente.contacto_emergencia,
+        direccion=paciente.direccion,
+        estado=paciente.estado,
+    )
+
+def actualizar_mi_perfil(db: Session, usuario, datos: MiPerfilPacienteActualizar) -> MiPerfilPacienteResponse:
+    if nombre_rol_actual(usuario) != "paciente":
+        raise HTTPException(status_code=403, detail="Acceso disponible únicamente para pacientes.")
+        
+    paciente = repo.obtener_paciente_por_usuario_id(db, usuario.id)
+    if not paciente:
+        raise HTTPException(status_code=404, detail="No se encontró el perfil del paciente asociado a esta cuenta.")
+    if not paciente.estado:
+        raise HTTPException(status_code=403, detail="El paciente está inactivo.")
+        
+    try:
+        paciente = repo.actualizar_paciente(db, paciente, datos)
+        registrar_bitacora(
+            db=db,
+            usuario_id=usuario.id,
+            accion="ACTUALIZAR_MI_PERFIL",
+            entidad_afectada="paciente",
+            id_registro_afectado=paciente.id,
+            descripcion="El paciente actualizó su perfil",
+        )
+        db.commit()
+        return obtener_mi_perfil(db, usuario)
+    except Exception:
+        db.rollback()
+        raise

@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import (
@@ -10,11 +10,16 @@ from app.core.dependencies import (
 )
 from app.database.session import get_db
 
+from app.modules.gestion_agenda_citas.schemas.historial import HistorialCitasRespuesta
 from app.modules.gestion_agenda_citas.schemas.schemas import (
     AgendaRespuesta,
     BloqueoHorarioActualizar,
     BloqueoHorarioCrear,
     BloqueoHorarioRespuesta,
+    CitaCreate,
+    CitaEstadoUpdate,
+    CitaResponse,
+    CitaUpdate,
     ConfiguracionDisponibilidadRespuesta,
     DisponibilidadRespuesta,
     EstadoDisponibilidadActualizar,
@@ -25,7 +30,9 @@ from app.modules.gestion_agenda_citas.schemas.schemas import (
 )
 
 from app.modules.gestion_agenda_citas.services import (
+    citas,
     configuracion,
+    historial,
     service,
 )
 
@@ -259,4 +266,147 @@ def cambiar_estado_bloqueo_horario(
         bloqueo_id,
         datos.estado,
         usuario,
+    )
+
+
+# =========================================================
+# CU10 - GESTIONAR CITAS MÉDICAS
+# Función: "Gestionar citas médicas"
+# =========================================================
+
+NOMBRE_FUNCION_GESTIONAR_CITAS = "Gestionar citas médicas"
+
+permiso_consultar_citas = requerir_permiso(
+    NOMBRE_FUNCION_GESTIONAR_CITAS,
+    ACCION_LECTURA,
+)
+
+permiso_escribir_citas = requerir_permiso(
+    NOMBRE_FUNCION_GESTIONAR_CITAS,
+    ACCION_ESCRITURA,
+)
+
+
+@router.post(
+    "/citas",
+    response_model=CitaResponse,
+    status_code=201,
+)
+def registrar_cita(
+    datos: CitaCreate,
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso_escribir_citas),
+):
+    return citas.registrar_cita(
+        db,
+        datos,
+        usuario,
+    )
+
+
+@router.get(
+    "/citas",
+    response_model=list[CitaResponse],
+)
+def consultar_citas(
+    fecha: date | None = None,
+    paciente_id: int | None = None,
+    oftalmologo_id: int | None = None,
+    estado: str | None = None,
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_consultar_citas),
+):
+    return citas.listar_citas(
+        db,
+        fecha=fecha,
+        paciente_id=paciente_id,
+        oftalmologo_id=oftalmologo_id,
+        estado=estado,
+    )
+
+
+@router.get(
+    "/citas/{cita_id}",
+    response_model=CitaResponse,
+)
+def obtener_cita(
+    cita_id: int,
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_consultar_citas),
+):
+    return citas.obtener_cita(
+        db,
+        cita_id,
+    )
+
+
+@router.put(
+    "/citas/{cita_id}",
+    response_model=CitaResponse,
+)
+def reprogramar_cita(
+    cita_id: int,
+    datos: CitaUpdate,
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso_escribir_citas),
+):
+    return citas.reprogramar_cita(
+        db,
+        cita_id,
+        datos,
+        usuario,
+    )
+
+
+@router.patch(
+    "/citas/{cita_id}/estado",
+    response_model=CitaResponse,
+)
+def cambiar_estado_cita(
+    cita_id: int,
+    datos: CitaEstadoUpdate,
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso_escribir_citas),
+):
+    return citas.cambiar_estado_cita(
+        db,
+        cita_id,
+        datos.estado,
+        usuario,
+    )
+
+
+# =========================================================
+# CU12 - CONSULTAR HISTORIAL DE CITAS
+# =========================================================
+
+permiso_consultar_historial_citas = requerir_permiso(
+    "Consultar historial de citas",
+    ACCION_LECTURA,
+)
+
+
+@router.get("/historial", response_model=HistorialCitasRespuesta)
+def consultar_historial_citas(
+    paciente_id: int | None = Query(default=None, gt=0, le=2**63 - 1),
+    nombre: str | None = Query(default=None, min_length=1),
+    codigo: int | None = Query(
+        default=None, gt=0, le=2**63 - 1, description="ID numérico del paciente",
+    ),
+    identificacion: str | None = Query(default=None, min_length=1),
+    fecha_desde: date | None = None,
+    fecha_hasta: date | None = None,
+    estado: str | None = Query(default=None, min_length=1, max_length=20),
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_consultar_historial_citas),
+):
+    return historial.consultar_historial_citas(
+        db,
+        paciente_id=paciente_id,
+        nombre=nombre,
+        codigo=codigo,
+        identificacion=identificacion,
+        fecha_desde=fecha_desde,
+        fecha_hasta=fecha_hasta,
+        estado=estado,
     )
