@@ -91,11 +91,11 @@ def eliminar_logicamente_paciente(
 
     return paciente
 
-from app.modules.gestion_pacientes.models.models import (
+from app.modules.gestion_historial_clinico.models.models import (
     HistorialClinico,
     AntecedenteClinico,
 )
-from app.modules.gestion_pacientes.schemas.schemas import (
+from app.modules.gestion_historial_clinico.schemas.schemas import (
     AntecedenteClinicoCrear,
     AntecedenteClinicoActualizar,
 )

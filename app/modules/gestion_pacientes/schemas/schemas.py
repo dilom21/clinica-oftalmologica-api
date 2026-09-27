@@ -69,30 +69,8 @@ class PacienteRespuesta(BaseModel):
     estado: bool
 
     model_config = ConfigDict(from_attributes=True)
-class AntecedenteClinicoCrear(BaseModel):
-    historial_clinico_id: int
-    tipo: str = Field(..., max_length=30, description="ALERGIA, ENFERMEDAD, CIRUGIA, MEDICAMENTO, ANTECEDENTE_FAMILIAR, OTRO")
-    descripcion: str = Field(..., min_length=2, description="Detalle del antecedente clínico")
-    estado: bool = True
 
-
-class AntecedenteClinicoActualizar(BaseModel):
-    tipo: str | None = Field(None, max_length=30)
-    descripcion: str | None = Field(None, min_length=2)
-    estado: bool | None = None
-
-
-class AntecedenteClinicoRespuesta(BaseModel):
-    id: int
-    historial_clinico_id: int
-    tipo: str
-    descripcion: str
-    estado: bool
-    fecha_registro: datetime
-
-    model_config = ConfigDict(from_attributes=True)
-
-
+ 
 class MiPerfilPacienteResponse(BaseModel):
     """Perfil del paciente autenticado (CU08 - app móvil)."""
 

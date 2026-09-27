@@ -8,13 +8,14 @@ from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteCrear,
     PacienteActualizar,
     PacienteRespuesta,
-    AntecedenteClinicoCrear,
-    AntecedenteClinicoActualizar,
-    AntecedenteClinicoRespuesta,
     MiPerfilPacienteResponse,
     MiPerfilPacienteActualizar,
 )
-
+from app.modules.gestion_historial_clinico.schemas.schemas import (
+    AntecedenteClinicoCrear,
+    AntecedenteClinicoActualizar,
+    AntecedenteClinicoRespuesta,
+)
 from app.modules.gestion_pacientes.services import service
 
 

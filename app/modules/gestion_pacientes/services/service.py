@@ -7,10 +7,13 @@ from app.modules.gestion_pacientes.repositories import repository as repo
 from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteCrear,
     PacienteActualizar,
-    AntecedenteClinicoCrear,
-    AntecedenteClinicoActualizar,
     MiPerfilPacienteResponse,
     MiPerfilPacienteActualizar,
+)
+
+from app.modules.gestion_historial_clinico.schemas.schemas import (
+    AntecedenteClinicoCrear,
+    AntecedenteClinicoActualizar,
 )
 
 from app.modules.gestion_usuarios_seguridad.repositories.repository import (
