@@ -6,6 +6,8 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import (
     ACCION_ESCRITURA,
     ACCION_LECTURA,
+    nombre_rol_actual,
+    obtener_usuario_actual,
     requerir_permiso,
 )
 from app.database.session import get_db
@@ -43,7 +45,32 @@ router = APIRouter(
 )
 
 
+def _permiso_o_paciente(nombre_funcion: str, accion: str):
+    """Permite el acceso al personal con permiso o a un paciente autenticado.
+
+    Para el rol PACIENTE (app móvil) no se exige `rol_funcion`; la propiedad
+    y las restricciones se validan después en el servicio correspondiente.
+    """
+    validador_permiso = requerir_permiso(nombre_funcion, accion)
+
+    def _dependencia(
+        usuario=Depends(obtener_usuario_actual),
+        db: Session = Depends(get_db),
+    ):
+        if nombre_rol_actual(usuario) == "paciente":
+            return usuario
+        return validador_permiso(usuario, db)
+
+    return _dependencia
+
+
 permiso_consultar_agenda = requerir_permiso(
+    "Consultar agenda y disponibilidad médica",
+    ACCION_LECTURA,
+)
+
+# Los pacientes (móvil) pueden consultar oftalmólogos y disponibilidad.
+permiso_consultar_agenda_web_movil = _permiso_o_paciente(
     "Consultar agenda y disponibilidad médica",
     ACCION_LECTURA,
 )
@@ -64,9 +91,9 @@ def obtener_agenda():
 )
 def listar_oftalmologos(
     db: Session = Depends(get_db),
-    _usuario=Depends(permiso_consultar_agenda),
+    usuario=Depends(permiso_consultar_agenda_web_movil),
 ):
-    return service.listar_oftalmologos_activos(db, usuario=_usuario)
+    return service.listar_oftalmologos_activos(db, usuario=usuario)
 
 
 @router.get(
@@ -77,7 +104,7 @@ def obtener_disponibilidad(
     oftalmologo_id: int,
     fecha: date,
     db: Session = Depends(get_db),
-    _usuario=Depends(permiso_consultar_agenda),
+    _usuario=Depends(permiso_consultar_agenda_web_movil),
 ):
     return service.consultar_disponibilidad(
         db,
@@ -286,6 +313,17 @@ permiso_escribir_citas = requerir_permiso(
     ACCION_ESCRITURA,
 )
 
+# Los pacientes (móvil) pueden gestionar SOLO sus propias citas.
+permiso_consultar_citas_web_movil = _permiso_o_paciente(
+    NOMBRE_FUNCION_GESTIONAR_CITAS,
+    ACCION_LECTURA,
+)
+
+permiso_escribir_citas_web_movil = _permiso_o_paciente(
+    NOMBRE_FUNCION_GESTIONAR_CITAS,
+    ACCION_ESCRITURA,
+)
+
 
 @router.post(
     "/citas",
@@ -295,7 +333,7 @@ permiso_escribir_citas = requerir_permiso(
 def registrar_cita(
     datos: CitaCreate,
     db: Session = Depends(get_db),
-    usuario=Depends(permiso_escribir_citas),
+    usuario=Depends(permiso_escribir_citas_web_movil),
 ):
     return citas.registrar_cita(
         db,
@@ -314,7 +352,7 @@ def consultar_citas(
     oftalmologo_id: int | None = None,
     estado: str | None = None,
     db: Session = Depends(get_db),
-    _usuario=Depends(permiso_consultar_citas),
+    usuario=Depends(permiso_consultar_citas_web_movil),
 ):
     return citas.listar_citas(
         db,
@@ -322,6 +360,7 @@ def consultar_citas(
         paciente_id=paciente_id,
         oftalmologo_id=oftalmologo_id,
         estado=estado,
+        usuario=usuario,
     )
 
 
@@ -332,11 +371,12 @@ def consultar_citas(
 def obtener_cita(
     cita_id: int,
     db: Session = Depends(get_db),
-    _usuario=Depends(permiso_consultar_citas),
+    usuario=Depends(permiso_consultar_citas_web_movil),
 ):
     return citas.obtener_cita(
         db,
         cita_id,
+        usuario=usuario,
     )
 
 
@@ -348,7 +388,7 @@ def reprogramar_cita(
     cita_id: int,
     datos: CitaUpdate,
     db: Session = Depends(get_db),
-    usuario=Depends(permiso_escribir_citas),
+    usuario=Depends(permiso_escribir_citas_web_movil),
 ):
     return citas.reprogramar_cita(
         db,
@@ -366,7 +406,7 @@ def cambiar_estado_cita(
     cita_id: int,
     datos: CitaEstadoUpdate,
     db: Session = Depends(get_db),
-    usuario=Depends(permiso_escribir_citas),
+    usuario=Depends(permiso_escribir_citas_web_movil),
 ):
     return citas.cambiar_estado_cita(
         db,

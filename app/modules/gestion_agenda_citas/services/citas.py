@@ -3,15 +3,18 @@ from datetime import date, datetime, time, timedelta
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
+from app.core.dependencies import nombre_rol_actual
 from app.modules.gestion_agenda_citas.repositories import repository as repo
 from app.modules.gestion_agenda_citas.services import service as service_cu09
 from app.modules.gestion_agenda_citas.schemas.schemas import (
+    DURACION_CITA_MINUTOS,
     ESTADO_CITA_CANCELADA,
     ESTADO_CITA_INICIAL,
     ESTADOS_CITA_VALIDOS,
 )
 from app.modules.gestion_pacientes.repositories.repository import (
     obtener_paciente_por_id,
+    obtener_paciente_por_usuario_id,
 )
 from app.modules.gestion_usuarios_seguridad.repositories.repository import (
     registrar_bitacora,
@@ -30,6 +33,39 @@ BITACORA_CANCELAR_CITA = "CANCELAR_CITA"
 
 ENTIDAD_CITA = "cita"
 
+CANAL_MOVIL = "MOVIL"
+CANAL_WEB = "WEB"
+
+
+def _es_paciente(usuario) -> bool:
+    """Indica si el usuario autenticado tiene rol PACIENTE."""
+    return bool(
+        usuario is not None
+        and nombre_rol_actual(usuario) == "paciente"
+    )
+
+
+def _obtener_paciente_autenticado(
+    db: Session,
+    usuario,
+):
+    """Paciente asociado al usuario autenticado (rol móvil)."""
+    paciente = obtener_paciente_por_usuario_id(db, usuario.id)
+
+    if not paciente:
+        raise HTTPException(
+            status_code=404,
+            detail="Perfil de paciente no encontrado",
+        )
+
+    if not getattr(paciente, "estado", True):
+        raise HTTPException(
+            status_code=403,
+            detail="El paciente está inactivo",
+        )
+
+    return paciente
+
 _FECHA_REFERENCIA = date(1900, 1, 1)
 
 
@@ -38,8 +74,13 @@ def _a_datetime(valor: time) -> datetime:
 
 
 def _calcular_hora_fin(hora_inicio: time) -> time:
-    """La duración de una cita es de 1 hora (regla de negocio CU10)."""
-    return (_a_datetime(hora_inicio) + timedelta(hours=1)).time()
+    """La duración de una cita es fija (regla de negocio CU09/CU10).
+
+    El cliente nunca envía `hora_fin`: se calcula con `DURACION_CITA_MINUTOS`.
+    """
+    return (
+        _a_datetime(hora_inicio) + timedelta(minutes=DURACION_CITA_MINUTOS)
+    ).time()
 
 
 def _validar_fecha_no_pasada(fecha: date) -> None:
@@ -109,7 +150,7 @@ def _intervalo_disponible_cu09(
 
     `GET /disponibilidad` ya descuenta horario no configurado, bloqueos
     activos y citas que ocupan horario; aquí solo se verifica que el tramo
-    de 1 hora pedido quepa dentro de un intervalo libre real.
+    de la cita (DURACION_CITA_MINUTOS) quepa dentro de un turno libre real.
     """
     disponibilidad = service_cu09.consultar_disponibilidad(
         db,
@@ -153,10 +194,27 @@ def registrar_cita(
     """Registra una cita para un paciente con un oftalmólogo.
 
     Valida paciente activo, oftalmólogo activo, fecha no pasada y que el
-    horario de 1 hora elegido esté disponible según CU09. El estado inicial
-    de la cita es PROGRAMADA.
+    horario de la cita (DURACION_CITA_MINUTOS) esté disponible según CU09.
+    El estado inicial de la cita es PROGRAMADA.
+
+    Si el usuario autenticado es PACIENTE, la cita se asocia forzosamente a su
+    propio registro de paciente y el canal queda en MOVIL.
     """
-    _obtener_paciente_activo(db, datos.paciente_id)
+    es_paciente = _es_paciente(usuario)
+
+    if es_paciente:
+        paciente_autenticado = _obtener_paciente_autenticado(db, usuario)
+        paciente_id = paciente_autenticado.id
+
+        if datos.paciente_id is not None and datos.paciente_id != paciente_id:
+            raise HTTPException(
+                status_code=403,
+                detail="No puedes registrar citas para otro paciente",
+            )
+    else:
+        _obtener_paciente_activo(db, datos.paciente_id)
+        paciente_id = datos.paciente_id
+
     oftalmologo = _obtener_oftalmologo_activo(db, datos.oftalmologo_id)
     _validar_fecha_no_pasada(datos.fecha)
 
@@ -180,7 +238,7 @@ def registrar_cita(
     try:
         cita = repo.crear_cita(
             db,
-            paciente_id=datos.paciente_id,
+            paciente_id=paciente_id,
             oftalmologo_id=oftalmologo.id,
             fecha=datos.fecha,
             hora_inicio=datos.hora_inicio,
@@ -188,6 +246,7 @@ def registrar_cita(
             motivo=datos.motivo,
             observaciones=datos.observaciones,
             estado=ESTADO_CITA_INICIAL,
+            canal=CANAL_MOVIL if es_paciente else CANAL_WEB,
             creado_por_usuario_id=getattr(usuario, "id", None),
         )
 
@@ -217,8 +276,27 @@ def listar_citas(
     paciente_id: int | None = None,
     oftalmologo_id: int | None = None,
     estado: str | None = None,
+    usuario=None,
 ):
-    """Consulta citas aplicando filtros opcionales de CU10."""
+    """Consulta citas aplicando filtros opcionales de CU10.
+
+    Si el usuario autenticado es PACIENTE, la consulta se limita forzosamente
+    a las citas de su propio registro de paciente.
+    """
+    if _es_paciente(usuario):
+        paciente_autenticado = _obtener_paciente_autenticado(db, usuario)
+
+        if (
+            paciente_id is not None
+            and paciente_id != paciente_autenticado.id
+        ):
+            raise HTTPException(
+                status_code=403,
+                detail="No puedes consultar citas de otro paciente",
+            )
+
+        paciente_id = paciente_autenticado.id
+
     estado_normalizado = (
         _validar_estado_cita(estado)
         if estado is not None
@@ -237,9 +315,23 @@ def listar_citas(
 def obtener_cita(
     db: Session,
     cita_id: int,
+    usuario=None,
 ):
-    """Detalle de una cita por id."""
-    return _obtener_cita(db, cita_id)
+    """Detalle de una cita por id.
+
+    Si el usuario autenticado es PACIENTE, solo puede ver sus propias citas.
+    """
+    cita = _obtener_cita(db, cita_id)
+
+    if _es_paciente(usuario):
+        paciente_autenticado = _obtener_paciente_autenticado(db, usuario)
+        if cita.paciente_id != paciente_autenticado.id:
+            raise HTTPException(
+                status_code=404,
+                detail="Cita no encontrada",
+            )
+
+    return cita
 
 
 def reprogramar_cita(
@@ -250,11 +342,19 @@ def reprogramar_cita(
 ):
     """Actualiza campos modificables de una cita.
 
-    Si cambian `fecha` u `hora_inicio` se recalcula `hora_fin` (1 hora) y se
-    vuelve a validar la disponibilidad con la lógica de CU09 antes de
-    actualizar.
+    Si cambian `fecha` u `hora_inicio` se recalcula `hora_fin`
+    (hora_inicio + `DURACION_CITA_MINUTOS`) y se vuelve a validar la
+    disponibilidad con la lógica de CU09 antes de actualizar.
     """
     cita = _obtener_cita(db, cita_id)
+
+    if _es_paciente(usuario):
+        paciente_autenticado = _obtener_paciente_autenticado(db, usuario)
+        if cita.paciente_id != paciente_autenticado.id:
+            raise HTTPException(
+                status_code=404,
+                detail="Cita no encontrada",
+            )
 
     nueva_fecha = datos.fecha if datos.fecha is not None else cita.fecha
     nueva_hora_inicio = (
@@ -337,9 +437,26 @@ def cambiar_estado_cita(
     estado: str,
     usuario,
 ):
-    """Cambia el estado de una cita (no se elimina físicamente)."""
+    """Cambia el estado de una cita (no se elimina físicamente).
+
+    Un paciente solo puede CANCELAR sus propias citas; no puede administrar
+    estados (CONFIRMADA, EN_ESPERA, ATENDIDA, etc.).
+    """
     cita = _obtener_cita(db, cita_id)
     estado_normalizado = _validar_estado_cita(estado)
+
+    if _es_paciente(usuario):
+        paciente_autenticado = _obtener_paciente_autenticado(db, usuario)
+        if cita.paciente_id != paciente_autenticado.id:
+            raise HTTPException(
+                status_code=404,
+                detail="Cita no encontrada",
+            )
+        if estado_normalizado != ESTADO_CITA_CANCELADA:
+            raise HTTPException(
+                status_code=403,
+                detail="Los pacientes solo pueden cancelar sus propias citas",
+            )
 
     if cita.estado == estado_normalizado:
         return cita
@@ -377,8 +494,19 @@ def cancelar_cita(
     cita_id: int,
     usuario,
 ):
-    """Cancela una cita cambiando su estado a CANCELADA."""
+    """Cancela una cita cambiando su estado a CANCELADA.
+
+    Un paciente solo puede cancelar citas propias.
+    """
     cita = _obtener_cita(db, cita_id)
+
+    if _es_paciente(usuario):
+        paciente_autenticado = _obtener_paciente_autenticado(db, usuario)
+        if cita.paciente_id != paciente_autenticado.id:
+            raise HTTPException(
+                status_code=404,
+                detail="Cita no encontrada",
+            )
 
     if cita.estado == ESTADO_CITA_CANCELADA:
         return cita
