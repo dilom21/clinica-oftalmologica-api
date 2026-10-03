@@ -344,6 +344,7 @@ def crear_cita(
     motivo: str | None = None,
     observaciones: str | None = None,
     estado: str,
+    canal: str | None = None,
     creado_por_usuario_id: int | None = None,
 ) -> Cita:
     ahora = datetime.now(timezone.utc)
@@ -356,6 +357,7 @@ def crear_cita(
         motivo=motivo,
         observaciones=observaciones,
         estado=estado,
+        canal=canal,
         creado_por_usuario_id=creado_por_usuario_id,
         fecha_registro=ahora,
         fecha_actualizacion=ahora,
