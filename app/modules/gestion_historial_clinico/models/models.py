@@ -4,6 +4,7 @@ from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
+from app.modules.gestion_agenda_citas.models.models import Cita, Oftalmologo
 from app.modules.gestion_pacientes.models.models import Paciente
 
 
@@ -51,3 +52,53 @@ class AntecedenteClinico(Base):
     estado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     historial: Mapped[HistorialClinico] = relationship(back_populates="antecedentes")
+
+
+class ConsultaClinica(Base):
+    __tablename__ = "consulta_clinica"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    historial_clinico_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("historial_clinico.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    cita_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("cita.id", ondelete="SET NULL"),
+        unique=True,
+    )
+    oftalmologo_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("oftalmologo.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    fecha_consulta: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+    )
+    motivo_consulta: Mapped[str | None] = mapped_column(String(255))
+    anamnesis: Mapped[str | None] = mapped_column(Text)
+    observaciones: Mapped[str | None] = mapped_column(Text)
+    estado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    oftalmologo: Mapped[Oftalmologo] = relationship()
+    cita: Mapped[Cita | None] = relationship()
+
+
+class Diagnostico(Base):
+    __tablename__ = "diagnostico"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    consulta_clinica_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("consulta_clinica.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    nombre: Mapped[str] = mapped_column(String(150), nullable=False)
+    descripcion: Mapped[str | None] = mapped_column(Text)
+    fecha_diagnostico: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+    )
+    estado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+    consulta_clinica: Mapped[ConsultaClinica] = relationship()
