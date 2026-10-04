@@ -708,3 +708,28 @@ Cuando el usuario pida desarrollar un caso de uso:
 7. Dar comandos/pruebas para verificar el resultado.
 
 Si falta información funcional del CU, solicitar únicamente la información realmente necesaria antes de cambiar el modelo de datos.
+
+
+## 25. CU22 — Servicios realizados (Sprint 2)
+
+Contrato detallado en [CONTEXTO_CU22_BACK.md](CONTEXTO_CU22_BACK.md).
+Se usan servicio_realizado y servicio_oftalmologico; CU21 conserva sus endpoints
+y nombres JSON, mapeados al catálogo singular referenciado por Supabase.
+
+La integración previa sql/cu22_integrar_catalogo_y_permisos.sql copió dos
+servicios conservando IDs y respaldo, y habilitó CU22 con AMBAS para Oftalmólogo.
+La API no crea tablas al iniciar.
+
+La última decisión del usuario deja la consulta opcional y el precio automático de CU21,
+sin descuentos. Si se vincula una consulta, se valida paciente, médico y estado.
+CU22 incluye POST individual, POST /lote, GET paginado, GET por ID, PUT y DELETE
+lógico bajo /historial-clinico/servicios-realizados, JWT, permisos y auditoría atómica.
+
+La migración [sql/cu22_agregar_precio_aplicado.sql](sql/cu22_agregar_precio_aplicado.sql)
+se aplicó en Supabase el 4 de octubre de 2026: precio_aplicado numeric(10,2),
+CHECK no negativo y conservación del registro histórico con importe desconocido NULL.
+El servidor determina el precio; un importe enviado debe coincidir. La edición del mismo
+servicio conserva su precio histórico. No se crea un vínculo a consulta de forma implícita.
+
+Verificación: 86 pruebas CU22 correctas. Suite API general en la ejecución previa: 393 correctas
+y dos fallos anteriores de CU12/CU14 por rutas/modelos duplicados.

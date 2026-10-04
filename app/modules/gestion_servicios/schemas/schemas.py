@@ -24,6 +24,8 @@ class ServicioUpdate(BaseModel):
 # 4. El molde que le respondemos a Angular cuando nos pide la LISTA de servicios
 class ServicioResponse(ServicioBase):
     id: int
+    precio_base: Optional[float] = None
+    estado: Optional[bool] = None
 
     class Config:
         from_attributes = True  # Esto le permite leer datos directamente de SQLAlchemy

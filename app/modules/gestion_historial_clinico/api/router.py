@@ -14,6 +14,7 @@ from app.modules.gestion_historial_clinico.schemas.schemas import (
     HistorialClinicoRespuesta,
 )
 from app.modules.gestion_historial_clinico.services import service
+from app.modules.gestion_historial_clinico.api.servicios_realizados import router as servicios_realizados_router
 
 router = APIRouter(
     prefix="/historial-clinico",
@@ -100,6 +101,9 @@ def consultar_consulta_clinica(
     _usuario=Depends(permiso_historial_clinico),
 ):
     return service.consultar_consulta_clinica(db, consulta_id)
+
+
+router.include_router(servicios_realizados_router)
 
 
 @router.get("/{paciente_id}", response_model=HistorialClinicoRespuesta)

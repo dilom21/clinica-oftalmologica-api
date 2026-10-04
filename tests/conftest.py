@@ -1,5 +1,11 @@
 """Fixtures locales: ninguna prueba puede conectarse a la BD compartida."""
 
+import os
+
+# Valores exclusivos de pruebas: nunca se invoca Gmail ni Supabase.
+for clave in ("GMAIL_CLIENT_ID", "GMAIL_CLIENT_SECRET", "GMAIL_REFRESH_TOKEN", "GMAIL_SENDER_EMAIL"):
+    os.environ.setdefault(clave, "prueba-local")
+
 from datetime import date, datetime, time, timezone
 
 import pytest

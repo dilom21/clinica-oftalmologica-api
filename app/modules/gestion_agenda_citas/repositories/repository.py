@@ -53,6 +53,16 @@ def obtener_oftalmologo_activo_por_id(
     return db.scalar(stmt)
 
 
+def obtener_oftalmologo_activo_por_usuario_id(db: Session, usuario_id: int):
+    """Resuelve el perfil activo del usuario autenticado para CU15, CU16 y CU22."""
+    return db.scalar(
+        select(Oftalmologo).where(
+            Oftalmologo.usuario_id == usuario_id,
+            Oftalmologo.estado.is_(True),
+        )
+    )
+
+
 def obtener_horarios_por_oftalmologo_y_dia(
     db: Session,
     oftalmologo_id: int,

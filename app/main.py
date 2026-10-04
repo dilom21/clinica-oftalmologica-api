@@ -1,10 +1,8 @@
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
-from app.database.base import Base
-from app.database.connection import engine
 
-# --- IMPORTACIÓN DE MODELOS PARA CREACIÓN DE TABLAS ---
+# --- IMPORTACIÓN DE MODELOS ---
 from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 from app.modules.gestion_usuarios_seguridad.models.models import Rol
 from app.modules.gestion_servicios.models.models import ServicioOftalmologico # <--- AGREGA ESTA LÍNEA
@@ -42,12 +40,8 @@ app.add_middleware(
     allow_headers=["*"],     
 )
 
-# --- CREACIÓN DE TABLAS AL INICIAR ---
-@app.on_event("startup")
-def startup_event():
-    Base.metadata.create_all(bind=engine)
+# El esquema se administra mediante SQL en Supabase.
 
-# --- INCLUSIÓN DE RUTAS EN LA API ---
 app.include_router(usuarios_seguridad_router)
 app.include_router(pacientes_router)
 app.include_router(agenda_citas_router)

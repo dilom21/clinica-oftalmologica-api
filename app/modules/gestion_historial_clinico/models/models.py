@@ -1,9 +1,11 @@
 from datetime import datetime
+from decimal import Decimal
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Identity, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
+from app.modules.gestion_servicios.models.models import ServicioOftalmologico
 from app.modules.gestion_agenda_citas.models.models import Cita, Oftalmologo
 from app.modules.gestion_pacientes.models.models import Paciente
 
@@ -102,3 +104,35 @@ class Diagnostico(Base):
     estado: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
 
     consulta_clinica: Mapped[ConsultaClinica] = relationship()
+
+
+class ServicioRealizado(Base):
+    """Tabla clínica; precio_aplicado se agrega mediante la migración SQL CU22."""
+
+    __tablename__ = "servicio_realizado"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), primary_key=True,
+    )
+    servicio_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("servicio_oftalmologico.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    paciente_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("paciente.id", ondelete="RESTRICT"), nullable=False,
+    )
+    consulta_clinica_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("consulta_clinica.id", ondelete="SET NULL"),
+    )
+    oftalmologo_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("oftalmologo.id", ondelete="RESTRICT"), nullable=False,
+    )
+    fecha_realizacion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    precio_aplicado: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    observaciones: Mapped[str | None] = mapped_column(Text)
+    estado: Mapped[bool | None] = mapped_column(Boolean, default=True)
+
+    servicio: Mapped[ServicioOftalmologico] = relationship()
+    paciente: Mapped[Paciente] = relationship()
+    oftalmologo: Mapped[Oftalmologo] = relationship()
+    consulta_clinica: Mapped[ConsultaClinica | None] = relationship()
