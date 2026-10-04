@@ -11,7 +11,18 @@ from app.modules.gestion_historial_clinico.schemas.schemas import (
     ConsultaClinicaRespuesta,
     DiagnosticoCrear,
     DiagnosticoRespuesta,
+    ExamenConResultadosRespuesta,
+    ExamenOftalmologicoCrear,
+    ExamenOftalmologicoRespuesta,
     HistorialClinicoRespuesta,
+    IndicacionCrear,
+    IndicacionRespuesta,
+    RecetaCrear,
+    RecetaRespuesta,
+    ResultadoExamenCrear,
+    ResultadoExamenRespuesta,
+    TratamientoCrear,
+    TratamientoRespuesta,
 )
 from app.modules.gestion_historial_clinico.services import service
 
@@ -145,3 +156,180 @@ def listar_diagnosticos(
     _usuario=Depends(permiso_historial_clinico),
 ):
     return service.listar_diagnosticos(db, consulta_id)
+
+
+# =========================================================
+# CU17 - REGISTRAR TRATAMIENTOS, INDICACIONES Y RECETAS
+# Función: "Registrar tratamientos, indicaciones y recetas"
+#
+# POST: permiso de CU17 + ESCRITURA; además el Service exige rol Oftalmólogo
+#       (dueño de la consulta) o Administrador (acceso total, sin exigir
+#       perfil de oftalmólogo ni propiedad de la consulta).
+# GET : "Consultar historial clínico" + LECTURA, para que CU13 pueda reutilizar
+#       los listados sin exigir el permiso de registro.
+# =========================================================
+
+permiso_registrar_tratamientos = requerir_permiso(
+    "Registrar tratamientos, indicaciones y recetas", ACCION_ESCRITURA,
+)
+
+
+@router.post(
+    "/consultas/{consulta_id}/tratamientos",
+    response_model=TratamientoRespuesta,
+    status_code=201,
+)
+def registrar_tratamiento(
+    datos: TratamientoCrear,
+    consulta_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso_registrar_tratamientos),
+):
+    return service.registrar_tratamiento(db, consulta_id, datos, usuario)
+
+
+@router.get(
+    "/consultas/{consulta_id}/tratamientos",
+    response_model=list[TratamientoRespuesta],
+)
+def listar_tratamientos(
+    consulta_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_historial_clinico),
+):
+    return service.listar_tratamientos(db, consulta_id)
+
+
+@router.post(
+    "/consultas/{consulta_id}/indicaciones",
+    response_model=IndicacionRespuesta,
+    status_code=201,
+)
+def registrar_indicacion(
+    datos: IndicacionCrear,
+    consulta_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso_registrar_tratamientos),
+):
+    return service.registrar_indicacion(db, consulta_id, datos, usuario)
+
+
+@router.get(
+    "/consultas/{consulta_id}/indicaciones",
+    response_model=list[IndicacionRespuesta],
+)
+def listar_indicaciones(
+    consulta_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_historial_clinico),
+):
+    return service.listar_indicaciones(db, consulta_id)
+
+
+@router.post(
+    "/consultas/{consulta_id}/recetas",
+    response_model=RecetaRespuesta,
+    status_code=201,
+)
+def registrar_receta(
+    datos: RecetaCrear,
+    consulta_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso_registrar_tratamientos),
+):
+    return service.registrar_receta(db, consulta_id, datos, usuario)
+
+
+@router.get(
+    "/consultas/{consulta_id}/recetas",
+    response_model=list[RecetaRespuesta],
+)
+def listar_recetas(
+    consulta_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_historial_clinico),
+):
+    return service.listar_recetas(db, consulta_id)
+
+
+@router.get("/recetas/{receta_id}", response_model=RecetaRespuesta)
+def consultar_receta(
+    receta_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_historial_clinico),
+):
+    return service.consultar_receta(db, receta_id)
+
+
+# =========================================================
+# CU18 - REGISTRAR RESULTADOS DE EXAMENES OFTALMOLOGICOS
+# =========================================================
+
+permiso_registrar_resultados_examenes = requerir_permiso(
+    "Registrar resultados de exámenes oftalmológicos",
+    ACCION_ESCRITURA,
+)
+
+
+@router.post(
+    "/consultas/{consulta_id}/examenes",
+    response_model=ExamenOftalmologicoRespuesta,
+    status_code=201,
+)
+def registrar_examen(
+    datos: ExamenOftalmologicoCrear,
+    consulta_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso_registrar_resultados_examenes),
+):
+    return service.registrar_examen(db, consulta_id, datos, usuario)
+
+
+@router.get(
+    "/consultas/{consulta_id}/examenes",
+    response_model=list[ExamenConResultadosRespuesta],
+)
+def listar_examenes(
+    consulta_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_historial_clinico),
+):
+    return service.listar_examenes(db, consulta_id)
+
+
+@router.post(
+    "/examenes/{examen_id}/resultados",
+    response_model=ResultadoExamenRespuesta,
+    status_code=201,
+)
+def registrar_resultado_examen(
+    datos: ResultadoExamenCrear,
+    examen_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso_registrar_resultados_examenes),
+):
+    return service.registrar_resultado_examen(db, examen_id, datos, usuario)
+
+
+@router.get(
+    "/examenes/{examen_id}/resultados",
+    response_model=list[ResultadoExamenRespuesta],
+)
+def listar_resultados_examen(
+    examen_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_historial_clinico),
+):
+    return service.listar_resultados_examen(db, examen_id)
+
+
+@router.get(
+    "/examenes/{examen_id}",
+    response_model=ExamenConResultadosRespuesta,
+)
+def consultar_examen(
+    examen_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    _usuario=Depends(permiso_historial_clinico),
+):
+    return service.consultar_examen(db, examen_id)
