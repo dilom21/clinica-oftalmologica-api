@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import ACCION_ESCRITURA, ACCION_LECTURA, requerir_permiso
 from app.database.session import get_db
+from app.modules.gestion_historial_clinico.api.controles import router as controles_router
 from app.modules.gestion_historial_clinico.schemas.schemas import (
     AntecedenteClinicoActualizar,
     AntecedenteClinicoCrear,
@@ -30,6 +31,8 @@ router = APIRouter(
     prefix="/historial-clinico",
     tags=["Historial Clínico"]
 )
+
+router.include_router(controles_router)
 
 @router.get("/")
 def obtener_modulo():
