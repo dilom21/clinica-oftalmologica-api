@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import ACCION_ESCRITURA, ACCION_LECTURA, requerir_permiso
-from app.database.session import get_db
+from app.core.dependencies import get_db
 from app.modules.gestion_historial_clinico.api.controles import router as controles_router
 from app.modules.gestion_historial_clinico.api.servicios_realizados import (
     router as servicios_realizados_router,

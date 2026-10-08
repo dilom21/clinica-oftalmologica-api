@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import obtener_usuario_actual
-from app.database.session import get_db
+from app.core.dependencies import get_db
 
 from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteCrear,

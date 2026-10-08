@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, Header, Path, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import obtener_usuario_actual
-from app.database.session import get_db
+from app.core.dependencies import get_db
 from app.modules.gestion_pagos.schemas.schemas import (
     ConsultaPagoResumen,
     EstadoPagoStripeRespuesta,

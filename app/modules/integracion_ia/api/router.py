@@ -15,7 +15,7 @@ from app.core.dependencies import (
     obtener_administrador_actual,
     requerir_permiso,
 )
-from app.database.session import get_db
+from app.core.dependencies import get_db
 from app.modules.integracion_ia.schemas.schemas import (
     AnalisisConsultaIARespuesta,
     MejorarRedaccionDiagnosticoIARequest,

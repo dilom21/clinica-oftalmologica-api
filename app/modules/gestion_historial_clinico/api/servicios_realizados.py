@@ -3,7 +3,7 @@ from pydantic import AwareDatetime
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import ACCION_ESCRITURA, ACCION_LECTURA, requerir_permiso
-from app.database.session import get_db
+from app.core.dependencies import get_db
 from app.modules.gestion_historial_clinico.schemas.servicios_realizados import (
     ServicioRealizadoActualizar,
     ServicioRealizadoCrear,

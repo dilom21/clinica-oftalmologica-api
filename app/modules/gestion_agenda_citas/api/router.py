@@ -10,7 +10,7 @@ from app.core.dependencies import (
     obtener_usuario_actual,
     requerir_permiso,
 )
-from app.database.session import get_db
+from app.core.dependencies import get_db
 
 from app.modules.gestion_agenda_citas.schemas.historial import HistorialCitasRespuesta
 from app.modules.gestion_agenda_citas.schemas.schemas import (

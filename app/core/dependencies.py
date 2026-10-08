@@ -1,13 +1,14 @@
 import unicodedata
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import JWT_ALGORITHM, JWT_SECRET_KEY
-from app.database.session import SessionLocal
+from app.core.tenancy.registry_provider import get_tenant_engine_registry
+from app.database import session as _session
 from app.modules.gestion_usuarios_seguridad.models.models import (
     Accion,
     Funcion,
@@ -17,6 +18,26 @@ from app.modules.gestion_usuarios_seguridad.models.models import (
 
 
 bearer_scheme = HTTPBearer()
+
+
+def get_db(
+    request: Request,
+    registry=Depends(get_tenant_engine_registry),
+):
+    """Tenant-aware session dependency shared by clinical routes and auth.
+
+    It is intentionally a *distinct* callable from
+    ``app.database.session.get_db``. The CU19 invariant requires the controles
+    router, ``obtener_usuario_actual`` and ``requerir_permiso`` to resolve the
+    exact same dependency object (exactly one session per request), while the
+    routing implementation itself is reused from ``app.database.session``:
+
+    * no token / legacy token -> original (legacy) database;
+    * valid tenant token      -> the company's database resolved server-side;
+    * SaaS admin token        -> rejected (never a clinical resource).
+    """
+    yield from _session.get_db(request, registry)
+
 
 # =========================================================
 # ACCIONES
@@ -65,13 +86,37 @@ def nombre_rol_actual(usuario: Usuario) -> str:
     return _normalizar_rol(nombre)
 
 
-def get_db():
-    db = SessionLocal()
+def get_tenant_claims(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> dict:
+    """Validate a *signed* tenant JWT and return its claims.
+
+    Invalid signatures, legacy tokens and SaaS admin tokens are rejected:
+    tenant identity is never taken from client-controlled input.
+    """
+    required = {"sub", "rol_id", "tenant_id", "empresa_id", "empresa_codigo"}
 
     try:
-        yield db
-    finally:
-        db.close()
+        claims = jwt.decode(
+            credentials.credentials,
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM],
+        )
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if claims.get("token_type") != "tenant" or not required.issubset(claims):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return claims
 
 
 def obtener_usuario_actual(
