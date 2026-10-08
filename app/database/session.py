@@ -143,6 +143,9 @@ def _open_tenant_session(claims: dict, registry) -> Session:
     if usuario.rol_id != claims.get("rol_id"):
         db.close()
         raise _unauthorized("Token no válido para recursos clínicos")
+    # Internal, server-validated context for downstream integrations. It is
+    # never populated from request bodies or arbitrary headers.
+    db.info["tenant_context"] = context
     return db
 
 

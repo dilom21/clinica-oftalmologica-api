@@ -13,6 +13,10 @@ from app.modules.gestion_pagos.schemas.schemas import (
     WebhookStripeRespuesta,
 )
 from app.modules.gestion_pagos.services import service
+from app.modules.gestion_pagos.services.webhook_tenancy import (
+    StripeWebhookSessionResolver,
+    get_stripe_webhook_session_resolver,
+)
 from app.modules.gestion_pagos.providers import (
     ProveedorPagoBase,
     obtener_proveedor_stripe,
@@ -80,15 +84,17 @@ async def webhook_stripe(
         default=None,
         alias="Stripe-Signature",
     ),
-    db: Session = Depends(get_db),
     proveedor: ProveedorPagoBase = Depends(obtener_proveedor_stripe),
+    session_resolver: StripeWebhookSessionResolver = Depends(
+        get_stripe_webhook_session_resolver
+    ),
 ):
     payload = await request.body()
-    return service.procesar_webhook_stripe(
-        db,
+    return service.procesar_webhook_stripe_en_base_correcta(
         payload,
         stripe_signature,
         proveedor,
+        session_resolver,
     )
 
 

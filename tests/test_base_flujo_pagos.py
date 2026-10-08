@@ -20,6 +20,10 @@ from app.modules.gestion_pagos.models.models import Pago, PagoDetalle
 from app.modules.gestion_pagos.repositories import repository as repo
 from app.modules.gestion_pagos.schemas.schemas import SeleccionServiciosPago
 from app.modules.gestion_pagos.services import service
+from app.modules.gestion_pagos.services.webhook_tenancy import (
+    StripeWebhookSessionResolver,
+    get_stripe_webhook_session_resolver,
+)
 
 
 @pytest.fixture
@@ -177,6 +181,13 @@ def cliente_pagos(db_pagos):
     anteriores = app.dependency_overrides.copy()
     app.dependency_overrides[session.get_db] = db_local
     app.dependency_overrides[dependencies.get_db] = db_local
+    app.dependency_overrides[get_stripe_webhook_session_resolver] = lambda: (
+        StripeWebhookSessionResolver(
+            registry=None,
+            control_session_factory=lambda: None,
+            legacy_session_factory=lambda: db_pagos,
+        )
+    )
     try:
         with TestClient(app) as client:
             yield client

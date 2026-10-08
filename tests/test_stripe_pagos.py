@@ -154,7 +154,14 @@ def insertar_pago_stripe(
     db.commit()
 
 
-def evento_stripe(tipo, *, intento="pi_webhook_600", amount=1010, currency="bob"):
+def evento_stripe(
+    tipo,
+    *,
+    intento="pi_webhook_600",
+    amount=1010,
+    currency="bob",
+    metadata=None,
+):
     return {
         "id": "evt_prueba",
         "type": tipo,
@@ -164,6 +171,7 @@ def evento_stripe(tipo, *, intento="pi_webhook_600", amount=1010, currency="bob"
                 "id": intento,
                 "amount": amount,
                 "currency": currency,
+                **({"metadata": metadata} if metadata is not None else {}),
             }
         },
     }

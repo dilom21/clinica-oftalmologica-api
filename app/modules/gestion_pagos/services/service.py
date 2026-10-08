@@ -30,6 +30,10 @@ from app.modules.gestion_pagos.schemas.schemas import (
     WebhookStripeRespuesta,
 )
 from app.modules.gestion_pagos.services import comprobante_pdf
+from app.modules.gestion_pagos.services.webhook_tenancy import (
+    StripeWebhookScope,
+    StripeWebhookSessionResolver,
+)
 from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 from app.modules.gestion_usuarios_seguridad.repositories.repository import (
     registrar_bitacora,
@@ -42,6 +46,38 @@ class ResultadoSeleccionServicios:
     paciente_id: int
     servicios: list[ServicioRealizado]
     total: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class StripePaymentScope:
+    """Server-derived identity used for Stripe metadata and idempotency."""
+
+    metadata: dict[str, str]
+    idempotency_prefix: str
+
+
+def _stripe_payment_scope(db: Session) -> StripePaymentScope:
+    context = db.info.get("tenant_context")
+    if context is None:
+        return StripePaymentScope(metadata={}, idempotency_prefix="clinica")
+    if (
+        context.empresa_id <= 0
+        or context.tenant_database_id <= 0
+        or not context.empresa_codigo
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="El contexto tenant del pago no es valido",
+        )
+    return StripePaymentScope(
+        metadata={
+            "clinica_contexto": "tenant",
+            "empresa_id": str(context.empresa_id),
+            "empresa_codigo": context.empresa_codigo,
+            "tenant_id": str(context.tenant_database_id),
+        },
+        idempotency_prefix=f"clinica-tenant-{context.tenant_database_id}",
+    )
 
 
 def _decimal(valor) -> Decimal:
@@ -340,6 +376,7 @@ def crear_intencion_stripe(
     proveedor: ProveedorPagoBase,
 ) -> IntencionPagoStripeRespuesta:
     paciente = _resolver_paciente_actual(db, usuario)
+    payment_scope = _stripe_payment_scope(db)
     try:
         proveedor.validar_configuracion()
     except (ProveedorNoConfigurado, ErrorProveedorPago) as error:
@@ -541,10 +578,13 @@ def crear_intencion_stripe(
                 amount=amount,
                 currency=pago.moneda.lower(),
                 metadata={
+                    **payment_scope.metadata,
                     "pago_id": str(pago.id),
                     "consulta_clinica_id": str(seleccion.consulta_id),
                 },
-                idempotency_key=f"clinica-pago-{pago.id}",
+                idempotency_key=(
+                    f"{payment_scope.idempotency_prefix}-pago-{pago.id}"
+                ),
             )
             _validar_intencion_reutilizable(intento, pago)
         except (ProveedorNoConfigurado, ErrorProveedorPago) as error:
@@ -592,15 +632,14 @@ def _fecha_evento_stripe(evento: dict[str, Any]) -> datetime:
     return datetime.now(timezone.utc)
 
 
-def procesar_webhook_stripe(
-    db: Session,
+def verificar_evento_webhook_stripe(
     payload: bytes,
     firma: str | None,
     proveedor: ProveedorPagoBase,
-) -> WebhookStripeRespuesta:
+) -> dict[str, Any]:
     try:
         proveedor.validar_configuracion(webhook=True)
-        evento = proveedor.verificar_webhook(payload, firma)
+        return proveedor.verificar_webhook(payload, firma)
     except ProveedorNoConfigurado as error:
         _traducir_error_proveedor(error)
     except ErrorFirmaWebhook as error:
@@ -611,6 +650,12 @@ def procesar_webhook_stripe(
     except ErrorProveedorPago as error:
         _traducir_error_proveedor(error)
 
+
+def procesar_evento_webhook_stripe(
+    db: Session,
+    evento: dict[str, Any],
+    scope: StripeWebhookScope,
+) -> WebhookStripeRespuesta:
     tipo = evento.get("type")
     estado_destino = _EVENTOS_STRIPE.get(tipo)
     if estado_destino is None:
@@ -634,11 +679,31 @@ def procesar_webhook_stripe(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Pago asociado al PaymentIntent no encontrado",
             )
+        metadata_pago_id = scope.pago_id
+        if metadata_pago_id is not None and metadata_pago_id != pago_previo.id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="La metadata Stripe no corresponde al pago encontrado",
+            )
         detalles = repo.listar_detalles_pago(db, pago_previo.id)
         if not detalles:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="El pago Stripe no tiene servicios asociados",
+            )
+        consultas = {
+            detalle.servicio_realizado.consulta_clinica_id
+            for detalle in detalles
+            if detalle.servicio_realizado is not None
+        }
+        metadata_consulta_id = scope.consulta_clinica_id
+        if (
+            metadata_consulta_id is not None
+            and consultas != {metadata_consulta_id}
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="La metadata Stripe no corresponde a la consulta del pago",
             )
         repo.obtener_servicios_realizados_por_ids_para_actualizacion(
             db,
@@ -736,6 +801,45 @@ def procesar_webhook_stripe(
     except Exception:
         db.rollback()
         raise
+
+
+def procesar_webhook_stripe(
+    db: Session,
+    payload: bytes,
+    firma: str | None,
+    proveedor: ProveedorPagoBase,
+) -> WebhookStripeRespuesta:
+    """Legacy-compatible service entry point used by direct unit callers."""
+    evento = verificar_evento_webhook_stripe(payload, firma, proveedor)
+    objeto = evento.get("data", {}).get("object", {})
+    metadata = objeto.get("metadata") or {}
+    tenant_markers = {
+        "clinica_contexto", "empresa_id", "empresa_codigo", "tenant_id"
+    }.intersection(metadata)
+    if tenant_markers:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Un evento tenant requiere resolucion segura de su base clinica",
+        )
+    return procesar_evento_webhook_stripe(
+        db,
+        evento,
+        StripeWebhookScope(is_tenant=False, metadata=metadata),
+    )
+
+
+def procesar_webhook_stripe_en_base_correcta(
+    payload: bytes,
+    firma: str | None,
+    proveedor: ProveedorPagoBase,
+    session_resolver: StripeWebhookSessionResolver,
+) -> WebhookStripeRespuesta:
+    """Verify the Stripe signature, then and only then select a database."""
+    evento = verificar_evento_webhook_stripe(payload, firma, proveedor)
+    if _EVENTOS_STRIPE.get(evento.get("type")) is None:
+        return WebhookStripeRespuesta(procesado=False)
+    with session_resolver.open_for_verified_event(evento) as (db, scope):
+        return procesar_evento_webhook_stripe(db, evento, scope)
 
 
 def consultar_estado_pago_stripe(
