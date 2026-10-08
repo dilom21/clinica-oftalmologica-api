@@ -167,6 +167,8 @@ def get_db(
         return
     if token_type != "tenant":
         # SaaS admin (or unknown) tokens never grant clinical access.
+        if token_type == "saas_admin":
+            raise _unauthorized("Token SaaS no válido para rutas clínicas")
         raise _unauthorized("Token no válido para recursos clínicos")
 
     db = _open_tenant_session(claims, registry)
