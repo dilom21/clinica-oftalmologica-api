@@ -1,11 +1,15 @@
 from datetime import date, datetime
+from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Date,
     DateTime,
     ForeignKey,
+    Integer,
+    Numeric,
     String,
     Text,
 )
@@ -108,6 +112,13 @@ class ConsultaClinica(Base):
         order_by=lambda: (
             ExamenOftalmologico.fecha_solicitud.desc(),
             ExamenOftalmologico.id.desc(),
+        ),
+    )
+    servicios_realizados: Mapped[list["ServicioRealizado"]] = relationship(
+        back_populates="consulta_clinica",
+        order_by=lambda: (
+            ServicioRealizado.fecha_realizacion.desc(),
+            ServicioRealizado.id.desc(),
         ),
     )
 
@@ -281,4 +292,68 @@ class ResultadoExamen(Base):
 
     examen: Mapped[ExamenOftalmologico] = relationship(
         back_populates="resultados",
+    )
+
+
+# =========================================================
+# CU21 / CU22 - SERVICIOS OFTALMOLOGICOS Y SERVICIOS REALIZADOS
+#
+# Estas tablas ya existen en PostgreSQL. Se mapean aqui para que el modulo de
+# pagos pueda consultar los cargos clinicos sin duplicar entidades ni esquema.
+# =========================================================
+
+
+class ServicioOftalmologico(Base):
+    __tablename__ = "servicio_oftalmologico"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    nombre: Mapped[str] = mapped_column(String(150), nullable=False)
+    descripcion: Mapped[str | None] = mapped_column(Text)
+    precio: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+    duracion: Mapped[int | None] = mapped_column(Integer)
+    estado: Mapped[bool | None] = mapped_column(Boolean, default=True)
+
+
+class ServicioRealizado(Base):
+    __tablename__ = "servicio_realizado"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    servicio_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("servicio_oftalmologico.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    paciente_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("paciente.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    consulta_clinica_id: Mapped[int | None] = mapped_column(
+        BigInteger,
+        ForeignKey("consulta_clinica.id", ondelete="SET NULL"),
+    )
+    oftalmologo_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("oftalmologo.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    fecha_realizacion: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
+    observaciones: Mapped[str | None] = mapped_column(Text)
+    estado: Mapped[bool | None] = mapped_column(Boolean, default=True)
+    precio_aplicado: Mapped[Decimal | None] = mapped_column(Numeric(10, 2))
+
+    servicio: Mapped[ServicioOftalmologico] = relationship()
+    paciente: Mapped[Paciente] = relationship()
+    consulta_clinica: Mapped[ConsultaClinica | None] = relationship(
+        back_populates="servicios_realizados",
+    )
+    oftalmologo: Mapped[Oftalmologo] = relationship()
+
+    __table_args__ = (
+        CheckConstraint(
+            "precio_aplicado IS NULL OR precio_aplicado >= 0",
+            name="servicio_realizado_precio_aplicado_valido",
+        ),
     )

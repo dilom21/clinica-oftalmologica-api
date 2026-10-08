@@ -17,6 +17,9 @@ GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
 GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
 GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN")
 GMAIL_SENDER_EMAIL = os.getenv("GMAIL_SENDER_EMAIL")
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+STRIPE_CURRENCY = os.getenv("STRIPE_CURRENCY", "bob").strip().lower()
 
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL no está configurada en el archivo .env")
