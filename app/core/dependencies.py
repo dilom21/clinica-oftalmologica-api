@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import JWT_ALGORITHM, JWT_SECRET_KEY
-from app.database.session import SessionLocal
+from app.database.session import get_db
 from app.modules.gestion_usuarios_seguridad.models.models import (
     Accion,
     Funcion,
@@ -17,6 +17,41 @@ from app.modules.gestion_usuarios_seguridad.models.models import (
 
 
 bearer_scheme = HTTPBearer()
+
+
+def get_tenant_claims(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> dict:
+    """Validate only signed tenant JWTs; legacy tokens are rejected here."""
+    try:
+        payload = jwt.decode(
+            credentials.credentials,
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM],
+        )
+        validate_tenant_claims(payload)
+        return payload
+    except (jwt.InvalidTokenError, KeyError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token tenant inválido o expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+def validate_tenant_claims(payload: dict) -> None:
+    if payload.get("token_type") != "tenant":
+        raise ValueError("token type")
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject.isdecimal() or int(subject) <= 0:
+        raise ValueError("sub")
+    for claim in ("tenant_id", "empresa_id", "rol_id"):
+        value = payload.get(claim)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(claim)
+    codigo = payload.get("empresa_codigo")
+    if not isinstance(codigo, str) or not codigo.strip():
+        raise ValueError("empresa_codigo")
 
 # =========================================================
 # ACCIONES
@@ -65,15 +100,6 @@ def nombre_rol_actual(usuario: Usuario) -> str:
     return _normalizar_rol(nombre)
 
 
-def get_db():
-    db = SessionLocal()
-
-    try:
-        yield db
-    finally:
-        db.close()
-
-
 def obtener_usuario_actual(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
@@ -84,7 +110,21 @@ def obtener_usuario_actual(
             JWT_SECRET_KEY,
             algorithms=[JWT_ALGORITHM],
         )
+        if payload.get("token_type") == "saas_admin":
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token SaaS no válido para rutas clínicas",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        if payload.get("token_type") == "tenant":
+            validate_tenant_claims(payload)
+        elif payload.get("token_type") is not None or any(
+            key in payload for key in ("tenant_id", "empresa_id", "empresa_codigo")
+        ):
+            raise ValueError("unexpected token type")
         usuario_id = int(payload["sub"])
+    except HTTPException:
+        raise
     except (jwt.InvalidTokenError, KeyError, TypeError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -93,7 +133,9 @@ def obtener_usuario_actual(
         )
 
     usuario = db.get(Usuario, usuario_id)
-    if not usuario or not usuario.estado:
+    if not usuario or not usuario.estado or (
+        payload.get("token_type") == "tenant" and usuario.rol_id != payload["rol_id"]
+    ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Usuario no encontrado o inactivo",

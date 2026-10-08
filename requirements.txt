@@ -12,10 +12,12 @@ psycopg==3.3.4
 psycopg-binary==3.3.4
 pydantic==2.13.4
 pydantic-settings==2.15.0
+email-validator
 pydantic_core==2.46.4
 PyJWT==2.13.0
 google-auth==2.57.1
 google-api-python-client==2.200.0
+openai==3.24.0
 python-dotenv==1.2.3
 setuptools==83.0.0
 SQLAlchemy==2.0.52
@@ -26,3 +28,5 @@ tzdata==2026.3
 uvicorn==0.52.3
 wheel==0.47.0
 pwdlib[argon2]==0.3.1
+openpyxl
+reportlab

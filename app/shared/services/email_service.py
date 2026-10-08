@@ -1,9 +1,12 @@
 import base64
 import html
 import os
+import smtplib
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from email.message import EmailMessage
+from email.utils import formataddr
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -15,6 +18,13 @@ from app.core.config import (
     GMAIL_CLIENT_SECRET,
     GMAIL_REFRESH_TOKEN,
     GMAIL_SENDER_EMAIL,
+    SMTP_FROM_EMAIL,
+    SMTP_FROM_NAME,
+    SMTP_HOST,
+    SMTP_PASSWORD,
+    SMTP_PORT,
+    SMTP_USERNAME,
+    SMTP_USE_TLS,
 )
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
@@ -119,3 +129,40 @@ def enviar_correo_recuperacion_password(
 
     service = _get_gmail_service()
     return service.users().messages().send(userId="me", body={"raw": raw}).execute()
+
+
+class SMTPNoConfiguradoError(RuntimeError):
+    pass
+
+
+def enviar_reporte_por_smtp(
+    destinatario: str,
+    asunto: str,
+    mensaje: str,
+    contenido: bytes,
+    filename: str,
+    maintype: str,
+    subtype: str,
+) -> None:
+    """Send an in-memory report without changing the Gmail recovery flow."""
+    if not SMTP_HOST or not SMTP_FROM_EMAIL:
+        raise SMTPNoConfiguradoError
+
+    email_message = EmailMessage()
+    email_message["To"] = destinatario
+    email_message["From"] = formataddr((SMTP_FROM_NAME, SMTP_FROM_EMAIL))
+    email_message["Subject"] = asunto
+    email_message.set_content(mensaje)
+    email_message.add_attachment(
+        contenido,
+        maintype=maintype,
+        subtype=subtype,
+        filename=filename,
+    )
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as smtp:
+        if SMTP_USE_TLS:
+            smtp.starttls()
+        if SMTP_USERNAME:
+            smtp.login(SMTP_USERNAME, SMTP_PASSWORD or "")
+        smtp.send_message(email_message)

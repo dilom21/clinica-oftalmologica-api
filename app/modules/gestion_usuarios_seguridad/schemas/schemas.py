@@ -132,6 +132,41 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class TenantLoginRequest(BaseModel):
+    empresa_codigo: str
+    correo: str
+    password: str
+
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("empresa_codigo")
+    @classmethod
+    def validar_empresa_codigo(cls, codigo: str) -> str:
+        codigo = codigo.strip().upper()
+        if not codigo:
+            raise ValueError("El código de empresa es obligatorio")
+        if len(codigo) > 80:
+            raise ValueError("El código de empresa es demasiado largo")
+        return codigo
+
+    @field_validator("correo")
+    @classmethod
+    def validar_correo_tenant(cls, correo: str) -> str:
+        return normalizar_correo(correo)
+
+    @field_validator("password")
+    @classmethod
+    def validar_password_tenant(cls, password: str) -> str:
+        if not password.strip():
+            raise ValueError("La contraseña es obligatoria")
+        return password
+
+
+class TenantEmpresaPublica(BaseModel):
+    codigo: str
+    nombre: str
+
+
 class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"

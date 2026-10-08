@@ -1,7 +1,12 @@
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
-from app.database.session import get_db
+from app.database.session import get_db, get_legacy_login_db
+from app.core.tenancy.dependencies import get_control_db, get_tenant_engine_registry
+from app.core.tenancy.engine_registry import TenantEngineRegistry
+from app.core.tenancy.repository import TenantControlPlaneRepository
+from app.core.tenancy.resolver import TenantResolver
+from app.core.tenancy.exceptions import TenantError
 from app.core.dependencies import (
     obtener_administrador_actual,
     obtener_usuario_actual,
@@ -10,6 +15,8 @@ from app.core.dependencies import (
 
 from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     LoginRequest,
+    TenantLoginRequest,
+    TenantEmpresaPublica,
     LoginResponse,
     RecuperarPasswordRequest,
     RestablecerPasswordRequest,
@@ -41,13 +48,15 @@ from app.modules.gestion_usuarios_seguridad.services import (
     rol_service,
     usuario_service,
 )
+from app.modules.gestion_usuarios_seguridad.services.tenant_auth_service import (
+    autenticar_usuario_tenant,
+)
 
 
 router = APIRouter(
     prefix="/seguridad",
     tags=["Usuarios y Seguridad"],
 )
-
 
 # =========================================================
 # CU01 - INICIAR SESIÓN
@@ -60,13 +69,44 @@ router = APIRouter(
 def iniciar_sesion(
     request: Request,
     datos: LoginRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_legacy_login_db),
 ):
     return auth_service.iniciar_sesion(
         db,
         datos,
         request.client.host if request.client else None,
     )
+
+
+@router.post("/tenant/login", response_model=LoginResponse)
+def iniciar_sesion_tenant(
+    datos: TenantLoginRequest,
+    control_db: Session = Depends(get_control_db),
+    registry: TenantEngineRegistry = Depends(get_tenant_engine_registry),
+):
+    return autenticar_usuario_tenant(
+        datos,
+        control_plane_repository=TenantControlPlaneRepository(control_db),
+        tenant_registry=registry,
+    )
+
+
+@router.get("/tenant/empresas", response_model=list[TenantEmpresaPublica])
+def listar_empresas_tenant(control_db: Session = Depends(get_control_db)):
+    repository = TenantControlPlaneRepository(control_db)
+    resolver = TenantResolver(repository)
+    empresas = []
+    for empresa in repository.list_active_empresas():
+        try:
+            context = resolver.resolver_por_codigo_empresa(empresa.codigo)
+            resolver.require_active_database(context)
+        except TenantError:
+            continue
+        empresas.append(TenantEmpresaPublica(
+            codigo=empresa.codigo,
+            nombre=empresa.nombre_comercial or empresa.razon_social or empresa.codigo,
+        ))
+    return sorted(empresas, key=lambda item: (item.nombre.casefold(), item.codigo))
 
 
 # =========================================================
@@ -117,7 +157,7 @@ def registrar_cuenta_paciente(
 def iniciar_sesion_paciente(
     request: Request,
     datos: LoginRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_legacy_login_db),
 ):
     return auth_service.iniciar_sesion_paciente(
         db,

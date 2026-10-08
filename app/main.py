@@ -16,6 +16,12 @@ from app.modules.gestion_agenda_citas.api.router import (
     router as agenda_router,
 )
 
+from app.modules.integracion_ia.api.router import (
+    router as integracion_ia_router,
+)
+from app.modules.gestion_reportes.api.router import router as reportes_router
+from app.modules.administracion_saas.api.router import router as saas_router
+
 app = FastAPI(
     title="API Clínica Oftalmológica",
     version="1.0.0",
@@ -42,6 +48,9 @@ app.include_router(seguridad_router)
 app.include_router(pacientes_router)
 app.include_router(agenda_router)
 app.include_router(historial_clinico_router)
+app.include_router(integracion_ia_router)
+app.include_router(reportes_router)
+app.include_router(saas_router)
 
 
 @app.get("/")

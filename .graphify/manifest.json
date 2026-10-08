@@ -1,0 +1,90 @@
+{
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/__init__.py": {
+    "mtime": 1787543005853.082,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/api/__init__.py": {
+    "mtime": 1787543005854.0786,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/api/router.py": {
+    "mtime": 1789586389772.6702,
+    "hash": "d17060715b8c68b2830403c7292c0f3f"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/casos_uso/__init__.py": {
+    "mtime": 1787543005860.0625,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/casos_uso/cu13_consultar_historial_clinico.py": {
+    "mtime": 1787543005861.0608,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/casos_uso/cu14_gestionar_antecedentes_clinicos.py": {
+    "mtime": 1787543005861.0608,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/casos_uso/cu15_registrar_consulta_clinica.py": {
+    "mtime": 1787543005895.2173,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/casos_uso/cu16_registrar_diagnostico.py": {
+    "mtime": 1787543005896.2134,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/casos_uso/cu17_registrar_tratamientos_recetas.py": {
+    "mtime": 1787543005897.212,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/casos_uso/cu18_registrar_resultados_examenes.py": {
+    "mtime": 1787543005897.212,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/casos_uso/cu19_programar_controles_medicos.py": {
+    "mtime": 1787543005898.2083,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/casos_uso/cu20_consultar_informacion_clinica.py": {
+    "mtime": 1787543005899.2046,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/casos_uso/cu21_gestionar_servicios_oftalmologicos.py": {
+    "mtime": 1787543005901.2002,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/casos_uso/cu22_registrar_servicios_realizados.py": {
+    "mtime": 1787543005902.1968,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/models/__init__.py": {
+    "mtime": 1787543005904.313,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/models/models.py": {
+    "mtime": 1789586347339.67,
+    "hash": "33fb30aa922c497cf162379e7649128c"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/repositories/__init__.py": {
+    "mtime": 1787543005905.822,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/repositories/repository.py": {
+    "mtime": 1789586365539.289,
+    "hash": "b53d83a67d24552851a839e7c66344a7"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/schemas/__init__.py": {
+    "mtime": 1787543005911.8118,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/schemas/schemas.py": {
+    "mtime": 1789586354032.7344,
+    "hash": "c544fb5de0eb5f610d4473116ff2a563"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/services/__init__.py": {
+    "mtime": 1787543005912.8088,
+    "hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "C:/SI2_Proyecto/clinica-oftalmologica-api/app/modules/gestion_historial_clinico/services/service.py": {
+    "mtime": 1789586381744.9695,
+    "hash": "ce336c4c6e3a8ddfcf2f0cdcea28cde9"
+  }
+}
