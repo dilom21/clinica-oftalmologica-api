@@ -1,16 +1,26 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.tenancy.dependencies import get_control_db
-from app.modules.administracion_saas.dependencies import get_saas_admin
-from app.modules.administracion_saas.models import SaasUsuario
+from app.modules.administracion_saas import policy_service, restore_service
+from app.modules.administracion_saas.backup_service import create_manual_backup, list_backups
+from app.modules.administracion_saas.dependencies import get_saas_admin, get_saas_superadmin
+from app.modules.administracion_saas.models import BackupTenant, RestoreTenant, SaasUsuario
 from app.modules.administracion_saas.repository import SaasRepository
 from app.modules.administracion_saas.schemas import (
     BitacoraResponse,
+    BackupCreateRequest,
+    BackupPolicyResponse,
+    BackupPolicyUpdateRequest,
+    BackupResponse,
     EmpresaResponse,
     EstadoRequest,
     PlanResponse,
     ProvisionamientoResponse,
+    RestoreCreateRequest,
+    RestoreResponse,
+    RestoreValidateRequest,
+    RestoreValidateResponse,
     SaasLoginRequest,
     SaasLoginResponse,
     SuscripcionResponse,
@@ -173,3 +183,189 @@ def estado_suscripcion(
     return cambiar_estado_suscripcion(
         db, suscripcion_id, data.estado, usuario.id, ip,
     )
+
+
+@router.post("/backups", response_model=BackupResponse, status_code=201)
+def crear_backup(
+    request: Request,
+    data: BackupCreateRequest,
+    db: Session = Depends(get_control_db),
+    usuario: SaasUsuario = Depends(get_saas_admin),
+):
+    factory = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
+    db.rollback()
+    try:
+        return create_manual_backup(
+            factory,
+            data.empresa_id,
+            usuario.id,
+            request.client.host if request.client else None,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, "Manual backup service is unavailable") from None
+
+
+@router.get("/backups", response_model=list[BackupResponse])
+def backups(
+    empresa_id: int | None = Query(None, gt=0),
+    estado: str | None = Query(
+        None, pattern="^(PENDIENTE|EN_PROCESO|COMPLETADO|ERROR)$",
+    ),
+    tipo: str | None = Query(
+        None, pattern="^(MANUAL|AUTOMATICO|PRE_RESTORE)$",
+    ),
+    db: Session = Depends(get_control_db),
+    _usuario: SaasUsuario = Depends(get_saas_admin),
+):
+    return list_backups(db, empresa_id, estado, tipo)
+
+
+@router.get("/backups/{backup_id}", response_model=BackupResponse)
+def backup_detail(
+    backup_id: int,
+    db: Session = Depends(get_control_db),
+    _usuario: SaasUsuario = Depends(get_saas_admin),
+):
+    if backup_id <= 0:
+        raise HTTPException(404, "Backup not found")
+    record = db.get(BackupTenant, backup_id)
+    if record is None:
+        raise HTTPException(404, "Backup not found")
+    return record
+
+
+@router.get("/backup-policies", response_model=list[BackupPolicyResponse])
+def backup_policies(
+    db: Session = Depends(get_control_db),
+    _usuario: SaasUsuario = Depends(get_saas_admin),
+):
+    return policy_service.list_backup_policies(db)
+
+
+@router.put("/backup-policies/{empresa_id}", response_model=BackupPolicyResponse)
+def actualizar_backup_policy(
+    request: Request,
+    empresa_id: int,
+    data: BackupPolicyUpdateRequest,
+    db: Session = Depends(get_control_db),
+    usuario: SaasUsuario = Depends(get_saas_superadmin),
+):
+    if empresa_id <= 0:
+        raise HTTPException(404, "Empresa no encontrada")
+    return policy_service.upsert_backup_policy(
+        db,
+        empresa_id,
+        data,
+        usuario.id,
+        request.client.host if request.client else None,
+    )
+
+
+def _restore_response(row: RestoreTenant) -> RestoreResponse:
+    return RestoreResponse.model_validate(row).model_copy(update={
+        "mensaje_error": sanitize_error(row.mensaje_error),
+        "rollback_mensaje": sanitize_error(row.rollback_mensaje),
+    })
+
+
+@router.post("/restores/validate", response_model=RestoreValidateResponse)
+def validar_restore(
+    request: Request,
+    data: RestoreValidateRequest,
+    db: Session = Depends(get_control_db),
+    usuario: SaasUsuario = Depends(get_saas_admin),
+):
+    factory = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
+    db.rollback()
+    try:
+        dependencies = restore_service.build_restore_dependencies()
+    except Exception:
+        raise HTTPException(503, "Restore service is unavailable") from None
+    try:
+        return restore_service.validate_restore(
+            factory,
+            data.backup_id,
+            usuario.id,
+            request.client.host if request.client else None,
+            backend=dependencies.backend,
+            storage=dependencies.storage,
+        )
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(503, "Restore validation is unavailable") from None
+
+
+@router.post("/restores", response_model=RestoreResponse, status_code=201)
+def crear_restore(
+    request: Request,
+    data: RestoreCreateRequest,
+    db: Session = Depends(get_control_db),
+    usuario: SaasUsuario = Depends(get_saas_superadmin),
+):
+    factory = sessionmaker(bind=db.get_bind(), expire_on_commit=False)
+    db.rollback()
+    try:
+        dependencies = restore_service.build_restore_dependencies()
+    except Exception:
+        raise HTTPException(503, "Restore service is unavailable") from None
+    try:
+        row = restore_service.create_restore(
+            factory,
+            data.backup_id,
+            data.confirmacion,
+            usuario.id,
+            request.client.host if request.client else None,
+            backend=dependencies.backend,
+            backup_runner=dependencies.backup_runner,
+            storage=dependencies.storage,
+            engine_disposer=restore_service.get_engine_disposer(),
+        )
+        return _restore_response(row)
+    except HTTPException:
+        raise
+    except restore_service.RestoreReservationError:
+        raise HTTPException(
+            409, "A restore is already in progress for this tenant",
+        ) from None
+    except restore_service.RestoreExecutionError as exc:
+        raise HTTPException(
+            503, sanitize_error(str(exc)) or "Restore failed",
+        ) from None
+    except Exception:
+        raise HTTPException(503, "Restore service is unavailable") from None
+
+
+@router.get("/restores", response_model=list[RestoreResponse])
+def restores(
+    empresa_id: int | None = Query(None, gt=0),
+    estado: str | None = Query(
+        None,
+        pattern=(
+            "^(PENDIENTE|EN_PROCESO|COMPLETADO|ERROR|ROLLBACK_EN_PROCESO|"
+            "ROLLBACK_COMPLETADO|ROLLBACK_ERROR)$"
+        ),
+    ),
+    db: Session = Depends(get_control_db),
+    _usuario: SaasUsuario = Depends(get_saas_admin),
+):
+    return [
+        _restore_response(row)
+        for row in restore_service.list_restores(db, empresa_id, estado)
+    ]
+
+
+@router.get("/restores/{restore_id}", response_model=RestoreResponse)
+def restore_detail(
+    restore_id: int,
+    db: Session = Depends(get_control_db),
+    _usuario: SaasUsuario = Depends(get_saas_admin),
+):
+    if restore_id <= 0:
+        raise HTTPException(404, "Restore not found")
+    row = db.get(RestoreTenant, restore_id)
+    if row is None:
+        raise HTTPException(404, "Restore not found")
+    return _restore_response(row)

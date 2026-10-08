@@ -37,3 +37,15 @@ def get_saas_admin(
     if user.rol not in {"SUPERADMIN", "OPERADOR"}:
         raise HTTPException(status_code=403, detail="El usuario no tiene un rol SaaS administrativo")
     return user
+
+
+def get_saas_superadmin(
+    usuario: SaasUsuario = Depends(get_saas_admin),
+) -> SaasUsuario:
+    """Authorize destructive/control-plane configuration operations."""
+    if usuario.rol != "SUPERADMIN":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="La operación requiere rol SUPERADMIN",
+        )
+    return usuario

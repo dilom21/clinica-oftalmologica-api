@@ -670,18 +670,20 @@ def test_empresa_detail_and_missing_company(saas_client):
     assert missing.status_code == 404
 
 
-def test_backup_and_restore_routes_are_not_registered():
+def test_phase_2c_backup_and_restore_routes_are_registered():
     paths = app.openapi()["paths"]
-    forbidden_prefixes = (
-        "/saas/backups",
-        "/saas/backup-policies",
-        "/saas/restores",
-    )
-    assert not any(
-        path.startswith(prefix)
-        for path in paths
-        for prefix in forbidden_prefixes
-    )
+    expected = {
+        ("post", "/saas/backups"),
+        ("get", "/saas/backups"),
+        ("get", "/saas/backups/{backup_id}"),
+        ("get", "/saas/backup-policies"),
+        ("put", "/saas/backup-policies/{empresa_id}"),
+        ("post", "/saas/restores/validate"),
+        ("post", "/saas/restores"),
+        ("get", "/saas/restores"),
+        ("get", "/saas/restores/{restore_id}"),
+    }
+    assert all(method in paths[path] for method, path in expected)
 
 
 @pytest.mark.parametrize(
