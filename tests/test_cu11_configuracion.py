@@ -872,7 +872,8 @@ class TestRegresionCU09(unittest.TestCase):
                 fecha=proxima_fecha_con_dia(4),
             )
         self.assertTrue(resultado.tiene_horario)
-        self.assertEqual(len(resultado.intervalos_disponibles), 1)
+        # Horario 08:00-12:00 -> 8 turnos de 30 minutos.
+        self.assertEqual(len(resultado.intervalos_disponibles), 8)
 
     def test_cu09_descuenta_bloqueo_de_cu11(self):
         db = MagicMock()
@@ -902,8 +903,12 @@ class TestRegresionCU09(unittest.TestCase):
         self.assertEqual(
             intervalos,
             [
-                (time(8, 0), time(9, 0)),
-                (time(10, 0), time(12, 0)),
+                (time(8, 0), time(8, 30)),
+                (time(8, 30), time(9, 0)),
+                (time(10, 0), time(10, 30)),
+                (time(10, 30), time(11, 0)),
+                (time(11, 0), time(11, 30)),
+                (time(11, 30), time(12, 0)),
             ],
         )
 

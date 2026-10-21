@@ -9,6 +9,8 @@ from pydantic import ValidationError
 
 from app.modules.gestion_agenda_citas.repositories import repository as repo
 from app.modules.gestion_agenda_citas.schemas.schemas import (
+    DURACION_CITA_MINUTOS,
+    CitaCreate,
     CitaEstadoUpdate,
     CitaResponse,
     CitaUpdate,
@@ -69,7 +71,7 @@ def cita_falsa(
     cita_id=1,
     fecha=None,
     inicio=time(8, 0),
-    fin=time(9, 0),
+    fin=time(8, 30),
     estado="PROGRAMADA",
     motivo="Consulta",
     observaciones=None,
@@ -138,7 +140,7 @@ class TestRegistrarCitaCU10(unittest.TestCase):
         self.assertEqual(kwargs["paciente_id"], 1)
         self.assertEqual(kwargs["oftalmologo_id"], 1)
         self.assertEqual(kwargs["hora_inicio"], time(8, 0))
-        self.assertEqual(kwargs["hora_fin"], time(9, 0))
+        self.assertEqual(kwargs["hora_fin"], time(8, 30))
         self.assertEqual(kwargs["estado"], "PROGRAMADA")
         self.assertEqual(kwargs["creado_por_usuario_id"], self.usuario.id)
         self.assertEqual(kwargs["motivo"], "Dolor ocular")
@@ -186,7 +188,7 @@ class TestRegistrarCitaCU10(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 409)
 
     def test_horario_fuera_de_intervalo_disponible_devuelve_409(self):
-        # Solo quedó disponible 09:00-12:00; se pide 08:00-09:00.
+        # Solo quedó disponible 09:00-12:00; se pide 08:00-08:30.
         with patch.object(citas, "obtener_paciente_por_id", return_value=paciente_falso()), \
              patch.object(citas.repo, "obtener_oftalmologo_activo_por_id", return_value=oftalmologo_falso()), \
              patch.object(
@@ -201,7 +203,7 @@ class TestRegistrarCitaCU10(unittest.TestCase):
         self.assertEqual(ctx.exception.status_code, 409)
 
     def test_horario_bloqueado_o_ocupado_devuelve_409(self):
-        # Disponible solo 11:00-12:00; 10:00-11:00 está ocupado/bloqueado.
+        # Disponible solo 11:00-12:00; 10:00-10:30 está ocupado/bloqueado.
         with patch.object(citas, "obtener_paciente_por_id", return_value=paciente_falso()), \
              patch.object(citas.repo, "obtener_oftalmologo_activo_por_id", return_value=oftalmologo_falso()), \
              patch.object(
@@ -214,6 +216,147 @@ class TestRegistrarCitaCU10(unittest.TestCase):
             with self.assertRaises(HTTPException) as ctx:
                 citas.registrar_cita(self.db, datos_cita(inicio=time(10, 0)), self.usuario)
         self.assertEqual(ctx.exception.status_code, 409)
+
+    def test_registrar_cita_a_las_0830_calcula_hora_fin_0900(self):
+        """CASO 2: hora_inicio 08:30 -> hora_fin 09:00."""
+        creada = cita_falsa(cita_id=51, inicio=time(8, 30), fin=time(9, 0))
+        with patch.object(citas, "obtener_paciente_por_id", return_value=paciente_falso()), \
+             patch.object(citas.repo, "obtener_oftalmologo_activo_por_id", return_value=oftalmologo_falso()), \
+             patch.object(
+                 citas.service_cu09,
+                 "consultar_disponibilidad",
+                 return_value=disponibilidad_falsa(
+                     intervalos=[intervalo(time(8, 30), time(12, 0))]
+                 ),
+             ), \
+             patch.object(citas.repo, "crear_cita", return_value=creada) as mock_crear:
+            citas.registrar_cita(
+                self.db,
+                datos_cita(inicio=time(8, 30)),
+                self.usuario,
+            )
+
+        kwargs = mock_crear.call_args.kwargs
+        self.assertEqual(kwargs["hora_inicio"], time(8, 30))
+        self.assertEqual(kwargs["hora_fin"], time(9, 0))
+
+    def test_registrar_cita_en_intervalo_amplio_de_cu09(self):
+        """CASO 9: CU09 devuelve 08:00-12:00 y CU10 acepta 10:30-11:00."""
+        creada = cita_falsa(cita_id=52, inicio=time(10, 30), fin=time(11, 0))
+        with patch.object(citas, "obtener_paciente_por_id", return_value=paciente_falso()), \
+             patch.object(citas.repo, "obtener_oftalmologo_activo_por_id", return_value=oftalmologo_falso()), \
+             patch.object(
+                 citas.service_cu09,
+                 "consultar_disponibilidad",
+                 return_value=disponibilidad_falsa(
+                     intervalos=[intervalo(time(8, 0), time(12, 0))]
+                 ),
+             ), \
+             patch.object(citas.repo, "crear_cita", return_value=creada) as mock_crear:
+            citas.registrar_cita(
+                self.db,
+                datos_cita(inicio=time(10, 30)),
+                self.usuario,
+            )
+
+        kwargs = mock_crear.call_args.kwargs
+        self.assertEqual(kwargs["hora_inicio"], time(10, 30))
+        self.assertEqual(kwargs["hora_fin"], time(11, 0))
+
+    def test_registrar_cita_consecutiva_a_cita_existente(self):
+        """CASO 3: la cita previa 08:00-08:30 no bloquea 08:30-09:00."""
+        creada = cita_falsa(cita_id=53, inicio=time(8, 30), fin=time(9, 0))
+        with patch.object(citas, "obtener_paciente_por_id", return_value=paciente_falso()), \
+             patch.object(citas.repo, "obtener_oftalmologo_activo_por_id", return_value=oftalmologo_falso()), \
+             patch.object(
+                 citas.service_cu09,
+                 "consultar_disponibilidad",
+                 return_value=disponibilidad_falsa(
+                     intervalos=[
+                         intervalo(time(8, 30), time(9, 0)),
+                         intervalo(time(9, 30), time(12, 0)),
+                     ]
+                 ),
+             ), \
+             patch.object(citas.repo, "crear_cita", return_value=creada) as mock_crear:
+            citas.registrar_cita(
+                self.db,
+                datos_cita(inicio=time(8, 30)),
+                self.usuario,
+            )
+
+        kwargs = mock_crear.call_args.kwargs
+        self.assertEqual(kwargs["hora_inicio"], time(8, 30))
+        self.assertEqual(kwargs["hora_fin"], time(9, 0))
+
+    def test_bloqueo_activo_rechaza_cita_dentro_del_bloqueo(self):
+        """CASO 5: bloqueo 09:00-10:00 -> 09:30-10:00 no disponible."""
+        with patch.object(citas, "obtener_paciente_por_id", return_value=paciente_falso()), \
+             patch.object(citas.repo, "obtener_oftalmologo_activo_por_id", return_value=oftalmologo_falso()), \
+             patch.object(
+                 citas.service_cu09,
+                 "consultar_disponibilidad",
+                 return_value=disponibilidad_falsa(
+                     intervalos=[
+                         intervalo(time(8, 0), time(9, 0)),
+                         intervalo(time(10, 0), time(12, 0)),
+                     ]
+                 ),
+             ):
+            with self.assertRaises(HTTPException) as ctx:
+                citas.registrar_cita(
+                    self.db,
+                    datos_cita(inicio=time(9, 30)),
+                    self.usuario,
+                )
+        self.assertEqual(ctx.exception.status_code, 409)
+
+    def test_cita_inmediatamente_despues_del_bloqueo_es_valida(self):
+        """CASO 5: tras el bloqueo, 10:00-10:30 vuelve a permitirse."""
+        creada = cita_falsa(cita_id=54, inicio=time(10, 0), fin=time(10, 30))
+        with patch.object(citas, "obtener_paciente_por_id", return_value=paciente_falso()), \
+             patch.object(citas.repo, "obtener_oftalmologo_activo_por_id", return_value=oftalmologo_falso()), \
+             patch.object(
+                 citas.service_cu09,
+                 "consultar_disponibilidad",
+                 return_value=disponibilidad_falsa(
+                     intervalos=[
+                         intervalo(time(8, 0), time(9, 0)),
+                         intervalo(time(10, 0), time(12, 0)),
+                     ]
+                 ),
+             ), \
+             patch.object(citas.repo, "crear_cita", return_value=creada) as mock_crear:
+            citas.registrar_cita(
+                self.db,
+                datos_cita(inicio=time(10, 0)),
+                self.usuario,
+            )
+
+        kwargs = mock_crear.call_args.kwargs
+        self.assertEqual(kwargs["hora_inicio"], time(10, 0))
+        self.assertEqual(kwargs["hora_fin"], time(10, 30))
+
+    def test_cita_que_desborda_el_horario_devuelve_409(self):
+        """CASO 6: horario 08:00-12:00 -> 11:45-12:15 queda fuera."""
+        with patch.object(citas, "obtener_paciente_por_id", return_value=paciente_falso()), \
+             patch.object(citas.repo, "obtener_oftalmologo_activo_por_id", return_value=oftalmologo_falso()), \
+             patch.object(
+                 citas.service_cu09,
+                 "consultar_disponibilidad",
+                 return_value=disponibilidad_falsa(
+                     intervalos=[intervalo(time(8, 0), time(12, 0))]
+                 ),
+             ), \
+             patch.object(citas.repo, "crear_cita", return_value=cita_falsa()) as mock_crear:
+            with self.assertRaises(HTTPException) as ctx:
+                citas.registrar_cita(
+                    self.db,
+                    datos_cita(inicio=time(11, 45)),
+                    self.usuario,
+                )
+        self.assertEqual(ctx.exception.status_code, 409)
+        mock_crear.assert_not_called()
 
 
 # =========================================================
@@ -292,7 +435,7 @@ class TestReprogramarCitaCU10(unittest.TestCase):
             cita_id=10,
             fecha=self.fecha_a,
             inicio=time(8, 0),
-            fin=time(9, 0),
+            fin=time(8, 30),
             estado="PROGRAMADA",
         )
 
@@ -335,6 +478,30 @@ class TestReprogramarCitaCU10(unittest.TestCase):
         kwargs = mock_actualizar.call_args.kwargs
         self.assertEqual(kwargs["fecha"], self.fecha_b)
         self.assertEqual(kwargs["hora_inicio"], time(10, 0))
+        self.assertEqual(kwargs["hora_fin"], time(10, 30))
+
+    def test_reprogramar_a_las_1030_calcula_hora_fin_1100(self):
+        """CASO 7: cita 08:00-08:30 movida a 10:30 -> 10:30-11:00."""
+        datos = SimpleNamespace(
+            fecha=self.fecha_b,
+            hora_inicio=time(10, 30),
+            motivo=None,
+            observaciones=None,
+        )
+        disponibilidad = disponibilidad_falsa(
+            intervalos=[intervalo(time(10, 0), time(12, 0))]
+        )
+        stack, mock_dispo, mock_actualizar = self._patches_base(
+            disponibilidad=disponibilidad
+        )
+        with stack:
+            resultado = citas.reprogramar_cita(self.db, 10, datos, self.usuario)
+
+        self.assertIs(resultado, self.cita)
+        mock_dispo.assert_called_once_with(self.db, 1, self.fecha_b)
+        kwargs = mock_actualizar.call_args.kwargs
+        self.assertEqual(kwargs["fecha"], self.fecha_b)
+        self.assertEqual(kwargs["hora_inicio"], time(10, 30))
         self.assertEqual(kwargs["hora_fin"], time(11, 0))
 
     def test_reprogramar_solo_motivo_no_revalida_disponibilidad(self):
@@ -352,7 +519,7 @@ class TestReprogramarCitaCU10(unittest.TestCase):
         kwargs = mock_actualizar.call_args.kwargs
         self.assertEqual(kwargs["fecha"], self.fecha_a)
         self.assertEqual(kwargs["hora_inicio"], time(8, 0))
-        self.assertEqual(kwargs["hora_fin"], time(9, 0))
+        self.assertEqual(kwargs["hora_fin"], time(8, 30))
         self.assertEqual(kwargs["motivo"], "Control postoperatorio")
 
     def test_reprogramar_sin_cambios_devuelve_cita_actual(self):
@@ -522,17 +689,40 @@ class TestSchemasCU10(unittest.TestCase):
         datos = CitaUpdate(fecha=fecha_futura(), hora_inicio=time(10, 0))
         self.assertEqual(datos.hora_inicio, time(10, 0))
 
+    def test_create_no_expone_hora_fin_al_cliente(self):
+        """La duración es del backend: `hora_fin` no se acepta del cliente."""
+        datos = CitaCreate(
+            paciente_id=1,
+            oftalmologo_id=1,
+            fecha=fecha_futura(),
+            hora_inicio=time(8, 0),
+            hora_fin=time(9, 0),
+        )
+        self.assertFalse(hasattr(datos, "hora_fin"))
+        self.assertEqual(
+            set(datos.model_dump().keys()),
+            {
+                "paciente_id",
+                "oftalmologo_id",
+                "fecha",
+                "hora_inicio",
+                "motivo",
+                "observaciones",
+            },
+        )
+        self.assertEqual(DURACION_CITA_MINUTOS, 30)
+
     def test_response_valida_objeto_cita(self):
         cita = cita_falsa(
             cita_id=1,
             inicio=time(8, 0),
-            fin=time(9, 0),
+            fin=time(8, 30),
             estado="PROGRAMADA",
             motivo="Consulta",
         )
         respuesta = CitaResponse.model_validate(cita)
         self.assertEqual(respuesta.id, 1)
-        self.assertEqual(respuesta.hora_fin, time(9, 0))
+        self.assertEqual(respuesta.hora_fin, time(8, 30))
         self.assertEqual(respuesta.estado, "PROGRAMADA")
 
 
@@ -582,7 +772,7 @@ class TestVerificarDisponibilidadHorario(unittest.TestCase):
                 oftalmologo_id=1,
                 fecha=fecha_futura(),
                 hora_inicio=time(8, 0),
-                hora_fin=time(9, 0),
+                hora_fin=time(8, 30),
             )
         self.assertTrue(disponible)
 
@@ -594,7 +784,7 @@ class TestVerificarDisponibilidadHorario(unittest.TestCase):
                 oftalmologo_id=1,
                 fecha=fecha_futura(),
                 hora_inicio=time(8, 0),
-                hora_fin=time(9, 0),
+                hora_fin=time(8, 30),
             )
         self.assertFalse(disponible)
 
@@ -606,7 +796,7 @@ class TestVerificarDisponibilidadHorario(unittest.TestCase):
                 db,
                 oftalmologo_id=1,
                 fecha=fecha_futura(),
-                hora_inicio=time(9, 0),
+                hora_inicio=time(9, 30),
                 hora_fin=time(10, 0),
             )
         self.assertFalse(disponible)
@@ -615,19 +805,19 @@ class TestVerificarDisponibilidadHorario(unittest.TestCase):
         db = MagicMock()
         with patch.object(repo, "obtener_horarios_por_oftalmologo_y_dia", return_value=[self._horario(time(8, 0), time(12, 0))]), \
              patch.object(repo, "obtener_bloqueos_por_oftalmologo_y_fecha", return_value=[]), \
-             patch.object(repo, "obtener_citas_por_oftalmologo_y_fecha", return_value=[self._cita(9, time(8, 0), time(9, 0))]):
+             patch.object(repo, "obtener_citas_por_oftalmologo_y_fecha", return_value=[self._cita(9, time(8, 0), time(8, 30))]):
             disponible = repo.verificar_disponibilidad_horario(
                 db,
                 oftalmologo_id=1,
                 fecha=fecha_futura(),
                 hora_inicio=time(8, 0),
-                hora_fin=time(9, 0),
+                hora_fin=time(8, 30),
             )
         self.assertFalse(disponible)
 
     def test_intervalo_ignora_la_propia_cita_al_reprogramar(self):
         db = MagicMock()
-        cita = self._cita(10, time(8, 0), time(9, 0))
+        cita = self._cita(10, time(8, 0), time(8, 30))
         with patch.object(repo, "obtener_horarios_por_oftalmologo_y_dia", return_value=[self._horario(time(8, 0), time(12, 0))]), \
              patch.object(repo, "obtener_bloqueos_por_oftalmologo_y_fecha", return_value=[]), \
              patch.object(repo, "obtener_citas_por_oftalmologo_y_fecha", return_value=[cita]):
@@ -636,11 +826,89 @@ class TestVerificarDisponibilidadHorario(unittest.TestCase):
                 oftalmologo_id=1,
                 fecha=fecha_futura(),
                 hora_inicio=time(8, 0),
-                hora_fin=time(9, 0),
+                hora_fin=time(8, 30),
                 excluir_cita_id=10,
             )
         self.assertTrue(disponible)
 
+    def test_intervalo_consecutivo_no_se_considera_solape(self):
+        """CASO 3: cita 08:00-08:30 y turno siguiente 08:30-09:00 conviven."""
+        db = MagicMock()
+        with patch.object(repo, "obtener_horarios_por_oftalmologo_y_dia", return_value=[self._horario(time(8, 0), time(12, 0))]), \
+             patch.object(repo, "obtener_bloqueos_por_oftalmologo_y_fecha", return_value=[]), \
+             patch.object(repo, "obtener_citas_por_oftalmologo_y_fecha", return_value=[self._cita(11, time(8, 0), time(8, 30))]):
+            disponible = repo.verificar_disponibilidad_horario(
+                db,
+                oftalmologo_id=1,
+                fecha=fecha_futura(),
+                hora_inicio=time(8, 30),
+                hora_fin=time(9, 0),
+            )
+        self.assertTrue(disponible)
+
+    def test_solapamiento_parcial_no_disponible(self):
+        """CASO 4: cita 08:00-08:30 vs solicitud 08:15-08:45 -> solape."""
+        db = MagicMock()
+        with patch.object(repo, "obtener_horarios_por_oftalmologo_y_dia", return_value=[self._horario(time(8, 0), time(12, 0))]), \
+             patch.object(repo, "obtener_bloqueos_por_oftalmologo_y_fecha", return_value=[]), \
+             patch.object(repo, "obtener_citas_por_oftalmologo_y_fecha", return_value=[self._cita(12, time(8, 0), time(8, 30))]):
+            disponible = repo.verificar_disponibilidad_horario(
+                db,
+                oftalmologo_id=1,
+                fecha=fecha_futura(),
+                hora_inicio=time(8, 15),
+                hora_fin=time(8, 45),
+            )
+        self.assertFalse(disponible)
+
+    def test_bloqueo_de_una_hora_bloquea_sus_dos_turnos(self):
+        """CASO 5: bloqueo 09:00-10:00 -> 09:00-09:30 y 09:30-10:00 fuera."""
+        db = MagicMock()
+        for inicio, fin in (
+            (time(9, 0), time(9, 30)),
+            (time(9, 30), time(10, 0)),
+        ):
+            with patch.object(repo, "obtener_horarios_por_oftalmologo_y_dia", return_value=[self._horario(time(8, 0), time(12, 0))]), \
+                 patch.object(repo, "obtener_bloqueos_por_oftalmologo_y_fecha", return_value=[self._bloqueo(time(9, 0), time(10, 0))]):
+                disponible = repo.verificar_disponibilidad_horario(
+                    db,
+                    oftalmologo_id=1,
+                    fecha=fecha_futura(),
+                    hora_inicio=inicio,
+                    hora_fin=fin,
+                )
+            self.assertFalse(disponible)
+
+    def test_turno_inmediatamente_despues_del_bloqueo_disponible(self):
+        """CASO 5: 10:00-10:30 es válido tras un bloqueo 09:00-10:00."""
+        db = MagicMock()
+        with patch.object(repo, "obtener_horarios_por_oftalmologo_y_dia", return_value=[self._horario(time(8, 0), time(12, 0))]), \
+             patch.object(repo, "obtener_bloqueos_por_oftalmologo_y_fecha", return_value=[self._bloqueo(time(9, 0), time(10, 0))]), \
+             patch.object(repo, "obtener_citas_por_oftalmologo_y_fecha", return_value=[]):
+            disponible = repo.verificar_disponibilidad_horario(
+                db,
+                oftalmologo_id=1,
+                fecha=fecha_futura(),
+                hora_inicio=time(10, 0),
+                hora_fin=time(10, 30),
+            )
+        self.assertTrue(disponible)
+
+    def test_turno_que_excede_el_horario_no_disponible(self):
+        """CASO 6: 11:45-12:15 no cabe en el horario 08:00-12:00."""
+        db = MagicMock()
+        with patch.object(repo, "obtener_horarios_por_oftalmologo_y_dia", return_value=[self._horario(time(8, 0), time(12, 0))]):
+            disponible = repo.verificar_disponibilidad_horario(
+                db,
+                oftalmologo_id=1,
+                fecha=fecha_futura(),
+                hora_inicio=time(11, 45),
+                hora_fin=time(12, 15),
+            )
+        self.assertFalse(disponible)
+
 
 if __name__ == "__main__":
     unittest.main()
+
+

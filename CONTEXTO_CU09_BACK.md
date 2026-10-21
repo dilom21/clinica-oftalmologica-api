@@ -147,6 +147,14 @@ Por lo tanto:
 - Trabajar inicialmente con **intervalos libres reales**.
 - Si en el código existente ya existe una regla explícita de duración, primero verificarla antes de usarla.
 
+> **Actualización — regla de negocio vigente:** la duración de toda cita
+> médica es fija y vale **30 minutos** (`DURACION_CITA_MINUTOS` en
+> `app/modules/gestion_agenda_citas/schemas/schemas.py`). CU09 expone la
+> disponibilidad en turnos de esa duración y CU10 calcula
+> `hora_fin = hora_inicio + 30 min` validando que el turno quepa completo
+> dentro de un intervalo libre. El párrafo anterior queda como antecedente
+> histórico.
+
 ## Reglas técnicas
 - Trabajar sobre la arquitectura existente.
 - Antes de crear archivos nuevos, inspeccionar si el módulo `gestion_agenda_citas` o equivalente ya existe.

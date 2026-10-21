@@ -138,6 +138,48 @@ class LoginResponse(BaseModel):
 
 
 # =========================================================
+# LOGIN MULTITENANT (SAAS)
+# El código de empresa se normaliza en el borde; el cliente nunca
+# envía ni recibe nombres físicos de bases de datos.
+# =========================================================
+
+class TenantLoginRequest(BaseModel):
+    empresa_codigo: str
+    correo: str
+    password: str
+
+    # El cliente nunca elige la base de datos ni identifica el tenant.
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("empresa_codigo")
+    @classmethod
+    def normalizar_empresa_codigo(cls, empresa_codigo: str) -> str:
+        codigo = empresa_codigo.strip().upper()
+        if not codigo:
+            raise ValueError("El código de empresa es obligatorio")
+        return codigo
+
+    @field_validator("correo")
+    @classmethod
+    def normalizar_correo_tenant(cls, correo: str) -> str:
+        return correo.strip().lower()
+
+    @field_validator("password")
+    @classmethod
+    def validar_password_tenant(cls, password: str) -> str:
+        if not password or not password.strip():
+            raise ValueError("La contraseña es obligatoria")
+        return password
+
+
+class EmpresaPublicaRespuesta(BaseModel):
+    """Datos mínimos y no sensibles para el selector público de empresas."""
+
+    codigo: str
+    nombre: str
+
+
+# =========================================================
 # REGISTRO MÓVIL DE PACIENTES
 # El rol, estado y fecha_creacion los determina el backend.
 # =========================================================

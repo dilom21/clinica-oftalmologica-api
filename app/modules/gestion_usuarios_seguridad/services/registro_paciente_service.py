@@ -2,6 +2,9 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
+from app.modules.gestion_historial_clinico.repositories import (
+    repository as repo_historial,
+)
 from app.modules.gestion_pacientes.repositories import repository as repo_paciente
 from app.modules.gestion_pacientes.schemas.schemas import PacienteCrear
 from app.modules.gestion_usuarios_seguridad.repositories import repository as repo
@@ -31,10 +34,14 @@ def registrar_cuenta_paciente(
 ) -> dict:
     """Crea la cuenta móvil de un paciente.
 
-    Escenario A: el paciente ya existe (por CI), se verifica identidad y solo
-    se crea el Usuario, vinculando paciente.usuario_id.
-    Escenario B: el paciente no existe, se crean Usuario y Paciente en una
-    misma transacción.
+    Escenario A: el paciente no existe, se crean Usuario y Paciente y se
+    asegura su HistorialClinico en una misma transacción.
+    Escenario B: el paciente ya existe (por CI), se verifica identidad, se
+    crea el Usuario, se vincula paciente.usuario_id y se asegura que el
+    paciente posea su HistorialClinico (creándolo solo si falta).
+
+    Usuario + Paciente/Vinculación + HistorialClinico + bitácora se confirman
+    con un único commit; cualquier fallo revierte todo.
     """
     if repo.obtener_usuario_por_correo(db, datos.correo):
         raise HTTPException(
@@ -94,6 +101,9 @@ def _crear_paciente_nuevo(
     )
     paciente = repo_paciente.crear_paciente(db, datos_paciente)
 
+    # Todo paciente registrado debe poseer su historial clínico (1 a 1).
+    repo_historial.asegurar_historial_clinico_para_paciente(db, paciente)
+
     repo.registrar_bitacora(
         db=db,
         usuario_id=usuario.id,
@@ -146,6 +156,10 @@ def _vincular_paciente_existente(
     )
 
     repo_paciente.asignar_usuario_a_paciente(db, paciente, usuario.id)
+
+    # Un paciente presencial antiguo puede no tener historial: se asegura aquí
+    # (idempotente: si ya existe se reutiliza y no se crea otro).
+    repo_historial.asegurar_historial_clinico_para_paciente(db, paciente)
 
     repo.registrar_bitacora(
         db=db,

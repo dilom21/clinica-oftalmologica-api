@@ -1,6 +1,9 @@
 import base64
 import html
 import os
+import smtplib
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -15,6 +18,13 @@ from app.core.config import (
     GMAIL_CLIENT_SECRET,
     GMAIL_REFRESH_TOKEN,
     GMAIL_SENDER_EMAIL,
+    SMTP_FROM_EMAIL,
+    SMTP_FROM_NAME,
+    SMTP_HOST,
+    SMTP_PASSWORD,
+    SMTP_PORT,
+    SMTP_USERNAME,
+    SMTP_USE_TLS,
 )
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
@@ -119,3 +129,68 @@ def enviar_correo_recuperacion_password(
 
     service = _get_gmail_service()
     return service.users().messages().send(userId="me", body={"raw": raw}).execute()
+
+
+# =========================================================
+# ENVÍO DE REPORTES POR SMTP (módulo de reportes)
+# Opcional: no comparte credenciales con Gmail ni afecta la
+# recuperación de contraseña. Sin SMTP configurado la aplicación
+# inicia igual y este envío responde un error controlado.
+# =========================================================
+
+SMTP_TIMEOUT_SECONDS = 10
+
+
+class SMTPNoConfiguradoError(Exception):
+    """El servidor SMTP no está configurado en el entorno."""
+
+
+def enviar_reporte_por_smtp(
+    destinatario: str,
+    asunto: str,
+    mensaje: str,
+    adjunto: bytes,
+    nombre_archivo: str,
+    maintype: str,
+    subtype: str,
+):
+    """Envía un reporte como adjunto por SMTP.
+
+    No inventa un envío exitoso: si el SMTP no está configurado lanza
+    `SMTPNoConfiguradoError`. Nunca registra credenciales ni el error crudo
+    del servidor (el router los traduce a un 503 genérico).
+    """
+    if not SMTP_HOST or not SMTP_FROM_EMAIL:
+        raise SMTPNoConfiguradoError("El servicio SMTP no está configurado")
+
+    remitente = (
+        f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
+        if SMTP_FROM_NAME
+        else SMTP_FROM_EMAIL
+    )
+
+    cuerpo = MIMEMultipart()
+    cuerpo["to"] = destinatario
+    cuerpo["from"] = remitente
+    cuerpo["subject"] = asunto
+    if mensaje:
+        cuerpo.attach(MIMEText(mensaje, "plain", "utf-8"))
+
+    adjunto_part = MIMEBase(maintype, subtype)
+    adjunto_part.set_payload(adjunto)
+    encoders.encode_base64(adjunto_part)
+    adjunto_part.add_header(
+        "Content-Disposition",
+        "attachment",
+        filename=nombre_archivo,
+    )
+    cuerpo.attach(adjunto_part)
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT_SECONDS) as server:
+        if SMTP_USE_TLS:
+            server.starttls()
+        if SMTP_USERNAME:
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+        server.send_message(cuerpo)
+
+    return {"mensaje": "Reporte enviado"}

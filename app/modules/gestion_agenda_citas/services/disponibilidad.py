@@ -1,4 +1,8 @@
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
+
+from app.modules.gestion_agenda_citas.schemas.schemas import (
+    DURACION_CITA_MINUTOS,
+)
 
 
 # =========================================================
@@ -82,14 +86,43 @@ def _restar_ocupaciones_de_base(
     return libres
 
 
+def generar_slots_disponibles(
+    intervalos_libres: list[tuple[time, time]],
+    duracion_minutos: int = DURACION_CITA_MINUTOS,
+) -> list[tuple[time, time]]:
+    """Divide cada intervalo libre en turnos fijos de `duracion_minutos`.
+
+    Regla compartida CU09/CU10: la duración de una cita médica es fija
+    (`DURACION_CITA_MINUTOS`), por lo que la disponibilidad se expone en
+    turnos de esa misma duración.
+    """
+    if duracion_minutos <= 0:
+        raise ValueError("duracion_minutos debe ser mayor a 0")
+
+    paso = timedelta(minutes=duracion_minutos)
+    slots: list[tuple[time, time]] = []
+
+    for inicio, fin in intervalos_libres:
+        cursor = _a_datetime(inicio)
+        fin_dt = _a_datetime(fin)
+
+        while cursor + paso <= fin_dt:
+            slots.append((cursor.time(), (cursor + paso).time()))
+            cursor += paso
+
+    return slots
+
+
 def calcular_intervalos_disponibles(
     horarios_base: list[tuple[time, time]],
     ocupaciones: list[tuple[time, time]],
+    duracion_minutos: int = DURACION_CITA_MINUTOS,
 ) -> list[tuple[time, time]]:
-    """Calcula los intervalos libres reales de la jornada.
+    """Calcula los turnos libres reales de la jornada.
 
-    Regla: horario base - bloqueos - citas no canceladas = intervalos libres.
-    No se generan slots artificiales: la BD no define duración fija de turnos.
+    Regla: horario base - bloqueos - citas no canceladas = intervalos libres,
+    y cada intervalo libre se divide en turnos de `duracion_minutos`
+    (misma regla que CU10). CU09 y CU10 comparten `DURACION_CITA_MINUTOS`.
     """
     bases_validas = [
         (inicio, fin)
@@ -116,4 +149,4 @@ def calcular_intervalos_disponibles(
 
     disponibles.sort(key=lambda par: _a_datetime(par[0]))
 
-    return disponibles
+    return generar_slots_disponibles(disponibles, duracion_minutos)

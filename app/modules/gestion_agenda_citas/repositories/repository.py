@@ -53,6 +53,26 @@ def obtener_oftalmologo_activo_por_id(
     return db.scalar(stmt)
 
 
+def obtener_oftalmologo_activo_por_usuario_id(
+    db: Session,
+    usuario_id: int,
+):
+    """Oftalmólogo activo vinculado a un usuario (usado por CU15/CU16).
+
+    Resuelve `usuario.id -> oftalmologo.usuario_id` para que el cliente nunca
+    envíe el oftalmólogo al registrar una consulta clínica o un diagnóstico.
+    """
+    stmt = (
+        select(Oftalmologo)
+        .where(
+            Oftalmologo.usuario_id == usuario_id,
+            Oftalmologo.estado.is_(True),
+        )
+    )
+
+    return db.scalar(stmt)
+
+
 def obtener_horarios_por_oftalmologo_y_dia(
     db: Session,
     oftalmologo_id: int,
@@ -344,6 +364,7 @@ def crear_cita(
     motivo: str | None = None,
     observaciones: str | None = None,
     estado: str,
+    canal: str | None = None,
     creado_por_usuario_id: int | None = None,
 ) -> Cita:
     ahora = datetime.now(timezone.utc)
@@ -356,6 +377,7 @@ def crear_cita(
         motivo=motivo,
         observaciones=observaciones,
         estado=estado,
+        canal=canal,
         creado_por_usuario_id=creado_por_usuario_id,
         fecha_registro=ahora,
         fecha_actualizacion=ahora,

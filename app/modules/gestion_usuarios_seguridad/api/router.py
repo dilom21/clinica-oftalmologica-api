@@ -2,25 +2,29 @@ from fastapi import APIRouter, Depends, Query, Request, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
-# Importamos la conexión a la base de datos y el repositorio principal
-from app.database.session import get_db
+from app.database.session import get_db_legacy
 from app.core.dependencies import (
+    get_db,
     obtener_administrador_actual,
     obtener_usuario_actual,
     requerir_permiso,
 )
+from app.core.tenancy.dependencies import get_control_db, get_tenant_engine_registry
+from app.core.tenancy.exceptions import TenantError
+from app.core.tenancy.repository import TenantControlPlaneRepository
+from app.core.tenancy.resolver import TenantResolver
 
-# === IMPORTACIONES DE SERVICIOS Y REPOSITORIOS QUE FALTABAN ===
 from app.modules.gestion_usuarios_seguridad.services import (
     auth_service,
-    password_service,
-    usuario_service,
-    rol_service,
     bitacora_service,
-    menu_service
+    menu_service,
+    password_service,
+    registro_paciente_service,
+    rol_service,
+    tenant_auth_service,
+    usuario_service,
 )
 from app.modules.gestion_usuarios_seguridad.repositories import repository
-# ==============================================================
 
 from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     LoginRequest,
@@ -44,57 +48,21 @@ from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     BitacoraPaginadaRespuesta,
     BitacoraFiltros,
     MenuModuloRespuesta,
+    TenantLoginRequest,
+    EmpresaPublicaRespuesta,
 )
 
-router = APIRouter(prefix="/seguridad", tags=["Seguridad"]) # El "molde" de los datos que envía Angular
-class UsuarioRegistro(BaseModel):
-    correo: str
-    password_hash: str
-    rol_id: int
-    estado: bool = True
-from app.modules.gestion_usuarios_seguridad.services import (
-    auth_service,
-    bitacora_service,
-    menu_service,
-    password_service,
-    registro_paciente_service,
-    rol_service,
-    usuario_service,
-)
+router = APIRouter(prefix="/seguridad", tags=["Seguridad"])
 
 @router.get("/")
 def obtener_modulo():
     return {"mensaje": "Módulo de Usuarios y Seguridad funcionando"}
 
-# --- RUTA POST ACTUALIZADA CON BASE DE DATOS ---
-@router.post("/usuarios")
-def registrar_usuario(usuario: UsuarioRegistro, db: Session = Depends(get_db)):
-     # 1. Verificamos si el correo ya existe
-    usuario_existente = repository.obtener_usuario_por_correo(db, usuario.correo)
-    if usuario_existente:
-        # Si existe, detenemos todo y lanzamos un error 400
-        raise HTTPException(status_code=400, detail="Este correo ya está registrado.")
-    
-    # 2. Si no existe, procedemos a guardarlo normalmente
-    nuevo_usuario = repository.crear_usuario(
-        db=db,
-        correo=usuario.correo,
-        password_hash=usuario.password_hash,
-        rol_id=usuario.rol_id
-    )
-
-@router.get("/usuarios")
-def listar_usuarios(db: Session = Depends(get_db)):
-    usuarios = repository.listar_usuarios(db)
-    return usuarios
-
 @router.delete("/usuarios/{usuario_id}")
 def eliminar_usuario(usuario_id: int, db: Session = Depends(get_db)):
     usuario = repository.dar_de_baja_usuario(db, usuario_id)
-    
     if not usuario:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
-        
     return {"mensaje": f"El usuario {usuario_id} fue dado de baja exitosamente."}
 
 @router.post(
@@ -104,14 +72,13 @@ def eliminar_usuario(usuario_id: int, db: Session = Depends(get_db)):
 def iniciar_sesion(
     request: Request,
     datos: LoginRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_legacy),
 ):
     return auth_service.iniciar_sesion(
         db,
         datos,
         request.client.host if request.client else None,
     )
-
 
 # =========================================================
 # CU03 - RECUPERAR CONTRASEÑA
@@ -124,14 +91,12 @@ def recuperar_password(
 ):
     return password_service.solicitar_recuperacion_password(db, datos)
 
-
 @router.post("/password/restablecer")
 def restablecer_password(
     datos: RestablecerPasswordRequest,
     db: Session = Depends(get_db),
 ):
     return password_service.restablecer_password(db, datos)
-
 
 # =========================================================
 # REGISTRO Y LOGIN MÓVIL (EXCLUSIVO PACIENTES)
@@ -153,7 +118,6 @@ def registrar_cuenta_paciente(
         request.client.host if request.client else None,
     )
 
-
 @router.post(
     "/login/paciente",
     response_model=LoginResponse,
@@ -161,7 +125,7 @@ def registrar_cuenta_paciente(
 def iniciar_sesion_paciente(
     request: Request,
     datos: LoginRequest,
-    db: Session = Depends(get_db),
+    db: Session = Depends(get_db_legacy),
 ):
     return auth_service.iniciar_sesion_paciente(
         db,
@@ -169,6 +133,49 @@ def iniciar_sesion_paciente(
         request.client.host if request.client else None,
     )
 
+# =========================================================
+# LOGIN MULTITENANT (SAAS)
+# =========================================================
+
+@router.get(
+    "/tenant/empresas",
+    response_model=list[EmpresaPublicaRespuesta],
+)
+def listar_empresas_publicas(
+    db: Session = Depends(get_control_db),
+):
+    repository = TenantControlPlaneRepository(db)
+    resolver = TenantResolver(repository)
+    empresas = []
+    for empresa in repository.list_active_empresas():
+        try:
+            context = resolver.resolver_por_codigo_empresa(empresa.codigo)
+            resolver.require_active_database(context)
+        except TenantError:
+            continue
+        empresas.append(
+            {
+                "codigo": empresa.codigo,
+                "nombre": empresa.nombre_comercial or empresa.codigo,
+            }
+        )
+    empresas.sort(key=lambda item: (item["nombre"], item["codigo"]))
+    return empresas
+
+@router.post(
+    "/tenant/login",
+    response_model=LoginResponse,
+)
+def iniciar_sesion_tenant(
+    datos: TenantLoginRequest,
+    db: Session = Depends(get_control_db),
+    registry=Depends(get_tenant_engine_registry),
+):
+    return tenant_auth_service.autenticar_usuario_tenant(
+        datos,
+        TenantControlPlaneRepository(db),
+        registry,
+    )
 
 # =========================================================
 # CU04 - USUARIOS
@@ -192,7 +199,6 @@ def crear_usuario(
         request.client.host if request.client else None,
     )
 
-
 @router.get(
     "/usuarios",
     response_model=list[UsuarioRespuesta],
@@ -202,7 +208,6 @@ def listar_usuarios(
     administrador=Depends(obtener_administrador_actual),
 ):
     return usuario_service.listar_usuarios(db)
-
 
 @router.get(
     "/usuarios/{usuario_id}",
@@ -217,7 +222,6 @@ def obtener_usuario(
         db,
         usuario_id,
     )
-
 
 @router.put(
     "/usuarios/{usuario_id}",
@@ -238,7 +242,6 @@ def actualizar_usuario(
         request.client.host if request.client else None,
     )
 
-
 @router.patch(
     "/usuarios/{usuario_id}/estado",
     response_model=UsuarioRespuesta,
@@ -257,7 +260,6 @@ def actualizar_estado_usuario(
         administrador,
         request.client.host if request.client else None,
     )
-
 
 @router.post(
     "/usuarios/{usuario_id}/rol",
@@ -278,7 +280,6 @@ def asignar_rol(
         request.client.host if request.client else None,
     )
 
-
 # =========================================================
 # CU05 - ROLES Y PERMISOS
 # =========================================================
@@ -296,7 +297,6 @@ def crear_rol(
 ):
     return rol_service.crear_rol_con_permisos(db, datos)
 
-
 @router.get(
     "/roles",
     response_model=list[RolRespuesta],
@@ -306,7 +306,6 @@ def listar_roles(
     _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.listar_roles(db)
-
 
 @router.get(
     "/roles/{rol_id}",
@@ -319,7 +318,6 @@ def obtener_rol(
 ):
     return rol_service.obtener_rol(db, rol_id)
 
-
 @router.get(
     "/roles/{rol_id}/permisos",
     response_model=list[PermisoRolRespuesta],
@@ -330,7 +328,6 @@ def obtener_permisos_rol(
     _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.obtener_permisos_rol(db, rol_id)
-
 
 @router.put(
     "/roles/{rol_id}",
@@ -344,7 +341,6 @@ def actualizar_rol(
 ):
     return rol_service.actualizar_rol_con_permisos(db, rol_id, datos)
 
-
 @router.delete(
     "/roles/{rol_id}",
     response_model=RolRespuesta,
@@ -356,7 +352,6 @@ def desactivar_rol(
 ):
     return rol_service.desactivar_rol(db, rol_id)
 
-
 @router.get(
     "/modulos-funciones",
     response_model=list[ModuloConFuncionesRespuesta],
@@ -367,7 +362,6 @@ def listar_modulos_funciones(
 ):
     return rol_service.listar_modulos_con_funciones(db)
 
-
 @router.get(
     "/acciones",
     response_model=list[AccionRespuesta],
@@ -377,7 +371,6 @@ def listar_acciones(
     _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.listar_acciones(db)
-
 
 # =========================================================
 # CU06 - BITÁCORA
@@ -406,14 +399,12 @@ def consultar_bitacora(
         page=page,
         page_size=page_size,
     )
-
     bitacora_service.registrar_consulta(
         db=db,
         usuario_id=administrador.id,
         ip=request.client.host if request.client else None,
     )
     return registros
-
 
 # =========================================================
 # MENÚ DINÁMICO
@@ -428,6 +419,3 @@ def obtener_menu(
     usuario=Depends(obtener_usuario_actual),
 ):
     return menu_service.obtener_menu(db, rol_id=usuario.rol_id)
-
-
-

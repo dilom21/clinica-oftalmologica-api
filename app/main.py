@@ -7,7 +7,7 @@ from app.database.connection import engine
 # --- IMPORTACIÓN DE MODELOS PARA CREACIÓN DE TABLAS ---
 from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 from app.modules.gestion_usuarios_seguridad.models.models import Rol
-from app.modules.gestion_servicios.models.models import ServicioOftalmologico # <--- AGREGA ESTA LÍNEA
+from app.modules.gestion_servicios.models.models import ServicioOftalmologico
 
 # --- IMPORTACIÓN DE RUTAS ---
 from app.modules.gestion_usuarios_seguridad.api.router import router as usuarios_seguridad_router
@@ -18,7 +18,10 @@ from app.modules.gestion_inventario_proveedores.api.router import router as inve
 from app.modules.gestion_pagos.api.router import router as pagos_router
 from app.modules.notificaciones_interaccion_chatbot.api.router import router as notificaciones_chatbot_router
 from app.modules.reportes_panel_administrativo.api.router import router as reportes_panel_router
-from app.modules.gestion_servicios.api.router import router as servicios_router # <--- AGREGA ESTA LÍNEA
+from app.modules.gestion_reportes.api.router import router as reportes_router
+from app.modules.integracion_ia.api.router import router as ia_router
+from app.modules.administracion_saas.api.router import router as saas_router
+from app.modules.gestion_servicios.api.router import router as servicios_router
 
 app = FastAPI(
     title="API Clínica Oftalmológica",
@@ -56,6 +59,9 @@ app.include_router(inventario_proveedores_router)
 app.include_router(pagos_router)
 app.include_router(notificaciones_chatbot_router)
 app.include_router(reportes_panel_router)
+app.include_router(reportes_router)
+app.include_router(ia_router)
+app.include_router(saas_router)
 app.include_router(servicios_router)
 
 # --- RUTA PRINCIPAL ---
