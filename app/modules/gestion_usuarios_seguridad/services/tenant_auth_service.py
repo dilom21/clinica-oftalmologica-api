@@ -4,7 +4,7 @@ from collections.abc import Callable
 
 from fastapi import HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.core.security import crear_tenant_access_token, verificar_password
 from app.core.tenancy.engine_registry import TenantEngineRegistry
@@ -34,7 +34,9 @@ class TenantUserRepository:
 
     def get_usuario_by_correo(self, correo: str) -> Usuario | None:
         return self.db.scalars(
-            select(Usuario).where(Usuario.correo == correo)
+            select(Usuario)
+            .options(selectinload(Usuario.rol))
+            .where(Usuario.correo == correo)
         ).first()
 
 
@@ -90,6 +92,19 @@ def autenticar_usuario_tenant(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Usuario inactivo",
             )
+        rol = getattr(user, "rol", None)
+        rol_nombre = str(getattr(rol, "nombre", "") or "").strip()
+        rol_id = getattr(rol, "id", None)
+        if (
+            rol is None
+            or not rol_nombre
+            or rol_id != user.rol_id
+            or not getattr(rol, "estado", False)
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Rol de usuario invalido",
+            )
         return LoginResponse(
             access_token=crear_tenant_access_token(
                 usuario_id=user.id,
@@ -97,6 +112,7 @@ def autenticar_usuario_tenant(
                 tenant_id=context.tenant_database_id,
                 empresa_id=context.empresa_id,
                 empresa_codigo=context.empresa_codigo,
+                rol_nombre=rol_nombre,
             )
         )
     finally:

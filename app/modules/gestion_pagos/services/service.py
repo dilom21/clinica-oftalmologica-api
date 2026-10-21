@@ -4,6 +4,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Any
 
 from fastapi import HTTPException, status
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import nombre_rol_actual
@@ -11,6 +12,7 @@ from app.core import config
 from app.modules.gestion_historial_clinico.models.models import ServicioRealizado
 from app.modules.gestion_pacientes.repositories import repository as paciente_repo
 from app.modules.gestion_pagos.repositories import repository as repo
+from app.modules.gestion_pagos.repositories import administrativos as admin_repo
 from app.modules.gestion_pagos.providers import (
     ErrorFirmaWebhook,
     ErrorProveedorPago,
@@ -397,6 +399,24 @@ def crear_intencion_stripe(
             paciente_id_esperado=paciente.id,
             servicios_precargados=bloqueados,
         )
+        # La misma fila de servicio queda bloqueada para Stripe y para CU31.
+        # Así un pago manual PENDIENTE no puede ser ignorado por un intento
+        # electrónico concurrente.
+        conflictos_manuales = [
+            pago
+            for pago in admin_repo.pagos_conflictivos_para_servicios(
+                db, servicio_realizado_ids,
+            )
+            if pago.pasarela is None and pago.estado == "PENDIENTE"
+        ]
+        if conflictos_manuales:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Existe un pago manual pendiente para los servicios; "
+                    "debe confirmarse o conciliarse antes de iniciar Stripe"
+                ),
+            )
         candidatos = repo.listar_pagos_stripe_candidatos_reintento(
             db,
             servicio_realizado_ids,
@@ -791,6 +811,12 @@ def procesar_evento_webhook_stripe(
                     id_registro_afectado=pago.id,
                     descripcion=f"Webhook Stripe actualizo pago a {pago.estado}",
                 )
+            if pago.estado == "APROBADO":
+                # Outbox en el mismo commit financiero. El correo y el PDF se
+                # procesan fuera del webhook, sin llamadas de red bajo locks.
+                from app.modules.gestion_pagos.services import notificaciones
+
+                notificaciones.programar_comprobante(db, pago.id)
         db.commit()
         db.refresh(pago)
         return WebhookStripeRespuesta(
@@ -974,6 +1000,78 @@ def generar_comprobante_pago(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Comprobante no disponible",
         )
+    return _generar_comprobante_validado(
+        pago,
+        paciente,
+        _nombre_clinica_comprobante(db),
+    )
+
+
+def generar_comprobante_interno(
+    db: Session,
+    pago_id: int,
+) -> tuple[bytes, str]:
+    """Genera el mismo PDF para procesos internos ya autorizados (admin/outbox)."""
+    pago = repo.obtener_pago_para_comprobante(db, pago_id)
+    if pago is None or not pago.detalles:
+        raise HTTPException(status_code=404, detail="Comprobante no disponible")
+    pacientes = {
+        detalle.servicio_realizado.paciente_id
+        for detalle in pago.detalles
+        if detalle.servicio_realizado is not None
+    }
+    if len(pacientes) != 1:
+        raise HTTPException(
+            status_code=409,
+            detail="El pago no tiene un paciente consistente",
+        )
+    paciente = paciente_repo.obtener_paciente_por_id(db, next(iter(pacientes)))
+    if paciente is None or not _detalles_pertenecen_al_paciente(pago, paciente.id):
+        raise HTTPException(
+            status_code=409,
+            detail="El pago no tiene un paciente consistente",
+        )
+    return _generar_comprobante_validado(
+        pago,
+        paciente,
+        _nombre_clinica_comprobante(db),
+    )
+
+
+def _nombre_clinica_comprobante(db: Session) -> str:
+    contexto = db.info.get("tenant_context")
+    if contexto is None:
+        return "CLÍNICA OFTALMOLÓGICA"
+
+    nombre = str(getattr(contexto, "empresa_nombre", "") or "").strip()
+    codigo = str(getattr(contexto, "empresa_codigo", "") or "").strip()
+    empresa_id = getattr(contexto, "empresa_id", None)
+    tenant_id = getattr(contexto, "tenant_database_id", None)
+    if not nombre or not codigo or not empresa_id or not tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="No se pudo resolver con seguridad la clinica del comprobante",
+        )
+
+    bind = db.get_bind()
+    if bind.dialect.name == "postgresql":
+        database_name = str(
+            getattr(contexto, "database_name", "") or ""
+        ).strip()
+        actual = db.scalar(text("select current_database()"))
+        if not database_name or actual != database_name:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="La clinica no coincide con la base del comprobante",
+            )
+    return nombre
+
+
+def _generar_comprobante_validado(
+    pago,
+    paciente,
+    clinica_nombre: str,
+) -> tuple[bytes, str]:
     if pago.estado not in _ESTADOS_CON_COMPROBANTE:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1015,6 +1113,7 @@ def generar_comprobante_pago(
 
     consulta_id = next(iter(consultas)) if len(consultas) == 1 else None
     datos = comprobante_pdf.DatosComprobante(
+        clinica_nombre=clinica_nombre,
         pago_id=pago.id,
         consulta_clinica_id=consulta_id,
         consulta_fecha=consulta.fecha_consulta if consulta is not None else None,

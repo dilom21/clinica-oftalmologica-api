@@ -36,6 +36,7 @@ from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     BitacoraFiltros,
     MenuModuloRespuesta,
     TenantLoginRequest,
+    TenantRegistroPacienteRequest,
     EmpresaPublicaRespuesta,
 )
 
@@ -184,6 +185,26 @@ def iniciar_sesion_tenant(
         datos,
         TenantControlPlaneRepository(db),
         registry,
+    )
+
+
+@router.post(
+    "/tenant/registro-paciente",
+    response_model=MensajeRespuesta,
+    status_code=201,
+)
+def registrar_cuenta_paciente_tenant(
+    request: Request,
+    datos: TenantRegistroPacienteRequest,
+    db: Session = Depends(get_control_db),
+    registry=Depends(get_tenant_engine_registry),
+):
+    """Autorregistro en la clínica seleccionada y resuelta por el servidor."""
+    return registro_paciente_service.registrar_cuenta_paciente_tenant(
+        datos,
+        TenantControlPlaneRepository(db),
+        registry,
+        request.client.host if request.client else None,
     )
 
 

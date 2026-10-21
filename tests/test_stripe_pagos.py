@@ -7,11 +7,11 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, func, select, text
 
 from app.core import config
 from app.main import app
-from app.modules.gestion_pagos.models.models import Pago, PagoDetalle
+from app.modules.gestion_pagos.models.models import NotificacionPago, Pago, PagoDetalle
 from app.modules.gestion_pagos.providers import (
     ESTADOS_INTENCION_REUTILIZABLES,
     ErrorFirmaWebhook,
@@ -523,6 +523,36 @@ def test_solapamiento_parcial_pendiente_devuelve_conflicto(
     assert segunda.status_code == 409
 
 
+def test_pago_manual_pendiente_bloquea_nuevo_intento_stripe(
+    cliente_stripe,
+    proveedor_falso,
+    db_pagos,
+):
+    limpiar_pagos(db_pagos)
+    db_pagos.add(Pago(
+        monto=Decimal("10.10"), moneda="BOB", metodo_pago="TRANSFERENCIA",
+        estado="PENDIENTE", referencia_transaccion="MANUAL-1000",
+        clave_idempotencia="manual-before-stripe",
+    ))
+    db_pagos.flush()
+    manual = db_pagos.scalar(select(Pago).where(
+        Pago.clave_idempotencia == "manual-before-stripe",
+    ))
+    db_pagos.add(PagoDetalle(
+        pago_id=manual.id, servicio_realizado_id=1000,
+        monto_aplicado=Decimal("10.10"),
+    ))
+    db_pagos.commit()
+
+    respuesta = cliente_stripe.post(
+        "/pagos/stripe/intencion",
+        json={"servicio_realizado_ids": [1000]},
+        headers=token(11),
+    )
+    assert respuesta.status_code == 409
+    assert proveedor_falso.creaciones == []
+
+
 @pytest.mark.parametrize(
     ("ids", "esperado"),
     [([1001], 409), ([1002], 403), ([1000, 1002], 422), ([1000, 1000], 422),
@@ -580,6 +610,12 @@ def test_webhook_transiciones(
     db_pagos.refresh(pago)
     assert pago.estado == esperado
     assert (pago.fecha_hora_pago is not None) is (esperado == "APROBADO")
+    notificaciones = db_pagos.scalar(
+        select(func.count()).select_from(NotificacionPago).where(
+            NotificacionPago.pago_id == pago.id,
+        )
+    )
+    assert notificaciones == (1 if esperado == "APROBADO" else 0)
 
 
 def test_webhook_evento_desconocido_no_modifica(

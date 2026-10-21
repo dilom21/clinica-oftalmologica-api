@@ -74,7 +74,8 @@ DDLS = [
         fecha_hora_pago TIMESTAMP, monto NUMERIC(12,2) NOT NULL,
         moneda TEXT NOT NULL, metodo_pago TEXT NOT NULL,
         estado TEXT NOT NULL, pasarela TEXT,
-        referencia_transaccion TEXT UNIQUE, observaciones TEXT
+        referencia_transaccion TEXT UNIQUE, observaciones TEXT,
+        clave_idempotencia TEXT UNIQUE
     )""",
     """CREATE TABLE pago_detalle (
         id INTEGER PRIMARY KEY, pago_id INTEGER NOT NULL,
@@ -87,6 +88,19 @@ DDLS = [
         fecha_hora TIMESTAMP NOT NULL, ip TEXT, accion TEXT NOT NULL,
         entidad_afectada TEXT, id_registro_afectado INTEGER,
         descripcion TEXT
+    )""",
+    """CREATE TABLE notificacion_pago (
+        id INTEGER PRIMARY KEY, pago_id INTEGER NOT NULL,
+        tipo TEXT NOT NULL DEFAULT 'COMPROBANTE_PAGO',
+        estado TEXT NOT NULL DEFAULT 'PENDIENTE', destinatario TEXT,
+        clave_idempotencia TEXT NOT NULL UNIQUE,
+        proveedor TEXT NOT NULL DEFAULT 'RESEND', proveedor_mensaje_id TEXT,
+        intentos INTEGER NOT NULL DEFAULT 0, proximo_intento TIMESTAMP,
+        bloqueado_hasta TIMESTAMP, ultimo_error TEXT,
+        fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fecha_aceptado TIMESTAMP, fecha_entregado TIMESTAMP,
+        UNIQUE(pago_id, tipo)
     )""",
 ]
 
@@ -149,21 +163,21 @@ def _sembrar(conn) -> None:
     conn.exec_driver_sql(
         "INSERT INTO pago VALUES "
         "(500,'2026-10-05 18:30:00','2026-10-05 18:30:00',210.00,'BOB',"
-        "'TARJETA','APROBADO','STRIPE','pi_500',NULL),"
+        "'TARJETA','APROBADO','STRIPE','pi_500',NULL,NULL),"
         "(501,'2026-10-06 10:00:00',NULL,150.00,'BOB','TARJETA','PENDIENTE',"
-        "'STRIPE','pi_501',NULL),"
+        "'STRIPE','pi_501',NULL,NULL),"
         "(502,'2026-10-04 09:00:00',NULL,60.00,'BOB','TARJETA','RECHAZADO',"
-        "'STRIPE','pi_502',NULL),"
+        "'STRIPE','pi_502',NULL,NULL),"
         "(503,'2026-10-03 09:00:00',NULL,150.00,'BOB','TARJETA','ANULADO',"
-        "'STRIPE','pi_503',NULL),"
+        "'STRIPE','pi_503',NULL,NULL),"
         "(504,'2026-10-02 09:00:00',NULL,60.00,'BOB','TARJETA','REEMBOLSADO',"
-        "'STRIPE','pi_504',NULL),"
+        "'STRIPE','pi_504',NULL,NULL),"
         "(505,'2026-10-07 08:15:00','2026-10-07 08:15:00',240.00,'BOB',"
-        "'TARJETA','APROBADO','STRIPE','pi_505',NULL),"
+        "'TARJETA','APROBADO','STRIPE','pi_505',NULL,NULL),"
         "(600,'2026-10-08 09:00:00','2026-10-08 09:00:00',150.00,'BOB',"
-        "'TARJETA','APROBADO','STRIPE','pi_600',NULL),"
+        "'TARJETA','APROBADO','STRIPE','pi_600',NULL,NULL),"
         "(700,'2026-10-01 09:00:00','2026-10-01 09:00:00',210.00,'BOB',"
-        "'TARJETA','APROBADO','STRIPE','pi_700',NULL)"
+        "'TARJETA','APROBADO','STRIPE','pi_700',NULL,NULL)"
     )
     conn.exec_driver_sql(
         "INSERT INTO pago_detalle VALUES "

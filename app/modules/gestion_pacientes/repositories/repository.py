@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.gestion_pacientes.models.models import Paciente
@@ -34,6 +34,17 @@ def obtener_paciente_por_ci(
         Paciente.ci == ci
     )
 
+    return db.scalar(stmt)
+
+
+def obtener_paciente_por_ci_normalizado(
+    db: Session,
+    ci: str,
+):
+    """Busca CI sin depender de mayúsculas o espacios en datos históricos."""
+    stmt = select(Paciente).where(
+        func.lower(func.trim(Paciente.ci)) == ci.strip().lower()
+    )
     return db.scalar(stmt)
 
 

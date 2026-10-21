@@ -71,6 +71,11 @@ class TenantResolver:
             database_name=tenant_database.database_name,
             database_estado=tenant_database.estado,
             version_schema=tenant_database.version_schema,
+            empresa_nombre=(
+                (getattr(empresa, "nombre_comercial", None) or "").strip()
+                or (getattr(empresa, "razon_social", None) or "").strip()
+                or None
+            ),
         )
 
     @staticmethod

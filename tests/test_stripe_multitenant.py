@@ -4,14 +4,15 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, delete
+from sqlalchemy import create_engine, delete, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
 from app.core.tenancy.context import TenantContext
 from app.core.tenancy.exceptions import TenantInactiveError
 from app.main import app
-from app.modules.gestion_pagos.models.models import Pago, PagoDetalle
+from app.modules.gestion_pagos.models.models import NotificacionPago, Pago, PagoDetalle
+from app.modules.gestion_pagos.services import notificaciones
 from app.modules.gestion_pagos.services import service
 from app.modules.gestion_pagos.services import webhook_tenancy
 from app.modules.gestion_pagos.services.webhook_tenancy import (
@@ -25,6 +26,7 @@ from tests.test_stripe_pagos import (
     cliente_stripe,
     evento_stripe,
     proveedor_falso,
+    insertar_pago_stripe,
 )
 
 
@@ -72,9 +74,32 @@ def dos_bases_tenant(db_pagos):
 
 
 def limpiar(db):
+    db.execute(delete(NotificacionPago))
     db.execute(delete(PagoDetalle))
     db.execute(delete(Pago))
     db.commit()
+
+
+def test_outbox_mantiene_aislamiento_y_deduplicacion_por_tenant(dos_bases_tenant):
+    db_a, db_b = dos_bases_tenant
+    claves = []
+    for db, contexto in (
+        (db_a, tenant_context(10, "CLINICA_A", 101, "clinica_a")),
+        (db_b, tenant_context(20, "CLINICA_B", 202, "clinica_b")),
+    ):
+        limpiar(db)
+        db.info["tenant_context"] = contexto
+        insertar_pago_stripe(db, pago_id=1, estado="APROBADO", referencia="pi_1")
+        primero = notificaciones.programar_comprobante(db, 1)
+        segundo = notificaciones.programar_comprobante(db, 1)
+        db.commit()
+        claves.append(primero.clave_idempotencia)
+        assert segundo.id == primero.id
+        assert len(db.scalars(select(NotificacionPago)).all()) == 1
+    assert claves == [
+        "comprobante-pago/tenant-101/1",
+        "comprobante-pago/tenant-202/1",
+    ]
 
 
 def test_dos_tenants_con_pago_id_1_generan_metadata_y_claves_distintas(

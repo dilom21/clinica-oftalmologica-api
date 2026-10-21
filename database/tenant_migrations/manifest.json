@@ -1,0 +1,30 @@
+{
+  "schema_version": "v2-cu31",
+  "runner_version": "cu31-tenant-migrator-v1",
+  "migrations": [
+    {
+      "version": "20261007211200",
+      "name": "crear_pago_y_pago_detalle",
+      "path": "versions/20261007211200_crear_pago_y_pago_detalle.sql",
+      "sha256": "0cd6d280e684b6141d7fa58192aa9f1b7e3b47171e3d461fb591ae868f6393bd",
+      "source_md5": "9bfa3a9238089cdd7569b5b918626c35",
+      "transaction": "runner"
+    },
+    {
+      "version": "20261007211247",
+      "name": "ajustar_indices_pago",
+      "path": "versions/20261007211247_ajustar_indices_pago.sql",
+      "sha256": "d91dcb06fdf6b1376d5aff6bb4d5dbada01ada7dc6bed1e517d897a656237e2a",
+      "source_md5": "c693ef2c4c0b0c8d736bbf4fc76eaee8",
+      "normalized_eof_newline": true,
+      "transaction": "runner"
+    },
+    {
+      "version": "20261019000000",
+      "name": "cu31_pagos_administrativos_resend",
+      "path": "../../db/cu31_pagos_administrativos_resend.sql",
+      "sha256": "81b50e7bf454d359b82568964fac2f129fc06570c488edc537247cbb2a8a181d",
+      "transaction": "script_idempotent"
+    }
+  ]
+}

@@ -7,6 +7,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Identity,
+    Index,
     Numeric,
     String,
     Text,
@@ -44,6 +45,9 @@ class Pago(Base):
         String(255), unique=True,
     )
     observaciones: Mapped[str | None] = mapped_column(Text)
+    clave_idempotencia: Mapped[str | None] = mapped_column(
+        String(100),
+    )
 
     detalles: Mapped[list["PagoDetalle"]] = relationship(
         back_populates="pago",
@@ -64,6 +68,13 @@ class Pago(Base):
             "estado IN ('PENDIENTE', 'APROBADO', 'RECHAZADO', 'ANULADO', 'REEMBOLSADO')",
             name="ck_pago_estado",
         ),
+        Index(
+            "uq_pago_clave_idempotencia",
+            "clave_idempotencia",
+            unique=True,
+            postgresql_where=text("clave_idempotencia IS NOT NULL"),
+            sqlite_where=text("clave_idempotencia IS NOT NULL"),
+        ),
     )
 
 
@@ -73,6 +84,8 @@ class PagoDetalle(Base):
     id: Mapped[int] = mapped_column(
         BigInteger, Identity(always=True), primary_key=True,
     )
+
+
     pago_id: Mapped[int] = mapped_column(
         BigInteger,
         ForeignKey("pago.id", ondelete="CASCADE"),
@@ -99,5 +112,63 @@ class PagoDetalle(Base):
             "pago_id",
             "servicio_realizado_id",
             name="uq_pago_detalle_pago_servicio",
+        ),
+    )
+
+
+class NotificacionPago(Base):
+    """Outbox durable; Resend nunca participa del commit financiero."""
+
+    __tablename__ = "notificacion_pago"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), primary_key=True,
+    )
+    pago_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("pago.id", ondelete="RESTRICT"), nullable=False,
+    )
+    tipo: Mapped[str] = mapped_column(
+        String(50), nullable=False, server_default=text("'COMPROBANTE_PAGO'"),
+    )
+    estado: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=text("'PENDIENTE'"),
+    )
+    destinatario: Mapped[str | None] = mapped_column(String(150))
+    clave_idempotencia: Mapped[str] = mapped_column(String(200), nullable=False)
+    proveedor: Mapped[str] = mapped_column(
+        String(30), nullable=False, server_default=text("'RESEND'"),
+    )
+    proveedor_mensaje_id: Mapped[str | None] = mapped_column(String(255))
+    intentos: Mapped[int] = mapped_column(
+        BigInteger, nullable=False, server_default=text("0"),
+    )
+    proximo_intento: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    bloqueado_hasta: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    ultimo_error: Mapped[str | None] = mapped_column(String(255))
+    fecha_creacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"),
+    )
+    fecha_actualizacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"),
+    )
+    fecha_aceptado: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    fecha_entregado: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    pago: Mapped[Pago] = relationship()
+
+    __table_args__ = (
+        UniqueConstraint("pago_id", "tipo", name="uq_notificacion_pago_tipo"),
+        UniqueConstraint("clave_idempotencia", name="uq_notificacion_pago_clave"),
+        CheckConstraint(
+            "estado IN ('PENDIENTE','PROCESANDO','ACEPTADO_POR_PROVEEDOR','FALLIDO','ENTREGADO')",
+            name="ck_notificacion_pago_estado",
+        ),
+        CheckConstraint("intentos >= 0", name="ck_notificacion_pago_intentos"),
+        Index(
+            "uq_notificacion_pago_proveedor_mensaje",
+            "proveedor_mensaje_id",
+            unique=True,
+            postgresql_where=text("proveedor_mensaje_id IS NOT NULL"),
+            sqlite_where=text("proveedor_mensaje_id IS NOT NULL"),
         ),
     )
