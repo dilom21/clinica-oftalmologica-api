@@ -8,13 +8,14 @@ from app.database.connection import engine
 from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 from app.modules.gestion_usuarios_seguridad.models.models import Rol
 from app.modules.gestion_servicios.models.models import ServicioOftalmologico
+from app.modules.gestion_inventario_proveedores.models.proveedor import Proveedor
 
 # --- IMPORTACIÓN DE RUTAS ---
 from app.modules.gestion_usuarios_seguridad.api.router import router as usuarios_seguridad_router
 from app.modules.gestion_pacientes.api.router import router as pacientes_router
 from app.modules.gestion_agenda_citas.api.router import router as agenda_citas_router
 from app.modules.gestion_historial_clinico.api.router import router as historial_clinico_router
-from app.modules.gestion_inventario_proveedores.api.router import router as inventario_proveedores_router
+from app.modules.gestion_inventario_proveedores.api.proveedores_api import router as inventario_proveedores_router
 from app.modules.gestion_pagos.api.router import router as pagos_router
 from app.modules.notificaciones_interaccion_chatbot.api.router import router as notificaciones_chatbot_router
 from app.modules.reportes_panel_administrativo.api.router import router as reportes_panel_router
