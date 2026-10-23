@@ -1,5 +1,5 @@
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -219,17 +219,36 @@ def obtener_notificacion_por_proveedor_id(db: Session, proveedor_id: str, *, blo
 
 
 def reclamar_notificacion(db: Session, ahora: datetime, bloqueado_hasta: datetime):
+    dentro_ventana_idempotencia = ahora - timedelta(hours=24)
     stmt = (
         select(NotificacionPago)
         .where(
             or_(
-                (NotificacionPago.estado.in_(("PENDIENTE", "FALLIDO")))
+                (NotificacionPago.estado == "PENDIENTE")
                 & or_(
                     NotificacionPago.proximo_intento.is_(None),
                     NotificacionPago.proximo_intento <= ahora,
                 ),
+                (NotificacionPago.estado == "FALLIDO")
+                & or_(
+                    NotificacionPago.proximo_intento.is_(None),
+                    NotificacionPago.proximo_intento <= ahora,
+                )
+                & or_(
+                    NotificacionPago.ultimo_error.is_(None),
+                    NotificacionPago.ultimo_error != "RESULTADO_ENVIO_DESCONOCIDO",
+                    (
+                        (NotificacionPago.intentos == 1)
+                        & (NotificacionPago.fecha_actualizacion >= dentro_ventana_idempotencia)
+                    ),
+                ),
                 (NotificacionPago.estado == "PROCESANDO")
-                & (NotificacionPago.bloqueado_hasta < ahora),
+                & (NotificacionPago.bloqueado_hasta < ahora)
+                # Un lease vencido puede ocultar un envio aceptado. Solo se
+                # recupera automaticamente una vez y dentro de la ventana que
+                # Resend documenta para la clave idempotente.
+                & (NotificacionPago.intentos == 1)
+                & (NotificacionPago.fecha_actualizacion >= dentro_ventana_idempotencia),
             ),
             NotificacionPago.destinatario.is_not(None),
             NotificacionPago.intentos < 8,

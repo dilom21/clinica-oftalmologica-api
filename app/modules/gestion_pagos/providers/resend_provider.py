@@ -14,6 +14,10 @@ class ResendNoConfigurado(ErrorResend):
     pass
 
 
+class ResultadoResendDesconocido(ErrorResend):
+    """La solicitud pudo ser aceptada aunque no se obtuvo una respuesta fiable."""
+
+
 @dataclass(frozen=True, slots=True)
 class RespuestaResend:
     id: str
@@ -70,16 +74,39 @@ class ResendProvider:
                     ],
                 },
             )
-            respuesta.raise_for_status()
-            data = respuesta.json()
-            mensaje_id = data.get("id")
+            try:
+                respuesta.raise_for_status()
+            except httpx.HTTPStatusError as exc:
+                # Una respuesta 5xx no permite asegurar si el proveedor alcanzo
+                # a aceptar la operacion antes de fallar.
+                if exc.response.status_code >= 500:
+                    raise ResultadoResendDesconocido(
+                        "No se pudo confirmar el resultado del envio a Resend",
+                    ) from exc
+                raise ErrorResend("Resend rechazo el comprobante") from exc
+            try:
+                data = respuesta.json()
+            except (ValueError, TypeError) as exc:
+                # Hubo respuesta exitosa, pero no se pudo conservar su ID.
+                raise ResultadoResendDesconocido(
+                    "Resend respondio sin un identificador verificable",
+                ) from exc
+            mensaje_id = data.get("id") if isinstance(data, dict) else None
             if not isinstance(mensaje_id, str) or not mensaje_id:
-                raise ErrorResend("Resend devolvio una respuesta invalida")
+                raise ResultadoResendDesconocido(
+                    "Resend respondio sin un identificador verificable",
+                )
             return RespuestaResend(id=mensaje_id)
         except ResendNoConfigurado:
             raise
-        except (httpx.HTTPError, ValueError, TypeError) as exc:
-            raise ErrorResend("Resend no pudo aceptar el comprobante") from exc
+        except ErrorResend:
+            raise
+        except httpx.RequestError as exc:
+            # Timeouts y cortes de transporte pueden ocurrir despues de que el
+            # proveedor haya aceptado la solicitud.
+            raise ResultadoResendDesconocido(
+                "No se pudo confirmar el resultado del envio a Resend",
+            ) from exc
         finally:
             if cerrar:
                 cliente.close()

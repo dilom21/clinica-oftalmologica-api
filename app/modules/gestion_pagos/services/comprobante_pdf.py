@@ -21,6 +21,7 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import (
     HRFlowable,
     Paragraph,
@@ -259,6 +260,12 @@ def _pie_de_pagina(canvas, documento) -> None:
     canvas.restoreState()
 
 
+def _canvas_invariable(*args, **kwargs):
+    """Evita IDs y fechas variables en los metadatos binarios del PDF."""
+    kwargs["invariant"] = 1
+    return Canvas(*args, **kwargs)
+
+
 def generar_comprobante_pdf(datos: DatosComprobante) -> bytes:
     """Construye el PDF del comprobante y devuelve sus bytes en memoria."""
     buffer = BytesIO()
@@ -340,5 +347,6 @@ def generar_comprobante_pdf(datos: DatosComprobante) -> bytes:
         elementos,
         onFirstPage=_pie_de_pagina,
         onLaterPages=_pie_de_pagina,
+        canvasmaker=_canvas_invariable,
     )
     return buffer.getvalue()

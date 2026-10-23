@@ -1118,7 +1118,10 @@ def _generar_comprobante_validado(
         consulta_clinica_id=consulta_id,
         consulta_fecha=consulta.fecha_consulta if consulta is not None else None,
         fecha_pago=pago.fecha_hora_pago,
-        fecha_emision=datetime.now(timezone.utc),
+        # La emision forma parte del contenido idempotente del comprobante. Se
+        # deriva del pago persistido para que una descarga o reintento posterior
+        # no cambie el PDF.
+        fecha_emision=pago.fecha_hora_pago or pago.fecha_creacion,
         estado=pago.estado,
         metodo_pago=pago.metodo_pago,
         pasarela=pago.pasarela,

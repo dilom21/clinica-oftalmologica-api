@@ -16,6 +16,7 @@ from app.modules.gestion_pagos.providers.resend_provider import (
     ErrorResend,
     ResendNoConfigurado,
     ResendProvider,
+    ResultadoResendDesconocido,
 )
 from app.modules.gestion_pagos.repositories import administrativos as repo
 from app.modules.gestion_pagos.schemas.administrativos import ResultadoWebhookResend
@@ -134,8 +135,12 @@ def procesar_siguiente(db: Session, proveedor: ResendProvider) -> bool:
         return False
 
     correo_pruebas = config.obtener_configuracion_resend_pruebas()
-    redirigido_pruebas = correo_pruebas is not None
-    destinatario_efectivo = correo_pruebas or item.destinatario
+    redirigido_pruebas = bool(
+        correo_pruebas is not None and item.destinatario == correo_pruebas
+    )
+    # El destinatario queda congelado al crear la entrada outbox. Cambiarlo en
+    # el worker conservaria la clave idempotente pero alteraria el payload.
+    destinatario_efectivo = item.destinatario
     if redirigido_pruebas:
         logger.warning(
             "CU31: worker enviara un comprobante al destinatario de pruebas; "
@@ -165,9 +170,19 @@ def procesar_siguiente(db: Session, proveedor: ResendProvider) -> bool:
         actual.fecha_actualizacion = actual.fecha_aceptado
         actual.bloqueado_hasta = None
         actual.proximo_intento = None
-        if redirigido_pruebas:
-            actual.destinatario = destinatario_efectivo
         actual.ultimo_error = None
+        db.commit()
+        return True
+    except ResultadoResendDesconocido:
+        db.rollback()
+        actual = db.get(type(item), item.id)
+        actual.estado = "FALLIDO"
+        actual.bloqueado_hasta = None
+        actual.fecha_actualizacion = _ahora()
+        actual.proximo_intento = actual.fecha_actualizacion + timedelta(
+            minutes=min(2 ** max(actual.intentos - 1, 0), 60),
+        )
+        actual.ultimo_error = "RESULTADO_ENVIO_DESCONOCIDO"
         db.commit()
         return True
     except (ErrorResend, HTTPException) as exc:
@@ -179,8 +194,6 @@ def procesar_siguiente(db: Session, proveedor: ResendProvider) -> bool:
         actual.proximo_intento = actual.fecha_actualizacion + timedelta(
             minutes=min(2 ** max(actual.intentos - 1, 0), 60),
         )
-        if redirigido_pruebas:
-            actual.destinatario = destinatario_efectivo
         actual.ultimo_error = (
             "RESEND_NO_CONFIGURADO"
             if isinstance(exc, ResendNoConfigurado)
@@ -196,10 +209,25 @@ def solicitar_reintento(db: Session, pago_id: int):
         raise HTTPException(404, "Notificacion de comprobante no encontrada")
     if item.estado in {"ACEPTADO_POR_PROVEEDOR", "ENTREGADO"}:
         return item
-    destinatario = _resolver_destinatario(db, pago_id)
-    if destinatario.correo is None:
+    if item.estado == "PROCESANDO":
+        raise HTTPException(
+            409,
+            "La notificacion esta siendo procesada; espere al worker",
+        )
+    if item.ultimo_error == "RESULTADO_ENVIO_DESCONOCIDO":
+        raise HTTPException(
+            409,
+            "No se puede reintentar manualmente: la aceptacion del proveedor es incierta",
+        )
+    if item.estado == "PENDIENTE":
+        return item
+    if item.ultimo_error in {"DESTINATARIO_NO_DISPONIBLE", "RESEND_NO_CONFIGURADO"}:
+        destinatario = _resolver_destinatario(db, pago_id)
+        if destinatario.correo is None:
+            raise HTTPException(409, "El paciente no tiene un correo valido asociado")
+        item.destinatario = destinatario.correo
+    elif item.destinatario is None:
         raise HTTPException(409, "El paciente no tiene un correo valido asociado")
-    item.destinatario = destinatario.correo
     item.estado = "PENDIENTE"
     item.proximo_intento = None
     item.bloqueado_hasta = None

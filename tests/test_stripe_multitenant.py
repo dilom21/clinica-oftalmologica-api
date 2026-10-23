@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
-from sqlalchemy import create_engine, delete, select
+from sqlalchemy import create_engine, delete, func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -212,6 +212,11 @@ def test_webhooks_tenant_actualizan_solo_su_empresa_y_son_idempotentes(
     ).status_code == 200
     db_b.expire_all()
     assert db_b.get(Pago, 1).estado == "APROBADO"
+    assert db_b.scalar(
+        select(func.count()).select_from(NotificacionPago).where(
+            NotificacionPago.pago_id == 1,
+        )
+    ) == 1
 
 
 def test_webhook_rechaza_metadata_de_pago_inconsistente(

@@ -273,6 +273,7 @@ BEGIN
             'CU31: se esperaba un rol Recepcionista activo; encontrados: %',
             v_elementos_encontrados;
     END IF;
+    
     SELECT count(*), min(id)
       INTO v_elementos_encontrados, v_accion_ambas
       FROM public.accion

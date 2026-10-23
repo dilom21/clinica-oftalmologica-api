@@ -5,12 +5,14 @@ import hashlib
 import hmac
 import json
 import time
+from datetime import timedelta
 from decimal import Decimal
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import httpx
 from fastapi import HTTPException
 from pypdf import PdfReader
 from sqlalchemy import func, select, text
@@ -22,6 +24,7 @@ from app.modules.gestion_pagos.providers.resend_provider import (
     ErrorResend,
     ResendProvider,
     RespuestaResend,
+    ResultadoResendDesconocido,
 )
 from app.modules.gestion_pagos.schemas.administrativos import PagoAdministrativoCrear
 from app.modules.gestion_pagos.services import administrativos
@@ -588,6 +591,31 @@ def test_listado_detalle_y_pdf_administrativo(cliente_cu31, db_cu31):
     assert "COMPROBANTE DE PAGO" in texto_pdf
 
 
+def test_pdf_del_mismo_pago_es_binariamente_estable_y_descargar_no_envia(
+    db_cu31,
+):
+    _servicio(db_cu31, 1905)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([1905]), "pdf-stable-1905", _admin(db_cu31),
+    )
+    cantidad_inicial = db_cu31.scalar(
+        select(func.count()).select_from(NotificacionPago),
+    )
+
+    primero, nombre_primero = administrativos.generar_comprobante(
+        db_cu31, pago.id, _admin(db_cu31),
+    )
+    segundo, nombre_segundo = administrativos.generar_comprobante(
+        db_cu31, pago.id, _admin(db_cu31),
+    )
+
+    assert primero == segundo
+    assert nombre_primero == nombre_segundo
+    assert db_cu31.scalar(
+        select(func.count()).select_from(NotificacionPago),
+    ) == cantidad_inicial
+
+
 def test_pdf_usa_nombre_oficial_de_otro_tenant_sin_mezclar_clinicas(db_cu31):
     _contexto_tenant(
         db_cu31,
@@ -929,7 +957,7 @@ def test_worker_en_modo_pruebas_procesa_otro_paciente_del_tenant(
     assert item.ultimo_error is None
 
 
-def test_worker_aplica_email_test_a_notificacion_pendiente_preexistente(
+def test_worker_congela_destinatario_de_notificacion_pendiente_preexistente(
     db_cu31, monkeypatch,
 ):
     monkeypatch.setattr(config, "EMAIL_TEST", "")
@@ -948,8 +976,8 @@ def test_worker_aplica_email_test_a_notificacion_pendiente_preexistente(
     assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
 
     db_cu31.refresh(item)
-    assert proveedor.llamadas[0]["destinatario"] == "haroldresend@gmail.com"
-    assert item.destinatario == "haroldresend@gmail.com"
+    assert proveedor.llamadas[0]["destinatario"] == "ana@example.com"
+    assert item.destinatario == "ana@example.com"
     assert item.ultimo_error is None
 
 
@@ -1073,6 +1101,104 @@ def test_error_resend_no_revierte_pago_y_programa_reintento(db_cu31):
     assert item.ultimo_error == "ENVIO_NO_ACEPTADO"
 
 
+def test_reintento_automatico_conserva_clave_destinatario_y_payload(db_cu31):
+    _servicio(db_cu31, 2008)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([2008]), "email-stable-2008", _admin(db_cu31),
+    )
+
+    class FallaLuegoAcepta:
+        def __init__(self):
+            self.llamadas = []
+
+        def enviar_comprobante(self, **kwargs):
+            self.llamadas.append(kwargs)
+            if len(self.llamadas) == 1:
+                raise ErrorResend("rechazo confirmado")
+            return RespuestaResend(id="email_retry_ok")
+
+    proveedor = FallaLuegoAcepta()
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+    item = db_cu31.scalar(select(NotificacionPago).where(
+        NotificacionPago.pago_id == pago.id,
+    ))
+    item.proximo_intento = notificaciones._ahora() - timedelta(seconds=1)
+    db_cu31.commit()
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+
+    assert proveedor.llamadas[0] == proveedor.llamadas[1]
+    db_cu31.refresh(item)
+    assert item.estado == "ACEPTADO_POR_PROVEEDOR"
+    assert item.proveedor_mensaje_id == "email_retry_ok"
+
+
+def test_resultado_desconocido_permite_un_reintento_automatico_idempotente(
+    db_cu31,
+):
+    _servicio(db_cu31, 2009)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([2009]), "email-unknown-2009", _admin(db_cu31),
+    )
+
+    class RespuestaPerdidaLuegoRecuperada:
+        def __init__(self):
+            self.llamadas = []
+
+        def enviar_comprobante(self, **kwargs):
+            self.llamadas.append(kwargs)
+            if len(self.llamadas) == 1:
+                raise ResultadoResendDesconocido("respuesta perdida")
+            return RespuestaResend(id="email_aceptado_previamente")
+
+    proveedor = RespuestaPerdidaLuegoRecuperada()
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+    item = db_cu31.scalar(select(NotificacionPago).where(
+        NotificacionPago.pago_id == pago.id,
+    ))
+    assert item.estado == "FALLIDO"
+    assert item.ultimo_error == "RESULTADO_ENVIO_DESCONOCIDO"
+    with pytest.raises(HTTPException) as exc:
+        administrativos.reintentar_notificacion(
+            db_cu31, pago.id, _admin(db_cu31),
+        )
+    assert exc.value.status_code == 409
+
+    item.proximo_intento = notificaciones._ahora() - timedelta(seconds=1)
+    db_cu31.commit()
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+    assert proveedor.llamadas[0] == proveedor.llamadas[1]
+    db_cu31.refresh(item)
+    assert item.estado == "ACEPTADO_POR_PROVEEDOR"
+    assert item.proveedor_mensaje_id == "email_aceptado_previamente"
+
+
+def test_segunda_respuesta_desconocida_queda_en_cuarentena(db_cu31):
+    _servicio(db_cu31, 2010)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([2010]), "email-unknown-twice-2010", _admin(db_cu31),
+    )
+
+    class SiempreIncierto:
+        def enviar_comprobante(self, **_kwargs):
+            raise ResultadoResendDesconocido("respuesta perdida")
+
+    proveedor = SiempreIncierto()
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+    item = db_cu31.scalar(select(NotificacionPago).where(
+        NotificacionPago.pago_id == pago.id,
+    ))
+    item.proximo_intento = notificaciones._ahora() - timedelta(seconds=1)
+    db_cu31.commit()
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+    item.proximo_intento = notificaciones._ahora() - timedelta(seconds=1)
+    db_cu31.commit()
+
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is False
+    db_cu31.refresh(item)
+    assert item.intentos == 2
+    assert item.ultimo_error == "RESULTADO_ENVIO_DESCONOCIDO"
+
+
 def test_correo_invalido_no_intenta_envio(db_cu31, monkeypatch):
     monkeypatch.setattr(config, "EMAIL_TEST", "")
     db_cu31.execute(text("UPDATE usuario SET correo='no-es-correo' WHERE id=11"))
@@ -1097,6 +1223,55 @@ def test_reintento_controlado_reactiva_fallido(db_cu31):
     item = administrativos.reintentar_notificacion(db_cu31, pago.id, _admin(db_cu31))
     assert item.estado == "PENDIENTE"
     assert item.ultimo_error is None
+
+
+def test_reintento_manual_rechaza_notificacion_en_procesamiento(db_cu31):
+    _servicio(db_cu31, 2007)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([2007]), "email-processing-2007", _admin(db_cu31),
+    )
+    item = db_cu31.scalar(select(NotificacionPago).where(
+        NotificacionPago.pago_id == pago.id,
+    ))
+    item.estado = "PROCESANDO"
+    item.intentos = 1
+    item.bloqueado_hasta = notificaciones._ahora() + timedelta(minutes=10)
+    db_cu31.commit()
+
+    with pytest.raises(HTTPException) as exc:
+        administrativos.reintentar_notificacion(
+            db_cu31, pago.id, _admin(db_cu31),
+        )
+
+    assert exc.value.status_code == 409
+    db_cu31.refresh(item)
+    assert item.estado == "PROCESANDO"
+    assert item.intentos == 1
+
+
+def test_worker_recupera_lease_abandonado_dentro_de_ventana_idempotente(
+    db_cu31,
+):
+    _servicio(db_cu31, 2022)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([2022]), "email-abandoned-2022", _admin(db_cu31),
+    )
+    item = db_cu31.scalar(select(NotificacionPago).where(
+        NotificacionPago.pago_id == pago.id,
+    ))
+    item.estado = "PROCESANDO"
+    item.intentos = 1
+    item.fecha_actualizacion = notificaciones._ahora() - timedelta(minutes=11)
+    item.bloqueado_hasta = notificaciones._ahora() - timedelta(minutes=1)
+    db_cu31.commit()
+
+    assert notificaciones.procesar_siguiente(
+        db_cu31, _ResendExitoso(),
+    ) is True
+    db_cu31.refresh(item)
+    assert item.estado == "ACEPTADO_POR_PROVEEDOR"
+    assert item.intentos == 2
+    assert item.bloqueado_hasta is None
 
 
 def test_reintento_fallido_recupera_destinatario_de_pruebas(
@@ -1180,6 +1355,28 @@ def test_webhook_resend_firmado_entregado_e_idempotente(db_cu31, monkeypatch):
     )) == 1
 
 
+def test_webhook_resend_duplicado_y_fuera_de_orden_no_degrada_entregado(
+    db_cu31,
+):
+    _servicio(db_cu31, 2006)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([2006]), "email-events-2006", _admin(db_cu31),
+    )
+    notificaciones.procesar_siguiente(db_cu31, _ResendExitoso())
+    fallido = {"type": "email.failed", "data": {"email_id": "email_123"}}
+    entregado = {"type": "email.delivered", "data": {"email_id": "email_123"}}
+    rebotado = {"type": "email.bounced", "data": {"email_id": "email_123"}}
+
+    assert notificaciones.procesar_evento_webhook(db_cu31, fallido).estado == "FALLIDO"
+    assert notificaciones.procesar_evento_webhook(db_cu31, entregado).estado == "ENTREGADO"
+    assert notificaciones.procesar_evento_webhook(db_cu31, entregado).estado == "ENTREGADO"
+    assert notificaciones.procesar_evento_webhook(db_cu31, rebotado).estado == "ENTREGADO"
+    item = db_cu31.scalar(select(NotificacionPago).where(
+        NotificacionPago.pago_id == pago.id,
+    ))
+    assert item.ultimo_error is None
+
+
 def test_webhook_resend_rechaza_firma_invalida(monkeypatch):
     secreto = base64.b64encode(b"webhook-secret-32-bytes-value!!").decode()
     monkeypatch.setattr(config, "RESEND_WEBHOOK_SECRET", f"whsec_{secreto}")
@@ -1214,6 +1411,26 @@ def test_provider_resend_envia_pdf_base64_e_idempotency(monkeypatch):
     _, kwargs = cliente.peticion
     assert kwargs["headers"]["Idempotency-Key"] == "tenant/7"
     assert base64.b64decode(kwargs["json"]["attachments"][0]["content"]) == b"%PDF-demo"
+
+
+def test_provider_resend_clasifica_timeout_como_resultado_desconocido(monkeypatch):
+    class Cliente:
+        def post(self, *args, **kwargs):
+            request = httpx.Request("POST", args[0])
+            raise httpx.ReadTimeout("respuesta perdida", request=request)
+
+    monkeypatch.setattr(config, "RESEND_API_KEY", "re_test_secret")
+    monkeypatch.setattr(config, "RESEND_FROM_EMAIL", "onboarding@resend.dev")
+
+    with pytest.raises(ResultadoResendDesconocido):
+        ResendProvider(Cliente()).enviar_comprobante(
+            destinatario="ana@example.com",
+            pago_id=7,
+            pdf=b"%PDF-demo",
+            nombre_archivo="comprobante.pdf",
+            clave_idempotencia="tenant/7",
+            tags={"pago_id": "7"},
+        )
 
 
 def test_variables_resend_ausentes_no_rompen_import_y_fallan_controlado(monkeypatch):
