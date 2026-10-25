@@ -84,7 +84,8 @@ def db_pagos():
             fecha_hora_pago TIMESTAMP, monto NUMERIC(12,2) NOT NULL,
             moneda TEXT NOT NULL, metodo_pago TEXT NOT NULL,
             estado TEXT NOT NULL, pasarela TEXT,
-            referencia_transaccion TEXT UNIQUE, observaciones TEXT
+            referencia_transaccion TEXT UNIQUE, observaciones TEXT,
+            clave_idempotencia TEXT UNIQUE
         )""",
         """CREATE TABLE pago_detalle (
             id INTEGER PRIMARY KEY, pago_id INTEGER NOT NULL,
@@ -97,6 +98,19 @@ def db_pagos():
             fecha_hora TIMESTAMP NOT NULL, ip TEXT, accion TEXT NOT NULL,
             entidad_afectada TEXT, id_registro_afectado INTEGER,
             descripcion TEXT
+        )""",
+        """CREATE TABLE notificacion_pago (
+            id INTEGER PRIMARY KEY, pago_id INTEGER NOT NULL,
+            tipo TEXT NOT NULL DEFAULT 'COMPROBANTE_PAGO',
+            estado TEXT NOT NULL DEFAULT 'PENDIENTE', destinatario TEXT,
+            clave_idempotencia TEXT NOT NULL UNIQUE,
+            proveedor TEXT NOT NULL DEFAULT 'RESEND', proveedor_mensaje_id TEXT,
+            intentos INTEGER NOT NULL DEFAULT 0, proximo_intento TIMESTAMP,
+            bloqueado_hasta TIMESTAMP, ultimo_error TEXT,
+            fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            fecha_aceptado TIMESTAMP, fecha_entregado TIMESTAMP,
+            UNIQUE(pago_id, tipo)
         )""",
     ]
     ahora = "2026-10-01 12:00:00"
@@ -157,10 +171,10 @@ def db_pagos():
         )
         conn.exec_driver_sql(
             "INSERT INTO pago VALUES "
-            "(500,?,? ,20.20,'BOB','TARJETA','APROBADO','TEST','ok',NULL),"
-            "(501,?,NULL,10.10,'BOB','TARJETA','PENDIENTE','TEST','p',NULL),"
-            "(502,?,NULL,10.10,'BOB','TARJETA','RECHAZADO','TEST','r',NULL),"
-            "(503,?,NULL,10.10,'BOB','TARJETA','ANULADO','TEST','a',NULL)",
+            "(500,?,? ,20.20,'BOB','TARJETA','APROBADO','TEST','ok',NULL,NULL),"
+            "(501,?,NULL,10.10,'BOB','TARJETA','PENDIENTE','TEST','p',NULL,NULL),"
+            "(502,?,NULL,10.10,'BOB','TARJETA','RECHAZADO','TEST','r',NULL,NULL),"
+            "(503,?,NULL,10.10,'BOB','TARJETA','ANULADO','TEST','a',NULL,NULL)",
             (ahora, ahora, ahora, ahora, ahora),
         )
         conn.exec_driver_sql(

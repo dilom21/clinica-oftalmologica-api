@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from io import BytesIO
+from xml.sax.saxutils import escape
 from zoneinfo import ZoneInfo
 
 from reportlab.lib import colors
@@ -20,6 +21,7 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
+from reportlab.pdfgen.canvas import Canvas
 from reportlab.platypus import (
     HRFlowable,
     Paragraph,
@@ -54,6 +56,7 @@ class ServicioComprobante:
 class DatosComprobante:
     """Datos planos necesarios para construir el comprobante."""
 
+    clinica_nombre: str
     pago_id: int
     consulta_clinica_id: int | None
     consulta_fecha: datetime | None
@@ -104,6 +107,7 @@ def _crear_estilos() -> dict[str, ParagraphStyle]:
         "titulo": ParagraphStyle(
             "titulo", parent=base["Title"], fontName="Helvetica-Bold",
             fontSize=19, leading=23, alignment=TA_CENTER, textColor=_AZUL,
+            splitLongWords=True,
         ),
         "subtitulo": ParagraphStyle(
             "subtitulo", parent=base["Normal"], fontName="Helvetica-Bold",
@@ -256,6 +260,12 @@ def _pie_de_pagina(canvas, documento) -> None:
     canvas.restoreState()
 
 
+def _canvas_invariable(*args, **kwargs):
+    """Evita IDs y fechas variables en los metadatos binarios del PDF."""
+    kwargs["invariant"] = 1
+    return Canvas(*args, **kwargs)
+
+
 def generar_comprobante_pdf(datos: DatosComprobante) -> bytes:
     """Construye el PDF del comprobante y devuelve sus bytes en memoria."""
     buffer = BytesIO()
@@ -267,14 +277,17 @@ def generar_comprobante_pdf(datos: DatosComprobante) -> bytes:
         topMargin=16 * mm,
         bottomMargin=22 * mm,
         title=f"Comprobante de pago {datos.pago_id}",
-        author="Clínica Oftalmológica",
+        author=datos.clinica_nombre,
         subject="Comprobante de pago",
     )
     estilos = _crear_estilos()
     ancho_total = A4[0] - 40 * mm
 
     elementos: list = []
-    elementos.append(Paragraph("CLÍNICA OFTALMOLÓGICA", estilos["titulo"]))
+    elementos.append(Paragraph(
+        escape(datos.clinica_nombre.upper()),
+        estilos["titulo"],
+    ))
     elementos.append(Paragraph("COMPROBANTE DE PAGO", estilos["subtitulo"]))
     elementos.append(Paragraph(
         f"Comprobante N° CP-{datos.pago_id:06d}",
@@ -334,5 +347,6 @@ def generar_comprobante_pdf(datos: DatosComprobante) -> bytes:
         elementos,
         onFirstPage=_pie_de_pagina,
         onLaterPages=_pie_de_pagina,
+        canvasmaker=_canvas_invariable,
     )
     return buffer.getvalue()

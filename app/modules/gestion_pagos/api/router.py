@@ -12,6 +12,15 @@ from app.modules.gestion_pagos.schemas.schemas import (
     ServicioPagoRespuesta,
     WebhookStripeRespuesta,
 )
+from app.modules.gestion_pagos.api.administrativos import (
+    router as administrativos_router,
+)
+from app.modules.gestion_pagos.schemas.administrativos import (
+    NotificacionPagoRespuesta,
+    ResultadoWebhookResend,
+)
+from app.modules.gestion_pagos.services import administrativos
+from app.modules.gestion_pagos.services import notificaciones
 from app.modules.gestion_pagos.services import service
 from app.modules.gestion_pagos.services.webhook_tenancy import (
     StripeWebhookSessionResolver,
@@ -24,6 +33,7 @@ from app.modules.gestion_pagos.providers import (
 
 
 router = APIRouter(prefix="/pagos", tags=["Gestión de Pagos"])
+router.include_router(administrativos_router)
 
 
 @router.get("/")
@@ -136,3 +146,38 @@ def descargar_comprobante_pago(
             "Content-Disposition": f'attachment; filename="{nombre_archivo}"',
         },
     )
+
+
+@router.get(
+    "/{pago_id}/notificacion",
+    response_model=NotificacionPagoRespuesta,
+)
+def consultar_notificacion_pago(
+    pago_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    usuario=Depends(obtener_usuario_actual),
+):
+    return administrativos.estado_notificacion_paciente(db, pago_id, usuario)
+
+
+@router.post(
+    "/resend/webhook",
+    response_model=ResultadoWebhookResend,
+)
+async def webhook_resend(
+    request: Request,
+    svix_id: str = Header(alias="svix-id"),
+    svix_timestamp: str = Header(alias="svix-timestamp"),
+    svix_signature: str = Header(alias="svix-signature"),
+    session_resolver: StripeWebhookSessionResolver = Depends(
+        get_stripe_webhook_session_resolver
+    ),
+):
+    payload = await request.body()
+    evento = notificaciones.verificar_webhook(
+        payload, svix_id, svix_timestamp, svix_signature,
+    )
+    metadata = notificaciones.metadata_enrutamiento(evento)
+    evento_enrutamiento = {"data": {"object": {"metadata": metadata}}}
+    with session_resolver.open_for_verified_event(evento_enrutamiento) as (db, _scope):
+        return notificaciones.procesar_evento_webhook(db, evento)

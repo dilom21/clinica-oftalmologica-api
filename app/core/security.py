@@ -43,6 +43,7 @@ def crear_tenant_access_token(
     tenant_id: int,
     empresa_id: int,
     empresa_codigo: str,
+    rol_nombre: str | None = None,
 ) -> str:
     """Emite un JWT de tenant con identidad firmada.
 
@@ -62,6 +63,11 @@ def crear_tenant_access_token(
         "token_type": "tenant",
         "exp": fecha_expiracion,
     }
+    if rol_nombre is not None:
+        nombre_limpio = rol_nombre.strip()
+        if not nombre_limpio:
+            raise ValueError("El nombre del rol tenant no puede estar vacio")
+        payload["rol_nombre"] = nombre_limpio
 
     return jwt.encode(
         payload,

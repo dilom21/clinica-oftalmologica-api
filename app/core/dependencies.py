@@ -116,6 +116,16 @@ def get_tenant_claims(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
+    rol_nombre = claims.get("rol_nombre")
+    if rol_nombre is not None and (
+        not isinstance(rol_nombre, str) or not rol_nombre.strip()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token invÃ¡lido o expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return claims
 
 

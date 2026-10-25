@@ -1156,6 +1156,7 @@ def test_clean_verification_checks_current_services_and_payments_as_empty():
     assert "servicio_oftalmologico" not in CLEAN_CATALOG_TABLES
     assert "pago" in CLEAN_EMPTY_TABLES
     assert "pago_detalle" in CLEAN_EMPTY_TABLES
+    assert "notificacion_pago" in CLEAN_EMPTY_TABLES
     assert "cita" in CLEAN_EMPTY_TABLES
 
 
@@ -1164,6 +1165,7 @@ def test_source_inventory_matches_current_tenant_models():
     assert "servicio_oftalmologico" in SOURCE_TABLES
     assert "pago" in SOURCE_TABLES
     assert "pago_detalle" in SOURCE_TABLES
+    assert "notificacion_pago" in SOURCE_TABLES
     assert "servicios_oftalmologicos" not in SOURCE_TABLES
 
 

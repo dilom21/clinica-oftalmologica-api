@@ -237,6 +237,20 @@ class RegistroPacienteRequest(BaseModel):
         return validar_politica_password_paciente(password)
 
 
+class TenantRegistroPacienteRequest(RegistroPacienteRequest):
+    """Autorregistro dirigido a una empresa lógica, nunca a una base física."""
+
+    empresa_codigo: str
+
+    @field_validator("empresa_codigo")
+    @classmethod
+    def normalizar_empresa_codigo(cls, empresa_codigo: str) -> str:
+        codigo = empresa_codigo.strip().upper()
+        if not codigo:
+            raise ValueError("El código de empresa es obligatorio")
+        return codigo
+
+
 # =========================================================
 # RECUPERACIÓN DE CONTRASEÑA
 # CU03

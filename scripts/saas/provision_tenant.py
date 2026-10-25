@@ -34,31 +34,35 @@ EXCLUDED_SCHEMAS = (
     "vault", "graphql", "graphql_public", "supabase_functions",
 )
 REQUIRED_TOOLS = ("pg_dump", "pg_restore", "psql")
-SCHEMA_VERSION = "v1"
+SCHEMA_VERSION = "v2-cu31"
 RECONCILE_COUNT_TABLES = ("usuario", "paciente", "cita")
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 900
-EXPECTED_SOURCE_TABLE_COUNT = 28
-EXPECTED_SOURCE_SEQUENCE_COUNT = 28
-EXPECTED_SOURCE_COLUMN_COUNT = 190
-EXPECTED_SOURCE_INDEX_COUNT = 69
+EXPECTED_SOURCE_TABLE_COUNT = 29
+EXPECTED_SOURCE_SEQUENCE_COUNT = 29
+EXPECTED_SOURCE_COLUMN_COUNT = 207
+EXPECTED_SOURCE_INDEX_COUNT = 75
 SOURCE_TABLES = (
     "accion", "antecedente_clinico", "bitacora", "bloqueo_horario", "cita",
     "consulta_clinica", "control_medico", "detalle_receta", "diagnostico",
     "examen_oftalmologico", "funcion", "historial_clinico", "horario_oftalmologo",
     "indicacion", "modulo", "oftalmologo", "paciente", "receta", "resultado_examen",
-    "pago", "pago_detalle", "rol", "rol_funcion", "servicio_oftalmologico",
+    "notificacion_pago", "pago", "pago_detalle", "rol", "rol_funcion",
+    "servicio_oftalmologico",
     "servicio_realizado", "token_recuperacion", "tratamiento", "usuario",
 )
 CLEAN_EXPECTED_CODE = "OFTALMO-NORTE"
 CLEAN_EXPECTED_DATABASE = "tenant_oftalmo_norte"
 CLEAN_ADMIN_EMAIL = "admin@oftalmonorte.demo"
 CLEAN_CATALOG_TABLES = ("accion", "modulo", "funcion", "rol", "rol_funcion")
-CLEAN_CATALOG_COUNTS = {"accion": 3, "modulo": 6, "funcion": 19, "rol": 4, "rol_funcion": 39}
+CLEAN_CATALOG_COUNTS = {
+    "accion": 3, "modulo": 6, "funcion": 21, "rol": 4, "rol_funcion": 43,
+}
 CLEAN_EMPTY_TABLES = (
     "antecedente_clinico", "bitacora", "bloqueo_horario", "cita", "consulta_clinica",
     "control_medico", "detalle_receta", "diagnostico", "examen_oftalmologico",
     "historial_clinico", "horario_oftalmologo", "indicacion", "oftalmologo", "paciente",
-    "pago", "pago_detalle", "receta", "resultado_examen", "servicio_oftalmologico",
+    "notificacion_pago", "pago", "pago_detalle", "receta", "resultado_examen",
+    "servicio_oftalmologico",
     "servicio_realizado", "token_recuperacion", "tratamiento",
 )
 PG_BIN_DIRS = (

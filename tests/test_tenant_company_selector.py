@@ -200,8 +200,16 @@ def test_login_in_other_tenant_returns_401_without_reusing_first_tenant_user(con
 
         def get_usuario_by_correo(self, correo):
             if self.tenant_db.code == "FOCO" and correo == "user@example.test":
-                return type("User", (), {"id": 1, "rol_id": 1, "estado": True,
-                                         "password_hash": hash_password("correct-password")})()
+                role = type("Role", (), {
+                    "id": 1, "nombre": "Administrador", "estado": True,
+                })()
+                return type("User", (), {
+                    "id": 1,
+                    "rol_id": 1,
+                    "rol": role,
+                    "estado": True,
+                    "password_hash": hash_password("correct-password"),
+                })()
             return None
 
     registry = Registry()

@@ -37,7 +37,14 @@ def context(state="ACTIVA"):
 
 class FakeControlPlane:
     def __init__(self, company="ACTIVA", subscription="ACTIVA", database="ACTIVA"):
-        self.company = FakeRow(id=4, codigo="VISION-CLARA", slug="vision-clara", estado=company)
+        self.company = FakeRow(
+            id=4,
+            codigo="VISION-CLARA",
+            slug="vision-clara",
+            estado=company,
+            nombre_comercial="Centro Oftalmologico Vision Clara",
+            razon_social="Vision Clara SRL",
+        )
         self.subscription = FakeRow(
             id=8, empresa_id=4, plan_id=9, estado=subscription,
             fecha_inicio=date(2026, 1, 1), fecha_fin=date(2026, 12, 31),
@@ -59,6 +66,15 @@ class FakeControlPlane:
 
     def get_tenant_database(self, empresa_id):
         return self.database
+
+
+def test_resolver_incluye_nombre_oficial_del_control_plane():
+    contexto = TenantResolver(
+        FakeControlPlane(),
+        today=lambda: date(2026, 6, 1),
+    ).resolver_por_codigo_empresa("VISION-CLARA")
+
+    assert contexto.empresa_nombre == "Centro Oftalmologico Vision Clara"
 
 
 class FakeSession:
@@ -85,8 +101,20 @@ def request(**overrides):
     return TenantLoginRequest(**values)
 
 
-def fake_user(password="Secret123", active=True):
-    return FakeRow(id=21, rol_id=3, estado=active, password_hash=hash_password(password))
+def fake_user(
+    password="Secret123",
+    active=True,
+    role_id=3,
+    role_name="Administrador",
+    role_active=True,
+):
+    return FakeRow(
+        id=21,
+        rol_id=role_id,
+        rol=FakeRow(id=role_id, nombre=role_name, estado=role_active),
+        estado=active,
+        password_hash=hash_password(password),
+    )
 
 
 class FakeUserRepository:
@@ -112,7 +140,10 @@ def test_schema_requires_empresa_codigo():
         TenantLoginRequest(correo="a@example.test", password="x")
 
 
-@pytest.mark.parametrize("field", ["database_name", "tenant_id", "empresa_id"])
+@pytest.mark.parametrize(
+    "field",
+    ["database_name", "tenant_id", "empresa_id", "rol_nombre"],
+)
 def test_schema_forbids_database_selection_fields(field):
     with pytest.raises(ValidationError):
         request(**{field: "client-value"})
@@ -184,9 +215,64 @@ def test_valid_tenant_login_uses_fake_repository_and_registry():
     assert isinstance(result.access_token, str)
 
 
+def test_tenant_login_emite_rol_real_para_paciente_con_id_no_universal():
+    result = authenticate(fake_user(role_id=91, role_name="Paciente"))
+    claims = jwt.decode(
+        result.access_token,
+        JWT_SECRET_KEY,
+        algorithms=[JWT_ALGORITHM],
+    )
+
+    assert claims["rol_id"] == 91
+    assert claims["rol_nombre"] == "Paciente"
+
+
+def test_tenant_login_compartido_emite_rol_administrativo():
+    result = authenticate(fake_user(role_id=2, role_name="Administrador"))
+    claims = jwt.decode(
+        result.access_token,
+        JWT_SECRET_KEY,
+        algorithms=[JWT_ALGORITHM],
+    )
+
+    assert claims["rol_id"] == 2
+    assert claims["rol_nombre"] == "Administrador"
+
+
+@pytest.mark.parametrize(
+    "user",
+    [
+        FakeRow(
+            id=21,
+            rol_id=3,
+            rol=None,
+            estado=True,
+            password_hash=hash_password("Secret123"),
+        ),
+        fake_user(role_id=3, role_name=""),
+        FakeRow(
+            id=21,
+            rol_id=3,
+            rol=FakeRow(id=99, nombre="Paciente", estado=True),
+            estado=True,
+            password_hash=hash_password("Secret123"),
+        ),
+        fake_user(role_active=False),
+    ],
+)
+def test_tenant_login_rechaza_relacion_de_rol_inconsistente(user):
+    with pytest.raises(HTTPException) as error:
+        authenticate(user)
+
+    assert error.value.status_code == 403
+    assert error.value.detail == "Rol de usuario invalido"
+
+
 def decoded_tenant_token():
     return jwt.decode(
-        crear_tenant_access_token(21, 3, 17, 4, "VISION-CLARA"),
+        crear_tenant_access_token(
+            21, 3, 17, 4, "VISION-CLARA", "Administrador",
+        ),
         JWT_SECRET_KEY,
         algorithms=[JWT_ALGORITHM],
     )
@@ -194,8 +280,36 @@ def decoded_tenant_token():
 
 def test_tenant_jwt_has_required_claims():
     claims = decoded_tenant_token()
-    assert {"sub", "rol_id", "tenant_id", "empresa_id", "empresa_codigo", "token_type", "exp"} <= claims.keys()
+    assert {"sub", "rol_id", "rol_nombre", "tenant_id", "empresa_id", "empresa_codigo", "token_type", "exp"} <= claims.keys()
     assert claims["token_type"] == "tenant"
+    assert claims["rol_nombre"] == "Administrador"
+
+
+def test_generador_tenant_conserva_compatibilidad_con_llamadas_existentes():
+    token = crear_tenant_access_token(21, 3, 17, 4, "VISION-CLARA")
+    claims = dependencies.get_tenant_claims(credentials(token))
+
+    assert claims["rol_id"] == 3
+    assert "rol_nombre" not in claims
+
+
+def test_dependencia_rechaza_nombre_de_rol_vacio_si_claim_esta_presente():
+    token = jwt.encode(
+        {
+            "sub": "21",
+            "rol_id": 3,
+            "rol_nombre": "   ",
+            "tenant_id": 17,
+            "empresa_id": 4,
+            "empresa_codigo": "VISION-CLARA",
+            "token_type": "tenant",
+        },
+        JWT_SECRET_KEY,
+        algorithm=JWT_ALGORITHM,
+    )
+
+    with pytest.raises(HTTPException):
+        dependencies.get_tenant_claims(credentials(token))
 
 
 def test_tenant_jwt_has_no_database_or_secret_material():

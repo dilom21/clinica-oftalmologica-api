@@ -12,11 +12,12 @@ database or rerun that probe.
 ## Known preflight facts
 
 - The historical Paso 7D.1 probe found **27 public base tables** (and 27
-  sequences). The integrated application model now requires **28 tenant
-  tables/sequences**: the obsolete plural `servicios_oftalmologicos` is not
+  sequences). After applying the prepared CU31 migration, the integrated
+  application model requires **29 tenant tables/sequences**: the obsolete
+  plural `servicios_oftalmologicos` is not
   provisioned, while `pago` and `pago_detalle` are required together with the
   canonical singular `servicio_oftalmologico`. A fresh read-only inventory
-  must confirm this 28-table contract before a future real execution.
+  must confirm this 29-table contract before a future real execution.
 - The read-only probe found no public views, materialized views, routines, or
   triggers.
 - Source row counts are intentionally generated at execution time by
