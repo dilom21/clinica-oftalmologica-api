@@ -256,8 +256,9 @@ def test_catalogo_esta_aislado_entre_tenants(routed_client):
 
 def test_integracion_no_duplica_modelos_rutas_ni_tablas():
     publicas = {tabla.name for tabla in Base.metadata.tables.values() if tabla.schema is None}
-    assert len(publicas) == 29
+    assert len(publicas) == 30
     assert "notificacion_pago" in publicas
+    assert "proveedores" in publicas
     assert "servicio_oftalmologico" in publicas
     assert "servicios_oftalmologicos" not in Base.metadata.tables
     assert ServicioOftalmologico.__table__ is Base.metadata.tables["servicio_oftalmologico"]
