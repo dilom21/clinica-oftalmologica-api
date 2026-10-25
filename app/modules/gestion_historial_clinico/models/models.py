@@ -22,7 +22,6 @@ from app.modules.gestion_pacientes.models.models import Paciente
 
 class HistorialClinico(Base):
     __tablename__ = "historial_clinico"
-    __table_args__ = {'extend_existing': True}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     paciente_id: Mapped[int] = mapped_column(
@@ -48,8 +47,7 @@ class HistorialClinico(Base):
 
 class AntecedenteClinico(Base):
     __tablename__ = "antecedente_clinico"
-    __table_args__ = {'extend_existing': True} # <--- AGREGA ESTA LÍNEA AQUÍ
-    
+
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     historial_clinico_id: Mapped[int] = mapped_column(
         BigInteger,

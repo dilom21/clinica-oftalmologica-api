@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict,Field
+from pydantic import BaseModel, ConfigDict
 
 class PacienteCrear(BaseModel):
     usuario_id: int | None = None
@@ -70,7 +70,7 @@ class PacienteRespuesta(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
- 
+
 class MiPerfilPacienteResponse(BaseModel):
     """Perfil del paciente autenticado (CU08 - app móvil)."""
 

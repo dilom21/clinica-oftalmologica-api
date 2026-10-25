@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select, func, update, delete
 from sqlalchemy.orm import Session
+
 from app.modules.gestion_usuarios_seguridad.models.models import (
     Usuario,
     Rol,
@@ -42,11 +43,11 @@ def crear_usuario(
     estado: bool = True,
 ):
     usuario = Usuario(
-        correo=correo,  # Todo en minúsculas, como en tu models.py
+        correo=correo,
         password_hash=password_hash,
         rol_id=rol_id,
-        estado=True,
-        fecha_creacion=datetime.now(timezone.utc)
+        estado=estado,
+        fecha_creacion=datetime.now(timezone.utc),
     )
 
     db.add(usuario)

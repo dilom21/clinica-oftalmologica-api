@@ -3,10 +3,10 @@
 The legacy login keeps using the original database. Clinical requests are
 routed by the *signed* JWT they carry:
 
-- no token / legacy token  -> original database (legacy behaviour);
-- valid tenant token       -> the company's own database, resolved on the
+* no token / legacy token  -> original database (legacy behaviour);
+* valid tenant token       -> the company's own database, resolved on the
                               server from the SaaS control plane;
-- SaaS admin token         -> rejected (never a clinical resource).
+* SaaS admin token         -> rejected (never a clinical resource).
 
 A tenant resolution failure never falls back to the legacy database, and no
 internal database name or credential is ever exposed to the client.
@@ -28,6 +28,7 @@ from app.core.tenancy.repository import TenantControlPlaneRepository
 from app.core.tenancy.resolver import TenantResolver
 from app.database.connection import engine
 from app.modules.gestion_usuarios_seguridad.models.models import Usuario
+
 
 SessionLocal = sessionmaker(
     bind=engine,

@@ -1,6 +1,5 @@
-from fastapi import APIRouter, Depends, Query, Request, HTTPException
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
 
 from app.database.session import get_db_legacy
 from app.core.dependencies import (
@@ -13,18 +12,6 @@ from app.core.tenancy.dependencies import get_control_db, get_tenant_engine_regi
 from app.core.tenancy.exceptions import TenantError
 from app.core.tenancy.repository import TenantControlPlaneRepository
 from app.core.tenancy.resolver import TenantResolver
-
-from app.modules.gestion_usuarios_seguridad.services import (
-    auth_service,
-    bitacora_service,
-    menu_service,
-    password_service,
-    registro_paciente_service,
-    rol_service,
-    tenant_auth_service,
-    usuario_service,
-)
-from app.modules.gestion_usuarios_seguridad.repositories import repository
 
 from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     LoginRequest,
@@ -53,18 +40,27 @@ from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     EmpresaPublicaRespuesta,
 )
 
-router = APIRouter(prefix="/seguridad", tags=["Seguridad"])
+from app.modules.gestion_usuarios_seguridad.services import (
+    auth_service,
+    bitacora_service,
+    menu_service,
+    password_service,
+    registro_paciente_service,
+    rol_service,
+    tenant_auth_service,
+    usuario_service,
+)
 
-@router.get("/")
-def obtener_modulo():
-    return {"mensaje": "Módulo de Usuarios y Seguridad funcionando"}
 
-@router.delete("/usuarios/{usuario_id}")
-def eliminar_usuario(usuario_id: int, db: Session = Depends(get_db)):
-    usuario = repository.dar_de_baja_usuario(db, usuario_id)
-    if not usuario:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-    return {"mensaje": f"El usuario {usuario_id} fue dado de baja exitosamente."}
+router = APIRouter(
+    prefix="/seguridad",
+    tags=["Usuarios y Seguridad"],
+)
+
+
+# =========================================================
+# CU01 - INICIAR SESIÓN
+# =========================================================
 
 @router.post(
     "/login",
@@ -81,6 +77,7 @@ def iniciar_sesion(
         request.client.host if request.client else None,
     )
 
+
 # =========================================================
 # CU03 - RECUPERAR CONTRASEÑA
 # =========================================================
@@ -92,12 +89,14 @@ def recuperar_password(
 ):
     return password_service.solicitar_recuperacion_password(db, datos)
 
+
 @router.post("/password/restablecer")
 def restablecer_password(
     datos: RestablecerPasswordRequest,
     db: Session = Depends(get_db),
 ):
     return password_service.restablecer_password(db, datos)
+
 
 # =========================================================
 # REGISTRO Y LOGIN MÓVIL (EXCLUSIVO PACIENTES)
@@ -119,6 +118,7 @@ def registrar_cuenta_paciente(
         request.client.host if request.client else None,
     )
 
+
 @router.post(
     "/login/paciente",
     response_model=LoginResponse,
@@ -134,8 +134,11 @@ def iniciar_sesion_paciente(
         request.client.host if request.client else None,
     )
 
+
 # =========================================================
 # LOGIN MULTITENANT (SAAS)
+# Selección pública de empresa y autenticación contra la base
+# de la empresa, resuelta siempre en el servidor.
 # =========================================================
 
 @router.get(
@@ -145,6 +148,10 @@ def iniciar_sesion_paciente(
 def listar_empresas_publicas(
     db: Session = Depends(get_control_db),
 ):
+    """Selector público: solo empresas con login vigente y datos mínimos.
+
+    No expone nombres de base de datos, hosts, planes ni credenciales.
+    """
     repository = TenantControlPlaneRepository(db)
     resolver = TenantResolver(repository)
     empresas = []
@@ -163,6 +170,7 @@ def listar_empresas_publicas(
     empresas.sort(key=lambda item: (item["nombre"], item["codigo"]))
     return empresas
 
+
 @router.post(
     "/tenant/login",
     response_model=LoginResponse,
@@ -172,6 +180,7 @@ def iniciar_sesion_tenant(
     db: Session = Depends(get_control_db),
     registry=Depends(get_tenant_engine_registry),
 ):
+    """Login de tenant: resuelve la empresa y autentica contra su base."""
     return tenant_auth_service.autenticar_usuario_tenant(
         datos,
         TenantControlPlaneRepository(db),
@@ -221,6 +230,7 @@ def crear_usuario(
         request.client.host if request.client else None,
     )
 
+
 @router.get(
     "/usuarios",
     response_model=list[UsuarioRespuesta],
@@ -230,6 +240,7 @@ def listar_usuarios(
     administrador=Depends(obtener_administrador_actual),
 ):
     return usuario_service.listar_usuarios(db)
+
 
 @router.get(
     "/usuarios/{usuario_id}",
@@ -244,6 +255,7 @@ def obtener_usuario(
         db,
         usuario_id,
     )
+
 
 @router.put(
     "/usuarios/{usuario_id}",
@@ -264,6 +276,7 @@ def actualizar_usuario(
         request.client.host if request.client else None,
     )
 
+
 @router.patch(
     "/usuarios/{usuario_id}/estado",
     response_model=UsuarioRespuesta,
@@ -282,6 +295,7 @@ def actualizar_estado_usuario(
         administrador,
         request.client.host if request.client else None,
     )
+
 
 @router.post(
     "/usuarios/{usuario_id}/rol",
@@ -302,6 +316,7 @@ def asignar_rol(
         request.client.host if request.client else None,
     )
 
+
 # =========================================================
 # CU05 - ROLES Y PERMISOS
 # =========================================================
@@ -319,6 +334,7 @@ def crear_rol(
 ):
     return rol_service.crear_rol_con_permisos(db, datos)
 
+
 @router.get(
     "/roles",
     response_model=list[RolRespuesta],
@@ -328,6 +344,7 @@ def listar_roles(
     _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.listar_roles(db)
+
 
 @router.get(
     "/roles/{rol_id}",
@@ -340,6 +357,7 @@ def obtener_rol(
 ):
     return rol_service.obtener_rol(db, rol_id)
 
+
 @router.get(
     "/roles/{rol_id}/permisos",
     response_model=list[PermisoRolRespuesta],
@@ -350,6 +368,7 @@ def obtener_permisos_rol(
     _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.obtener_permisos_rol(db, rol_id)
+
 
 @router.put(
     "/roles/{rol_id}",
@@ -363,6 +382,7 @@ def actualizar_rol(
 ):
     return rol_service.actualizar_rol_con_permisos(db, rol_id, datos)
 
+
 @router.delete(
     "/roles/{rol_id}",
     response_model=RolRespuesta,
@@ -374,6 +394,7 @@ def desactivar_rol(
 ):
     return rol_service.desactivar_rol(db, rol_id)
 
+
 @router.get(
     "/modulos-funciones",
     response_model=list[ModuloConFuncionesRespuesta],
@@ -384,6 +405,7 @@ def listar_modulos_funciones(
 ):
     return rol_service.listar_modulos_con_funciones(db)
 
+
 @router.get(
     "/acciones",
     response_model=list[AccionRespuesta],
@@ -393,6 +415,7 @@ def listar_acciones(
     _usuario=Depends(permiso_gestion_roles),
 ):
     return rol_service.listar_acciones(db)
+
 
 # =========================================================
 # CU06 - BITÁCORA
@@ -421,12 +444,14 @@ def consultar_bitacora(
         page=page,
         page_size=page_size,
     )
+
     bitacora_service.registrar_consulta(
         db=db,
         usuario_id=administrador.id,
         ip=request.client.host if request.client else None,
     )
     return registros
+
 
 # =========================================================
 # MENÚ DINÁMICO
@@ -441,3 +466,6 @@ def obtener_menu(
     usuario=Depends(obtener_usuario_actual),
 ):
     return menu_service.obtener_menu(db, rol_id=usuario.rol_id)
+
+
+
