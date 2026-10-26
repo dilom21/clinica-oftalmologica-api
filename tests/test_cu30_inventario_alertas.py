@@ -46,7 +46,8 @@ def _crear_tenant(engine, codigo, numero):
             "estado BOOLEAN, protegido BOOLEAN, fecha_creacion TIMESTAMP)",
             "CREATE TABLE usuario (id INTEGER PRIMARY KEY, correo TEXT, password_hash TEXT, "
             "estado BOOLEAN, fecha_creacion TIMESTAMP, rol_id INTEGER)",
-            "CREATE TABLE funcion (id INTEGER PRIMARY KEY, nombre TEXT, estado BOOLEAN)",
+            "CREATE TABLE modulo (id INTEGER PRIMARY KEY, nombre TEXT, estado BOOLEAN)",
+            "CREATE TABLE funcion (id INTEGER PRIMARY KEY, nombre TEXT, estado BOOLEAN, modulo_id INTEGER)",
             "CREATE TABLE accion (id INTEGER PRIMARY KEY, nombre TEXT, estado BOOLEAN)",
             "CREATE TABLE rol_funcion (id INTEGER PRIMARY KEY, rol_id INTEGER, funcion_id INTEGER, accion_id INTEGER)",
             "CREATE TABLE public.categoria (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, estado BOOLEAN)",
@@ -63,7 +64,8 @@ def _crear_tenant(engine, codigo, numero):
         db.exec_driver_sql("INSERT INTO rol VALUES (1, 'Administrador', NULL, 1, 0, '2026-01-01')")
         db.exec_driver_sql("INSERT INTO usuario VALUES (7, ?, 'unused', 1, '2026-01-01', 1)",
                            (codigo.lower() + "@example.test",))
-        db.exec_driver_sql("INSERT INTO funcion VALUES (30, 'Consultar inventario y alertas', 1)")
+        db.exec_driver_sql("INSERT INTO modulo VALUES (4, 'Inventario y Proveedores', 1)")
+        db.exec_driver_sql("INSERT INTO funcion VALUES (30, 'Consultar inventario y alertas', 1, 4)")
         db.exec_driver_sql("INSERT INTO accion VALUES (1,'LECTURA',1),(2,'ESCRITURA',1),(3,'AMBAS',1)")
         db.exec_driver_sql("INSERT INTO rol_funcion VALUES (1,1,30,1)")
         db.exec_driver_sql("INSERT INTO public.categoria VALUES (1,'Medicamentos',1),(2,'Insumos',0)")
@@ -292,6 +294,9 @@ def test_producto_inactivo_inexistente_o_de_otra_empresa_404(tenants, producto_i
     ("DELETE FROM rol_funcion", 403),
     ("DELETE FROM funcion", 403),
     ("UPDATE funcion SET estado=0", 403),
+    ("UPDATE modulo SET estado=0", 403),
+    ("UPDATE rol SET estado=0", 403),
+    ("UPDATE modulo SET nombre='Otro modulo'", 403),
     ("UPDATE accion SET estado=0 WHERE id=1", 403),
     ("UPDATE funcion SET nombre='Gestionar movimientos de inventario'", 403),
     ("UPDATE usuario SET estado=0", 401),
@@ -302,6 +307,16 @@ def test_permisos_reales_y_usuario_activo(tenants, sql, status, path):
         db.exec_driver_sql(sql)
     response = tenants[0].get(path, headers=_headers())
     assert response.status_code == status, response.text
+
+
+def test_funcion_con_el_mismo_nombre_en_otro_modulo_no_autoriza(tenants):
+    with tenants[1][EMPRESAS[0]].begin() as db:
+        db.exec_driver_sql("INSERT INTO modulo VALUES (5, 'Otro modulo', 1)")
+        db.exec_driver_sql("INSERT INTO funcion VALUES (31, 'Consultar inventario y alertas', 1, 5)")
+        db.exec_driver_sql("UPDATE rol_funcion SET funcion_id=31")
+    for path in (LISTADO, ALERTAS, BASE + "/productos/1/lotes"):
+        response = tenants[0].get(path, headers=_headers())
+        assert response.status_code == 403, response.text
 
 
 @pytest.mark.parametrize("kind", ["ausente", "legacy", "saas", "firma", "empresa", "tenant", "rol", "expirado"])

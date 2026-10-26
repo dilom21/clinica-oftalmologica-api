@@ -1,6 +1,7 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, Path, Query
+from fastapi import APIRouter, Depends, HTTPException, Path, Query
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import (
@@ -13,6 +14,7 @@ from app.modules.gestion_inventario_proveedores.schemas.inventario import (
     AlertasPagina, FiltrosInventario, InventarioPagina, LotesProductoRespuesta,
 )
 from app.modules.gestion_inventario_proveedores.services import inventario as service
+from app.modules.gestion_usuarios_seguridad.models.models import Accion, Funcion, Modulo, Rol, RolFuncion
 
 
 router = APIRouter(
@@ -20,7 +22,36 @@ router = APIRouter(
     tags=["CU30 - Inventario y alertas"],
     dependencies=[Depends(get_tenant_claims)],
 )
-permiso_lectura = requerir_permiso("Consultar inventario y alertas", ACCION_LECTURA)
+_permiso_lectura = requerir_permiso("Consultar inventario y alertas", ACCION_LECTURA)
+
+
+def permiso_lectura(
+    usuario=Depends(_permiso_lectura),
+    db: Session = Depends(get_db),
+):
+    """Revalida el rol y el módulo de CU30 en la misma sesión del tenant."""
+    rol_activo = db.scalar(
+        select(Rol.id).where(Rol.id == usuario.rol_id, Rol.estado.is_(True))
+    )
+    modulo_activo = db.scalar(
+        select(Modulo.id)
+        .join(Funcion, Funcion.modulo_id == Modulo.id)
+        .join(RolFuncion, RolFuncion.funcion_id == Funcion.id)
+        .join(Accion, Accion.id == RolFuncion.accion_id)
+        .where(
+            RolFuncion.rol_id == usuario.rol_id,
+            Funcion.nombre == "Consultar inventario y alertas",
+            Funcion.estado.is_(True),
+            Modulo.nombre == "Inventario y Proveedores",
+            Modulo.estado.is_(True),
+            Accion.estado.is_(True),
+            func.upper(func.trim(Accion.nombre)).in_({ACCION_LECTURA, "AMBAS"}),
+        )
+        .limit(1)
+    )
+    if rol_activo is None or modulo_activo is None:
+        raise HTTPException(status_code=403, detail="No tiene permiso para Consultar inventario y alertas")
+    return usuario
 
 
 @router.get("/inventario", response_model=InventarioPagina)
