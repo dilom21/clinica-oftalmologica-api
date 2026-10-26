@@ -1,7 +1,12 @@
 from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import ACCION_ESCRITURA, ACCION_LECTURA, requerir_permiso
+from app.core.dependencies import (
+    ACCION_ESCRITURA,
+    ACCION_LECTURA,
+    obtener_usuario_actual,
+    requerir_permiso,
+)
 from app.core.dependencies import get_db
 from app.modules.gestion_historial_clinico.api.controles import router as controles_router
 from app.modules.gestion_historial_clinico.api.servicios_realizados import (
@@ -28,6 +33,10 @@ from app.modules.gestion_historial_clinico.schemas.schemas import (
     TratamientoCrear,
     TratamientoRespuesta,
 )
+from app.modules.gestion_historial_clinico.schemas.informacion_autorizada import (
+    InformacionClinicaAutorizadaRespuesta,
+)
+from app.modules.gestion_historial_clinico.services import informacion_autorizada
 from app.modules.gestion_historial_clinico.services import service
 
 router = APIRouter(
@@ -41,6 +50,21 @@ router.include_router(servicios_realizados_router)
 @router.get("/")
 def obtener_modulo():
     return {"mensaje": "Módulo de historial clínico funcionando"}
+
+
+# CU25. Ruta estática: debe declararse antes de /{paciente_id}.
+@router.get(
+    "/mi-informacion",
+    response_model=InformacionClinicaAutorizadaRespuesta,
+)
+def consultar_mi_informacion_clinica(
+    db: Session = Depends(get_db),
+    usuario=Depends(obtener_usuario_actual),
+):
+    return informacion_autorizada.consultar_informacion_clinica_autorizada(
+        db,
+        usuario,
+    )
 
 
 permiso_historial_clinico = requerir_permiso(
