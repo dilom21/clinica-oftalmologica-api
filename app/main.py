@@ -1,3 +1,4 @@
+from app.modules.gestion_inventario_proveedores.api.router import router as inventario_router
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
@@ -51,6 +52,7 @@ app.include_router(historial_clinico_router)
 app.include_router(integracion_ia_router)
 app.include_router(reportes_router)
 app.include_router(saas_router)
+app.include_router(inventario_router)
 
 
 @app.get("/")
