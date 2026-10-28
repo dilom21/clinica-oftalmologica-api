@@ -170,6 +170,19 @@ def obtener_administrador_actual(
     return usuario
 
 
+def obtener_personal_actual(
+    usuario: Usuario = Depends(obtener_usuario_actual),
+) -> Usuario:
+    """Usuario autenticado que no es paciente (personal de la clínica)."""
+    if nombre_rol_actual(usuario) == "paciente":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Operación disponible únicamente para el personal de la clínica",
+        )
+
+    return usuario
+
+
 def requerir_permiso(
     nombre_funcion: str,
     nombre_accion: str | None = None,

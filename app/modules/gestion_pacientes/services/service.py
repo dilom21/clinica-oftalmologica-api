@@ -26,6 +26,7 @@ from app.modules.gestion_usuarios_seguridad.repositories.repository import (
 def crear_paciente(
     db: Session,
     datos: PacienteCrear,
+    usuario=None,
 ):
     if datos.ci:
         existente = repo.obtener_paciente_por_ci(
@@ -55,7 +56,7 @@ def crear_paciente(
 
         registrar_bitacora(
             db=db,
-            usuario_id=None,
+            usuario_id=usuario.id if usuario else None,
             accion="CREAR_PACIENTE",
             entidad_afectada="paciente",
             id_registro_afectado=paciente.id,
@@ -98,6 +99,7 @@ def actualizar_paciente(
     db: Session,
     paciente_id: int,
     datos: PacienteActualizar,
+    usuario=None,
 ):
     paciente = obtener_paciente(
         db,
@@ -113,7 +115,7 @@ def actualizar_paciente(
 
         registrar_bitacora(
             db=db,
-            usuario_id=None,
+            usuario_id=usuario.id if usuario else None,
             accion="ACTUALIZAR_PACIENTE",
             entidad_afectada="paciente",
             id_registro_afectado=paciente.id,
@@ -133,6 +135,7 @@ def actualizar_paciente(
 def eliminar_paciente(
     db: Session,
     paciente_id: int,
+    usuario=None,
 ):
     paciente = obtener_paciente(
         db,
@@ -147,7 +150,7 @@ def eliminar_paciente(
 
         registrar_bitacora(
             db=db,
-            usuario_id=None,
+            usuario_id=usuario.id if usuario else None,
             accion="DESACTIVAR_PACIENTE",
             entidad_afectada="paciente",
             id_registro_afectado=paciente.id,

@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import obtener_usuario_actual
-from app.core.dependencies import get_db
+from app.core.dependencies import (
+    get_db,
+    obtener_personal_actual,
+    obtener_usuario_actual,
+)
 
 from app.modules.gestion_pacientes.schemas.schemas import (
     PacienteCrear,
@@ -33,10 +36,12 @@ router = APIRouter(
 def crear_paciente(
     datos: PacienteCrear,
     db: Session = Depends(get_db),
+    personal=Depends(obtener_personal_actual),
 ):
     return service.crear_paciente(
         db,
         datos,
+        personal,
     )
 
 
@@ -46,6 +51,7 @@ def crear_paciente(
 )
 def listar_pacientes(
     db: Session = Depends(get_db),
+    _personal=Depends(obtener_personal_actual),
 ):
     return service.listar_pacientes(db)
 
@@ -93,6 +99,7 @@ def actualizar_mi_perfil(
 def obtener_paciente(
     paciente_id: int,
     db: Session = Depends(get_db),
+    _personal=Depends(obtener_personal_actual),
 ):
     return service.obtener_paciente(
         db,
@@ -108,11 +115,13 @@ def actualizar_paciente(
     paciente_id: int,
     datos: PacienteActualizar,
     db: Session = Depends(get_db),
+    personal=Depends(obtener_personal_actual),
 ):
     return service.actualizar_paciente(
         db,
         paciente_id,
         datos,
+        personal,
     )
 
 
@@ -123,8 +132,10 @@ def actualizar_paciente(
 def eliminar_paciente(
     paciente_id: int,
     db: Session = Depends(get_db),
+    personal=Depends(obtener_personal_actual),
 ):
     return service.eliminar_paciente(
         db,
         paciente_id,
+        personal,
     )

@@ -179,7 +179,8 @@ def test_suspension_is_rechecked_on_every_request(routed_client):
 
 def test_legacy_and_absent_auth_still_use_legacy(routed_client):
     client, _, _, registry = routed_client
-    assert client.get("/pacientes/1").json()["nombres"] == "LEGACY"
+    # /pacientes ya no es publico: sin token se rechaza antes de tocar cualquier BD.
+    assert client.get("/pacientes/1").status_code in (401, 403)
     assert client.get("/pacientes/1", headers=auth(crear_access_token(7, 1))).json()["nombres"] == "LEGACY"
     assert client.get("/seguridad/usuarios", headers=auth(crear_access_token(7, 1))).status_code == 200
     assert registry.calls == []
@@ -209,7 +210,9 @@ def test_legacy_login_never_authenticates_tenant_user_with_bearer(routed_client,
         claims = jwt.decode(response.json()["access_token"], JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
         assert claims["sub"] == "7"
         assert "tenant_id" not in claims
-        assert client.get("/pacientes/1", headers=auth(response.json()["access_token"])).json()["nombres"] == "LEGACY"
+        if not path.endswith("/paciente"):
+            # El rol Paciente no puede consultar pacientes; solo se verifica el ruteo legacy del personal.
+            assert client.get("/pacientes/1", headers=auth(response.json()["access_token"])).json()["nombres"] == "LEGACY"
     assert registry.calls == []
     with Session(engines["BETA"]) as db:
         assert db.scalar(text("SELECT count(*) FROM bitacora")) == 0

@@ -17,7 +17,7 @@ from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
@@ -299,6 +299,8 @@ def sin_zona(valor: datetime) -> datetime:
 
 
 def crear_paciente_via_cu07(client) -> int:
+    if "Authorization" not in client.headers:
+        autenticar(client, USUARIO_OFTALMOLOGO)
     respuesta = client.post(URL_PACIENTES, json=DATOS_PACIENTE)
     assert respuesta.status_code == 201
     return respuesta.json()["id"]
@@ -330,6 +332,35 @@ def test_cu07_crea_paciente_con_su_historial_en_un_solo_commit(
     assert contar_historiales(db, paciente_id) == 1
     assert contar(db, HistorialClinico) == HISTORIALES_SEMBRADOS + 1
     assert acciones_bitacora(db) == ["CREAR_PACIENTE"]
+    assert db.scalar(select(Bitacora.usuario_id)) == USUARIO_OFTALMOLOGO[0]
+
+
+def test_cu07_rechaza_sin_token_y_a_rol_paciente(
+    cliente_historial_auto, db_historial_auto,
+):
+    cliente = cliente_historial_auto
+    db = db_historial_auto
+    db.execute(text(
+        "INSERT INTO usuario VALUES (8, 'paciente@test', 'x', 1, '2026-01-01', 4)"
+    ))
+    db.commit()
+
+    operaciones = [
+        ("post", URL_PACIENTES, {"json": DATOS_PACIENTE}),
+        ("get", URL_PACIENTES, {}),
+        ("get", f"{URL_PACIENTES}/{PACIENTE_CON_HISTORIAL}", {}),
+        ("put", f"{URL_PACIENTES}/{PACIENTE_CON_HISTORIAL}", {"json": {"telefono": "70000099"}}),
+        ("delete", f"{URL_PACIENTES}/{PACIENTE_CON_HISTORIAL}", {}),
+    ]
+    for metodo, url, kwargs in operaciones:
+        assert getattr(cliente, metodo)(url, **kwargs).status_code in (401, 403)
+
+    autenticar(cliente, (8, 4))
+    for metodo, url, kwargs in operaciones:
+        assert getattr(cliente, metodo)(url, **kwargs).status_code == 403
+
+    assert contar(db, Paciente) == PACIENTES_SEMBRADOS
+    assert acciones_bitacora(db) == []
 
 
 def test_cu07_no_crea_historial_para_pacientes_sembrados(
