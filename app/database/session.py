@@ -16,7 +16,7 @@ import jwt
 from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.config import JWT_ALGORITHM, JWT_SECRET_KEY
+from app.core.security import decodificar_access_token
 from app.core.tenancy.exceptions import (
     SubscriptionInactiveError,
     TenantError,
@@ -36,7 +36,7 @@ SessionLocal = sessionmaker(
     autocommit=False
 )
 
-_TENANT_REQUIRED_CLAIMS = {"sub", "rol_id", "tenant_id", "empresa_id", "empresa_codigo"}
+_TENANT_REQUIRED_CLAIMS = {"sub", "rol_id", "tenant_id", "empresa_id", "empresa_codigo", "exp"}
 
 
 def open_control_session() -> Session:
@@ -159,7 +159,7 @@ def get_db(
         return
 
     try:
-        claims = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        claims = decodificar_access_token(token)
     except jwt.InvalidTokenError:
         raise _unauthorized()
 

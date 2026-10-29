@@ -12,6 +12,24 @@ from app.core.config import (
 password_hash = PasswordHash.recommended()
 
 
+def decodificar_access_token(token: str) -> dict:
+    """Valida firma y vigencia; los tokens tenant siempre deben incluir exp."""
+    try:
+        payload = jwt.decode(
+            token,
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM],
+            options={"verify_exp": True},
+        )
+    except (TypeError, OverflowError) as error:
+        # PyJWT puede propagar estos errores al convertir un exp malformado.
+        raise jwt.InvalidTokenError("Token inválido o expirado") from error
+
+    if payload.get("token_type") == "tenant" and payload.get("exp") is None:
+        raise jwt.MissingRequiredClaimError("exp")
+    return payload
+
+
 def hash_password(password: str) -> str:
     return password_hash.hash(password)
 

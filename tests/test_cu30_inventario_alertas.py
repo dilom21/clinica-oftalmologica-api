@@ -38,9 +38,11 @@ def _engine():
 
 
 def _crear_tenant(engine, codigo, numero):
-    # DDL and fixtures exist solely inside this in-memory test database.
+    # DDL and fixtures exist solely inside this disposable test database.
     with engine.begin() as db:
-        db.exec_driver_sql("ATTACH DATABASE ':memory:' AS public")
+        esquemas = {fila[1] for fila in db.exec_driver_sql("PRAGMA database_list")}
+        if "public" not in esquemas:
+            db.exec_driver_sql("ATTACH DATABASE ':memory:' AS public")
         for ddl in (
             "CREATE TABLE rol (id INTEGER PRIMARY KEY, nombre TEXT, descripcion TEXT, "
             "estado BOOLEAN, protegido BOOLEAN, fecha_creacion TIMESTAMP)",
@@ -322,7 +324,8 @@ def test_funcion_con_el_mismo_nombre_en_otro_modulo_no_autoriza(tenants):
 @pytest.mark.parametrize("kind", ["ausente", "legacy", "saas", "firma", "empresa", "tenant", "rol", "expirado"])
 def test_rechaza_tokens_sin_contexto_seguro_sin_fallback_legacy(tenants, kind):
     claims = {"sub": "7", "rol_id": 1, "tenant_id": 1, "empresa_id": 1,
-              "empresa_codigo": EMPRESAS[0], "token_type": "tenant"}
+              "empresa_codigo": EMPRESAS[0], "token_type": "tenant",
+              "exp": datetime.now(timezone.utc) + timedelta(minutes=30)}
     if kind == "ausente":
         headers = {}
     elif kind == "legacy":

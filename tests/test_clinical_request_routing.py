@@ -1,6 +1,6 @@
 """Exercise real clinical dependencies against three disjoint local databases."""
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import jwt
 import pytest
@@ -17,6 +17,9 @@ from app.core.tenancy.models import Empresa, PlanSaas, Suscripcion, TenantDataba
 from app.database import session as clinical_session
 from app.main import app
 from app.modules.gestion_usuarios_seguridad.services import auth_service
+
+
+EXP_VALIDO_PRUEBA = datetime.now(timezone.utc) + timedelta(minutes=30)
 
 
 def local_engine():
@@ -127,7 +130,7 @@ def auth(token):
 def tenant(code, **changes):
     values = {"sub": "7", "rol_id": 1, "tenant_id": 1 if code == "ALPHA" else 2,
               "empresa_id": 1 if code == "ALPHA" else 2, "empresa_codigo": code,
-              "token_type": "tenant"}
+              "token_type": "tenant", "exp": EXP_VALIDO_PRUEBA}
     values.update(changes)
     return jwt.encode(values, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 

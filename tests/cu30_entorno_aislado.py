@@ -1,14 +1,17 @@
-"""Disposable CU30 HTTP harness backed exclusively by SQLite in memory."""
+"""Disposable CU30 HTTP harness backed exclusively by temporary SQLite files."""
 
 import os
 import sys
 from contextlib import ExitStack, asynccontextmanager, contextmanager
 from dataclasses import dataclass
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
-from sqlalchemy import event
-from sqlalchemy.engine import Engine
+from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine, URL
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import NullPool
 
 
 PASSWORD_PRUEBA = "Cu30-Prueba-2026!"
@@ -84,6 +87,31 @@ def _completar_seguridad(engine, password_hash):
         db.exec_driver_sql("INSERT INTO rol_funcion VALUES (2,3,30,2,NULL), (3,4,30,1,NULL)")
 
 
+def _engine_aislado(directorio: Path, nombre: str, esquema: str) -> Engine:
+    # A request owns its DBAPI connection. StaticPool would share one live
+    # SQLite connection across FastAPI worker threads, including rollbacks.
+    if esquema not in {"public", "saas_control"}:
+        raise ValueError("Esquema de pruebas no admitido")
+    engine = create_engine(
+        URL.create("sqlite+pysqlite", database=str(directorio / f"{nombre}.sqlite3")),
+        poolclass=NullPool,
+        connect_args={"check_same_thread": False},
+    )
+    archivo_esquema = str(directorio / f"{nombre}_{esquema}.sqlite3")
+
+    @event.listens_for(engine, "connect")
+    def adjuntar_esquema(connection, _):
+        # Every new connection sees the same private fixture database; an
+        # ATTACH ':memory:' would instead create an empty schema per connection.
+        cursor = connection.cursor()
+        try:
+            cursor.execute(f"ATTACH DATABASE ? AS {esquema}", (archivo_esquema,))
+        finally:
+            cursor.close()
+
+    return engine
+
+
 @contextmanager
 def entorno_aislado(api):
     """Replace connection factories only; authentication and business code remain real."""
@@ -93,7 +121,7 @@ def entorno_aislado(api):
     from app.core.tenancy.models import Empresa, PlanSaas, Suscripcion, TenantDatabase
     from app.database import session as clinical_session
     from app.modules.gestion_inventario_proveedores.services import inventario as service
-    from tests.test_cu30_inventario_alertas import EMPRESAS, HOY, _crear_tenant, _engine
+    from tests.test_cu30_inventario_alertas import EMPRESAS, HOY, _crear_tenant
 
     original_connect = Engine.connect
 
@@ -106,12 +134,10 @@ def entorno_aislado(api):
         stack.enter_context(patch.object(Engine, "connect", conectar_solo_sqlite))
         stack.enter_context(patch.object(time, "fecha_local_aplicacion", lambda: HOY))
         stack.enter_context(patch.object(service, "fecha_local_aplicacion", lambda: HOY))
-        control = _engine()
+        # ExitStack disposes engines before removing their temporary files.
+        directorio = Path(stack.enter_context(TemporaryDirectory(prefix="cu30-")))
+        control = _engine_aislado(directorio, "control", "saas_control")
         stack.callback(control.dispose)
-
-        @event.listens_for(control, "connect")
-        def _control_schema(connection, _):
-            connection.execute("ATTACH DATABASE ':memory:' AS saas_control")
 
         with control.begin() as db:
             for model in (Empresa, PlanSaas, Suscripcion, TenantDatabase):
@@ -133,7 +159,7 @@ def entorno_aislado(api):
         sentencias = []
         password_hash = hash_password(PASSWORD_PRUEBA)
         for numero, codigo in enumerate(EMPRESAS, 1):
-            engine = _engine()
+            engine = _engine_aislado(directorio, f"tenant_{numero}", "public")
             stack.callback(engine.dispose)
             _crear_tenant(engine, codigo, numero)
             _completar_seguridad(engine, password_hash)

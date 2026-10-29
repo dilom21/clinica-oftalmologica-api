@@ -6,7 +6,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import JWT_ALGORITHM, JWT_SECRET_KEY
+from app.core.security import decodificar_access_token
 from app.core.tenancy.registry_provider import get_tenant_engine_registry
 from app.database import session as _session
 from app.modules.gestion_usuarios_seguridad.models.models import (
@@ -94,14 +94,10 @@ def get_tenant_claims(
     Invalid signatures, legacy tokens and SaaS admin tokens are rejected:
     tenant identity is never taken from client-controlled input.
     """
-    required = {"sub", "rol_id", "tenant_id", "empresa_id", "empresa_codigo"}
+    required = {"sub", "rol_id", "tenant_id", "empresa_id", "empresa_codigo", "exp"}
 
     try:
-        claims = jwt.decode(
-            credentials.credentials,
-            JWT_SECRET_KEY,
-            algorithms=[JWT_ALGORITHM],
-        )
+        claims = decodificar_access_token(credentials.credentials)
     except jwt.InvalidTokenError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -134,11 +130,7 @@ def obtener_usuario_actual(
     db: Session = Depends(get_db),
 ) -> Usuario:
     try:
-        payload = jwt.decode(
-            credentials.credentials,
-            JWT_SECRET_KEY,
-            algorithms=[JWT_ALGORITHM],
-        )
+        payload = decodificar_access_token(credentials.credentials)
         usuario_id = int(payload["sub"])
     except (jwt.InvalidTokenError, KeyError, TypeError, ValueError):
         raise HTTPException(

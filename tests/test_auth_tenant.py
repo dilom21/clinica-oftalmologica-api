@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import jwt
@@ -303,6 +303,7 @@ def test_dependencia_rechaza_nombre_de_rol_vacio_si_claim_esta_presente():
             "empresa_id": 4,
             "empresa_codigo": "VISION-CLARA",
             "token_type": "tenant",
+            "exp": datetime.now(timezone.utc) + timedelta(minutes=30),
         },
         JWT_SECRET_KEY,
         algorithm=JWT_ALGORITHM,
@@ -333,7 +334,11 @@ def test_tenant_dependency_rejects_legacy_token():
 
 
 def test_tenant_dependency_rejects_missing_claims():
-    token = jwt.encode({"sub": "21", "token_type": "tenant"}, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    token = jwt.encode(
+        {"sub": "21", "token_type": "tenant",
+         "exp": datetime.now(timezone.utc) + timedelta(minutes=30)},
+        JWT_SECRET_KEY, algorithm=JWT_ALGORITHM,
+    )
     with pytest.raises(HTTPException):
         dependencies.get_tenant_claims(credentials(token))
 
