@@ -126,7 +126,10 @@ def bundle():
     return load_bundle(MIGRATION_ROOT)
 
 
-def target(name="tenant_alpha", *, managed=True, version="v1"):
+def target(
+    name="tenant_alpha", *, managed=True,
+    version="v3-sprint3-cu26-cu27-cu29",
+):
     return TenantTarget(
         tenant_database_id=11 if managed else None,
         empresa_codigo="ALPHA" if managed else "DISPOSABLE-TEST",
@@ -136,11 +139,33 @@ def target(name="tenant_alpha", *, managed=True, version="v1"):
     )
 
 
+def external_entries(bundle):
+    return tuple(
+        (item.version, item.checksum) for item in bundle.external_migrations
+    )
+
+
+def v3_entries(bundle):
+    return tuple(
+        (item.version, item.checksum) for item in bundle.migrations[:3]
+    ) + external_entries(bundle)
+
+
 def test_manifest_has_exact_approved_order_and_valid_checksums(bundle):
     assert [item.version for item in bundle.migrations] == [
         "20261007211200", "20261007211247", "20261019000000",
+        "20261031000000",
     ]
-    assert bundle.schema_version == "v2-cu31"
+    assert bundle.schema_version == "v4-sprint3-cu32-cu33"
+    assert bundle.allowed_source_schema_versions == (
+        "v3-sprint3-cu26-cu27-cu29",
+    )
+    assert [item.version for item in bundle.external_migrations] == [
+        "20261024150000",
+    ]
+    assert bundle.external_migrations[0].checksum == (
+        "d94e3e71041b5c823a08143081a8a6d9b341893a41f32ba15d072083163409b1"
+    )
 
 
 def test_changed_local_artifact_is_rejected_before_database_access(tmp_path):
@@ -160,7 +185,7 @@ def test_changed_local_artifact_is_rejected_before_database_access(tmp_path):
 
 
 def test_plan_is_read_only_and_does_not_bootstrap_or_apply(bundle):
-    database = FakeDatabase()
+    database = FakeDatabase(ledger_exists=True, entries=v3_entries(bundle))
     plan = build_plan((target(),), bundle, FakeFactory({"tenant_alpha": database}))
 
     assert "preflight" in database.events
@@ -178,8 +203,15 @@ def test_plan_rejects_recorded_checksum_drift(bundle):
         build_plan((target(),), bundle, FakeFactory({"tenant_alpha": database}))
 
 
+def test_plan_runs_preflight_even_with_existing_ledger(bundle):
+    entries = v3_entries(bundle)
+    database = FakeDatabase(ledger_exists=True, entries=entries)
+    build_plan((target(),), bundle, FakeFactory({"tenant_alpha": database}))
+    assert "preflight" in database.events
+
+
 def test_execute_requires_exact_plan_confirmation(bundle):
-    database = FakeDatabase()
+    database = FakeDatabase(ledger_exists=True, entries=v3_entries(bundle))
     factory = FakeFactory({"tenant_alpha": database})
     plan = build_plan((target(),), bundle, factory)
 
@@ -189,14 +221,14 @@ def test_execute_requires_exact_plan_confirmation(bundle):
 
 
 def test_supporting_sql_change_invalidates_confirmed_plan(bundle):
-    database = FakeDatabase()
+    database = FakeDatabase(ledger_exists=True, entries=v3_entries(bundle))
     factory = FakeFactory({"tenant_alpha": database})
     plan = build_plan((target(),), bundle, factory)
     altered = replace(
         bundle,
         verification_sql=bundle.verification_sql + "\n-- changed\n",
         supporting_checksums=tuple(
-            (name, "f" * 64 if name == "999_verify_cu31.sql" else checksum)
+            (name, "f" * 64 if name == "999_verify_cu32_cu33.sql" else checksum)
             for name, checksum in bundle.supporting_checksums
         ),
     )
@@ -208,7 +240,9 @@ def test_supporting_sql_change_invalidates_confirmed_plan(bundle):
 
 def test_complete_execution_orders_migrations_verification_and_version(bundle):
     events = []
-    database = FakeDatabase(shared_events=events)
+    database = FakeDatabase(
+        ledger_exists=True, entries=v3_entries(bundle), shared_events=events,
+    )
     factory = FakeFactory({"tenant_alpha": database})
     control = FakeControlPlane(events)
     plan = build_plan((target(),), bundle, factory)
@@ -217,17 +251,20 @@ def test_complete_execution_orders_migrations_verification_and_version(bundle):
     result = execute_plan(plan, plan.plan_hash, bundle, factory, control)[0]
 
     apply_events = [event for event in events if event.startswith("apply:")]
-    assert apply_events == ["apply:" + item.version for item in bundle.migrations]
+    assert apply_events == ["apply:20261031000000"]
     assert events.index("verify") < events.index("version:tenant_alpha")
-    assert events.index("control-check:tenant_alpha") < events.index("bootstrap")
-    assert events.index("fingerprint") < events.index("bootstrap")
+    assert "bootstrap" not in events
+    assert events.index("control-check:tenant_alpha") < events.index("fingerprint")
     assert events[-2:] == ["unlock", "close"]
-    assert result.applied == tuple(item.version for item in bundle.migrations)
-    assert control.updates == [("tenant_alpha", "v2-cu31")]
+    assert result.applied == ("20261031000000",)
+    assert control.updates == [("tenant_alpha", "v4-sprint3-cu32-cu33")]
 
 
 def test_historical_table_change_blocks_version_update(bundle):
-    database = FakeDatabase(fingerprint_after="legacy-changed")
+    database = FakeDatabase(
+        ledger_exists=True, entries=v3_entries(bundle),
+        fingerprint_after="legacy-changed",
+    )
     factory = FakeFactory({"tenant_alpha": database})
     control = FakeControlPlane()
     plan = build_plan((target(),), bundle, factory)
@@ -243,21 +280,23 @@ def test_resume_skips_confirmed_versions_without_duplicates(bundle):
     )
     database = FakeDatabase(ledger_exists=True, entries=recorded)
     factory = FakeFactory({"tenant_alpha": database})
-    plan = build_plan((target(),), bundle, factory)
+    disposable = target(managed=False, version=None)
+    plan = build_plan((disposable,), bundle, factory)
 
     result = execute_plan(
         plan, plan.plan_hash, bundle, factory, FakeControlPlane(),
     )[0]
 
     assert result.skipped == tuple(item.version for item in bundle.migrations[:2])
-    assert result.applied == (bundle.migrations[2].version,)
-    assert len(database.entries) == 3
+    assert result.applied == tuple(item.version for item in bundle.migrations[2:])
+    assert len(database.entries) == 4
 
 
 def test_failure_keeps_committed_ledger_and_resume_continues(bundle):
     database = FakeDatabase(fail_on="apply:20261019000000")
     factory = FakeFactory({"tenant_alpha": database})
-    first = build_plan((target(),), bundle, factory)
+    disposable = target(managed=False, version=None)
+    first = build_plan((disposable,), bundle, factory)
 
     with pytest.raises(RuntimeError, match="isolated failure"):
         execute_plan(first, first.plan_hash, bundle, factory, FakeControlPlane())
@@ -266,27 +305,28 @@ def test_failure_keeps_committed_ledger_and_resume_continues(bundle):
     }
 
     database.fingerprint_calls = 0
-    resumed = build_plan((target(),), bundle, factory)
+    resumed = build_plan((disposable,), bundle, factory)
     result = execute_plan(
         resumed, resumed.plan_hash, bundle, factory, FakeControlPlane(),
     )[0]
-    assert result.applied == ("20261019000000",)
-    assert len(database.entries) == 3
+    assert result.applied == ("20261019000000", "20261031000000")
+    assert len(database.entries) == 4
 
 
 def test_state_change_after_plan_is_detected_under_lock(bundle):
-    database = FakeDatabase()
+    database = FakeDatabase(ledger_exists=True, entries=v3_entries(bundle))
     factory = FakeFactory({"tenant_alpha": database})
     plan = build_plan((target(),), bundle, factory)
-    database.exists = True
-    database.entries[bundle.migrations[0].version] = bundle.migrations[0].checksum
+    database.entries[bundle.migrations[-1].version] = bundle.migrations[-1].checksum
 
     with pytest.raises(PlanChangedError, match="changed after planning"):
         execute_plan(plan, plan.plan_hash, bundle, factory, FakeControlPlane())
 
 
 def test_lock_contention_stops_without_migrations(bundle):
-    database = FakeDatabase(lock=False)
+    database = FakeDatabase(
+        ledger_exists=True, entries=v3_entries(bundle), lock=False,
+    )
     factory = FakeFactory({"tenant_alpha": database})
     plan = build_plan((target(),), bundle, factory)
 
@@ -296,8 +336,11 @@ def test_lock_contention_stops_without_migrations(bundle):
 
 
 def test_first_tenant_failure_stops_batch(bundle):
-    first = FakeDatabase(fail_on="apply:20261007211200")
-    second = FakeDatabase()
+    first = FakeDatabase(
+        ledger_exists=True, entries=v3_entries(bundle),
+        fail_on="apply:20261031000000",
+    )
+    second = FakeDatabase(ledger_exists=True, entries=v3_entries(bundle))
     factory = FakeFactory({"tenant_a": first, "tenant_b": second})
     targets = (target("tenant_a"), replace(target("tenant_b"), tenant_database_id=12))
     plan = build_plan(targets, bundle, factory)
@@ -309,7 +352,10 @@ def test_first_tenant_failure_stops_batch(bundle):
 
 
 def test_all_applied_is_idempotent_and_only_verifies(bundle):
-    entries = tuple((item.version, item.checksum) for item in bundle.migrations)
+    entries = (
+        tuple((item.version, item.checksum) for item in bundle.migrations)
+        + external_entries(bundle)
+    )
     database = FakeDatabase(ledger_exists=True, entries=entries)
     factory = FakeFactory({"tenant_alpha": database})
     plan = build_plan((target(),), bundle, factory)
@@ -336,12 +382,66 @@ def test_disposable_target_never_updates_control_plane(bundle):
 
 
 def test_version_claim_without_complete_ledger_is_rejected(bundle):
-    database = FakeDatabase(ledger_exists=True)
+    database = FakeDatabase(
+        ledger_exists=True, entries=external_entries(bundle),
+    )
     with pytest.raises(MigrationError, match="ledger is incomplete"):
+        build_plan(
+            (target(version="v4-sprint3-cu32-cu33"),),
+            bundle,
+            FakeFactory({"tenant_alpha": database}),
+        )
+
+
+def test_unknown_schema_version_is_rejected_to_prevent_downgrade(bundle):
+    database = FakeDatabase(ledger_exists=True)
+    with pytest.raises(MigrationError, match="possible downgrade"):
+        build_plan(
+            (target(version="v99-future"),),
+            bundle,
+            FakeFactory({"tenant_alpha": database}),
+        )
+
+
+def test_v2_source_is_rejected_to_prevent_skipping_external_migration(bundle):
+    database = FakeDatabase(ledger_exists=True)
+    with pytest.raises(MigrationError, match="unsupported schema version"):
         build_plan(
             (target(version="v2-cu31"),),
             bundle,
             FakeFactory({"tenant_alpha": database}),
+        )
+    assert database.events == []
+
+
+def test_v3_requires_exact_external_migration_in_ledger(bundle):
+    regular = tuple(
+        (item.version, item.checksum) for item in bundle.migrations[:3]
+    )
+    missing = FakeDatabase(ledger_exists=True, entries=regular)
+    with pytest.raises(MigrationError, match="required external"):
+        build_plan(
+            (target(),), bundle, FakeFactory({"tenant_alpha": missing}),
+        )
+
+    wrong = FakeDatabase(
+        ledger_exists=True,
+        entries=regular + (("20261024150000", "0" * 64),),
+    )
+    with pytest.raises(ChecksumMismatchError, match="20261024150000"):
+        build_plan(
+            (target(),), bundle, FakeFactory({"tenant_alpha": wrong}),
+        )
+
+
+def test_unknown_ledger_migration_is_rejected(bundle):
+    database = FakeDatabase(
+        ledger_exists=True,
+        entries=v3_entries(bundle) + (("20990101000000", "f" * 64),),
+    )
+    with pytest.raises(MigrationError, match="unknown migration"):
+        build_plan(
+            (target(),), bundle, FakeFactory({"tenant_alpha": database}),
         )
 
 
@@ -355,7 +455,7 @@ def test_cli_execute_requires_confirmation_and_allow_flag(monkeypatch, capsys):
 
 
 def test_public_plan_contains_no_connection_secrets(bundle):
-    database = FakeDatabase()
+    database = FakeDatabase(ledger_exists=True, entries=v3_entries(bundle))
     plan = build_plan((target(),), bundle, FakeFactory({"tenant_alpha": database}))
     text = json.dumps(plan.to_public_dict())
     assert "postgresql://" not in text

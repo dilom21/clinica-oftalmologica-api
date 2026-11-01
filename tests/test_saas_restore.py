@@ -404,9 +404,11 @@ def test_backup_of_other_company_confirmation_rejected(env):
     assert env.disposed == []  # never touched the tenant
 
 
-def test_incompatible_schema_version_rejected(env):
+def test_older_schema_version_is_valid_restore_point(env):
     add_backup(env.factory, env.storage, backup_id=7, version="v2")
-    assert env.client.post("/saas/restores/validate", json={"backup_id": 7}).status_code == 409
+    response = env.client.post("/saas/restores/validate", json={"backup_id": 7})
+    assert response.status_code == 200
+    assert response.json()["version_schema"] == "v2"
 
 
 def test_storage_object_missing_rejected(env):
@@ -487,6 +489,17 @@ def test_create_success_in_place_full_flow(env):
         assert term not in response.text
 
 
+def test_restore_updates_control_plane_to_backup_schema_version(env):
+    add_backup(env.factory, env.storage, backup_id=31, version="v0-rollback")
+    response = env.client.post(
+        "/saas/restores", json={"backup_id": 31, "confirmacion": "ACME"},
+    )
+    assert response.status_code == 201, response.text
+    tenant = _tenant(env.factory)
+    assert tenant.estado == "ACTIVA"
+    assert tenant.version_schema == "v0-rollback"
+
+
 def test_create_success_temporal_validation_and_cutover(env):
     add_backup(env.factory, env.storage, backup_id=4)
     env.backend.supports_swap = True
@@ -497,7 +510,8 @@ def test_create_success_temporal_validation_and_cutover(env):
     created = [call for call in calls if call[0] == "create"]
     assert len(created) == 1 and created[0][1].startswith("restore_")
     temporary = created[0][1]
-    assert ("restore", temporary, False, TARGET_BYTES) in calls
+    assert ("restore_exact", temporary, TARGET_BYTES) in calls
+    assert ("restore", temporary, True, TARGET_BYTES) in calls
     assert ("verify", temporary) in calls
     assert ("health", temporary) in calls
     assert ("drop", "tenant_acme") in calls
@@ -1388,6 +1402,8 @@ def test_restore_runner_exact_reset_sequence(tmp_path, monkeypatch):
         def run(self, argv, env, timeout):
             calls.append((argv, env, timeout))
             joined = " ".join(argv)
+            if "--list" in argv:
+                return "1; 0 0 SCHEMA - public admin\n2; 0 0 SCHEMA - app_migrations admin\n"
             if "pg_get_userbyid" in joined:
                 return "admin"
             if "array_to_string" in joined:
@@ -1400,6 +1416,8 @@ def test_restore_runner_exact_reset_sequence(tmp_path, monkeypatch):
                 return "0"
             if "pg_rewrite" in joined:
                 return "0"
+            if "to_regclass('app_migrations.schema_migration')" in joined:
+                return "1"
             return ""
 
     runner = TenantRestoreRunner(PostgresConnection("private", 5432, "admin", "SECRET"),
@@ -1412,7 +1430,8 @@ def test_restore_runner_exact_reset_sequence(tmp_path, monkeypatch):
                       if "DROP SCHEMA IF EXISTS public CASCADE;" in text)
     restore_index = next(i for i, text in enumerate(joined) if "--dbname" in text)
     assert drop_index < restore_index
-    assert any("CREATE SCHEMA public;" in text for text in joined)
+    assert any("DROP SCHEMA IF EXISTS app_migrations CASCADE;" in text for text in joined)
+    assert not any("CREATE SCHEMA public;" in text for text in joined)
     restore_argv = calls[restore_index][0]
     assert "--clean" in restore_argv and "--if-exists" in restore_argv
     assert restore_argv[restore_argv.index("--dbname") + 1] == "tenant_acme"

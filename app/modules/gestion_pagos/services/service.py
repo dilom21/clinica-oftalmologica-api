@@ -13,6 +13,7 @@ from app.modules.gestion_historial_clinico.models.models import ServicioRealizad
 from app.modules.gestion_pacientes.repositories import repository as paciente_repo
 from app.modules.gestion_pagos.repositories import repository as repo
 from app.modules.gestion_pagos.repositories import administrativos as admin_repo
+from app.modules.gestion_pagos.repositories import planes_cuotas as planes_repo
 from app.modules.gestion_pagos.providers import (
     ErrorFirmaWebhook,
     ErrorProveedorPago,
@@ -299,6 +300,30 @@ def validar_seleccion_servicios(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Servicios ya cubiertos por un pago aprobado: {sorted(cubiertos)}",
+        )
+    montos_aprobados = planes_repo.montos_aprobados_por_servicio(
+        db, servicio_realizado_ids,
+    )
+    parciales = sorted(
+        servicio_id
+        for servicio_id, monto in montos_aprobados.items()
+        if _decimal(monto) > Decimal("0")
+    )
+    if parciales:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Servicios con cobros parciales aprobados: {parciales}",
+        )
+    reservados = planes_repo.reservas_activas_por_servicio(
+        db, servicio_realizado_ids,
+    )
+    if reservados:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "Servicios reservados por un plan de pago: "
+                f"{sorted(reservados)}"
+            ),
         )
     total = sum(
         (_decimal(servicio.precio_aplicado) for servicio in servicios),
@@ -744,7 +769,43 @@ def procesar_evento_webhook_stripe(
                 detail="Monto o moneda Stripe inconsistente con el pago",
             )
 
-        if estado_destino == "APROBADO" and pago.estado != "APROBADO":
+        intento_cuota = planes_repo.obtener_intento_por_pago(
+            db, pago.id, bloquear=True,
+        )
+        if intento_cuota is not None:
+            cuota = planes_repo.bloquear_plan_y_cuota(
+                db, intento_cuota.cuota_id,
+            )
+            if (
+                scope.cuota_id != cuota.id
+                or scope.plan_pago_id != cuota.plan_pago_id
+            ):
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="La metadata Stripe no corresponde a la cuota del pago",
+                )
+            if estado_destino == "APROBADO":
+                from app.modules.gestion_pagos.services import planes_cuotas
+
+                if not intento_cuota.aplicado_a_cuota:
+                    planes_cuotas.aplicar_pago_desde_webhook(
+                        db,
+                        intento_cuota,
+                        fecha_pago=_fecha_evento_stripe(evento),
+                    )
+                db.commit()
+                db.refresh(pago)
+                return WebhookStripeRespuesta(
+                    procesado=True,
+                    pago_id=pago.id,
+                    estado_pago=pago.estado,
+                )
+
+        if (
+            intento_cuota is None
+            and estado_destino == "APROBADO"
+            and pago.estado != "APROBADO"
+        ):
             otros_aprobados = (
                 repo.obtener_pagos_aprobados_para_servicios_excluyendo(
                     db,

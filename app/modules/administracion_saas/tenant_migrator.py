@@ -1,4 +1,4 @@
-"""Versioned, resumable tenant migrations for CU31.
+"""Versioned, resumable tenant migrations for the clinical tenant schema.
 
 The orchestration is deliberately dependency-injected. Unit tests never open a
 database, while the production adapter lives in ``scripts/saas``. A migration
@@ -21,6 +21,14 @@ EXPECTED_VERSIONS = (
     "20261007211200",
     "20261007211247",
     "20261019000000",
+    "20261031000000",
+)
+EXPECTED_EXTERNAL_MIGRATIONS = (
+    (
+        "20261024150000",
+        "cu26_cu27_cu29_inventario_compras",
+        "d94e3e71041b5c823a08143081a8a6d9b341893a41f32ba15d072083163409b1",
+    ),
 )
 TRANSACTION_RUNNER = "runner"
 TRANSACTION_SCRIPT = "script_idempotent"
@@ -53,6 +61,16 @@ class MigrationArtifact:
 
 
 @dataclass(frozen=True)
+class ExternalMigration:
+    """Immutable ledger prerequisite whose original SQL is not in this repo."""
+
+    version: str
+    name: str
+    checksum: str
+    required_for_schema_versions: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class MigrationBundle:
     schema_version: str
     runner_version: str
@@ -61,6 +79,8 @@ class MigrationBundle:
     preflight_sql: str
     verification_sql: str
     supporting_checksums: tuple[tuple[str, str], ...]
+    allowed_source_schema_versions: tuple[str, ...]
+    external_migrations: tuple[ExternalMigration, ...]
 
 
 @dataclass(frozen=True)
@@ -94,6 +114,7 @@ class MigrationPlan:
     schema_version: str
     runner_version: str
     migrations: tuple[tuple[str, str], ...]
+    external_migrations: tuple[tuple[str, str, str], ...]
     supporting_checksums: tuple[tuple[str, str], ...]
     tenants: tuple[PlannedTenant, ...]
     plan_hash: str
@@ -107,6 +128,10 @@ class MigrationPlan:
             "migrations": [
                 {"version": version, "sha256": checksum}
                 for version, checksum in self.migrations
+            ],
+            "external_migrations": [
+                {"version": version, "name": name, "sha256": checksum}
+                for version, name, checksum in self.external_migrations
             ],
             "supporting_checksums": dict(self.supporting_checksums),
             "tenants": [
@@ -200,6 +225,47 @@ def load_bundle(root: Path) -> MigrationBundle:
     raw_migrations = payload.get("migrations")
     if not isinstance(raw_migrations, list):
         raise ManifestError("Manifest migrations must be a list")
+    raw_allowed = payload.get("allowed_source_schema_versions", [])
+    if not isinstance(raw_allowed, list) or any(
+        not isinstance(item, str) or not item.strip() for item in raw_allowed
+    ):
+        raise ManifestError("Manifest allowed_source_schema_versions is invalid")
+    allowed_source_schema_versions = tuple(raw_allowed)
+
+    raw_external = payload.get("external_migrations", [])
+    if not isinstance(raw_external, list):
+        raise ManifestError("Manifest external_migrations is invalid")
+    external_migrations: list[ExternalMigration] = []
+    for index, raw in enumerate(raw_external):
+        if not isinstance(raw, dict):
+            raise ManifestError(f"External migration {index} is invalid")
+        version = _require_string(
+            raw.get("version"), f"external_migrations[{index}].version",
+        )
+        name = _require_string(
+            raw.get("name"), f"external_migrations[{index}].name",
+        )
+        checksum = _require_string(
+            raw.get("sha256"), f"external_migrations[{index}].sha256",
+        )
+        required = raw.get("required_for_schema_versions")
+        if (
+            not isinstance(required, list) or not required
+            or any(not isinstance(item, str) or not item.strip() for item in required)
+        ):
+            raise ManifestError(
+                f"External migration {version} has invalid required schema versions"
+            )
+        if not re.fullmatch(r"[0-9a-f]{64}", checksum):
+            raise ManifestError(
+                f"External migration {version} has an invalid SHA-256"
+            )
+        external_migrations.append(ExternalMigration(
+            version=version,
+            name=name,
+            checksum=checksum,
+            required_for_schema_versions=tuple(required),
+        ))
 
     artifacts: list[MigrationArtifact] = []
     seen_names: set[str] = set()
@@ -254,6 +320,24 @@ def load_bundle(root: Path) -> MigrationBundle:
 
     if tuple(item.version for item in artifacts) != EXPECTED_VERSIONS:
         raise ManifestError("CU31 migration order differs from the approved sequence")
+    external_identity = tuple(
+        (item.version, item.name, item.checksum) for item in external_migrations
+    )
+    if external_identity != EXPECTED_EXTERNAL_MIGRATIONS:
+        raise ManifestError("External migration identity differs from the approved ledger")
+    regular_versions = {item.version for item in artifacts}
+    external_versions = {item.version for item in external_migrations}
+    if len(external_versions) != len(external_migrations) or regular_versions & external_versions:
+        raise ManifestError("Manifest contains duplicate regular/external versions")
+    valid_schema_versions = {
+        schema_version, *allowed_source_schema_versions,
+    }
+    if any(
+        version not in valid_schema_versions
+        for item in external_migrations
+        for version in item.required_for_schema_versions
+    ):
+        raise ManifestError("External migration references an unknown schema version")
 
     def read_guarded(filename: str, read_only: bool = False) -> tuple[str, str]:
         path = root / filename
@@ -267,12 +351,25 @@ def load_bundle(root: Path) -> MigrationBundle:
             raise ManifestError(f"{filename} is not guarded by READ ONLY")
         return sql, _sha256(sql.encode("utf-8"))
 
-    bootstrap_sql, bootstrap_checksum = read_guarded("bootstrap_ledger.sql")
+    support = payload.get("supporting_files", {})
+    if not isinstance(support, dict):
+        raise ManifestError("Manifest supporting_files is invalid")
+    bootstrap_name = support.get("bootstrap", "bootstrap_ledger.sql")
+    preflight_name = support.get("preflight", "000_preflight_cu31.sql")
+    verification_name = support.get("verification", "999_verify_cu31.sql")
+    for field, value in (
+        ("bootstrap", bootstrap_name),
+        ("preflight", preflight_name),
+        ("verification", verification_name),
+    ):
+        _require_string(value, f"supporting_files.{field}")
+
+    bootstrap_sql, bootstrap_checksum = read_guarded(bootstrap_name)
     preflight_sql, preflight_checksum = read_guarded(
-        "000_preflight_cu31.sql", read_only=True,
+        preflight_name, read_only=True,
     )
     verification_sql, verification_checksum = read_guarded(
-        "999_verify_cu31.sql", read_only=True,
+        verification_name, read_only=True,
     )
 
     return MigrationBundle(
@@ -283,10 +380,12 @@ def load_bundle(root: Path) -> MigrationBundle:
         preflight_sql=preflight_sql,
         verification_sql=verification_sql,
         supporting_checksums=(
-            ("bootstrap_ledger.sql", bootstrap_checksum),
-            ("000_preflight_cu31.sql", preflight_checksum),
-            ("999_verify_cu31.sql", verification_checksum),
+            (bootstrap_name, bootstrap_checksum),
+            (preflight_name, preflight_checksum),
+            (verification_name, verification_checksum),
         ),
+        allowed_source_schema_versions=allowed_source_schema_versions,
+        external_migrations=tuple(external_migrations),
     )
 
 
@@ -295,10 +394,51 @@ def _validate_ledger(bundle: MigrationBundle, ledger: LedgerState) -> None:
     if len(entries) != len(ledger.entries):
         raise MigrationError("Tenant ledger contains duplicate versions")
     expected = {item.version: item.checksum for item in bundle.migrations}
+    expected.update(
+        {item.version: item.checksum for item in bundle.external_migrations}
+    )
     for version, checksum in entries.items():
-        if version in expected and checksum != expected[version]:
+        if version not in expected:
+            raise MigrationError(
+                f"Tenant ledger contains unknown migration {version}"
+            )
+        if checksum != expected[version]:
             raise ChecksumMismatchError(
                 f"Recorded checksum mismatch for migration {version}"
+            )
+
+
+def _validate_schema_ledger_prerequisites(
+    bundle: MigrationBundle,
+    target: TenantTarget,
+    ledger: LedgerState,
+) -> None:
+    if not target.managed:
+        return
+    entries = ledger.as_dict()
+    required_external = [
+        item for item in bundle.external_migrations
+        if target.version_schema in item.required_for_schema_versions
+    ]
+    missing_external = [
+        item.version for item in required_external if item.version not in entries
+    ]
+    if missing_external:
+        raise MigrationError(
+            "Tenant ledger is missing required external migrations: "
+            + ", ".join(missing_external)
+        )
+    if target.version_schema in bundle.allowed_source_schema_versions:
+        # A v3 tenant is an already established baseline. Replaying CU31 here
+        # would hide an incomplete or incorrectly labelled tenant.
+        missing_baseline = [
+            item.version for item in bundle.migrations[:-1]
+            if item.version not in entries
+        ]
+        if missing_baseline:
+            raise MigrationError(
+                "Tenant source ledger is incomplete: "
+                + ", ".join(missing_baseline)
             )
 
 
@@ -321,6 +461,10 @@ def _plan_payload(
         "runner_version": bundle.runner_version,
         "migrations": [
             [item.version, item.checksum] for item in bundle.migrations
+        ],
+        "external_migrations": [
+            [item.version, item.name, item.checksum]
+            for item in bundle.external_migrations
         ],
         "supporting_checksums": [list(item) for item in bundle.supporting_checksums],
         "tenants": [
@@ -352,13 +496,22 @@ def build_plan(
 
     planned: list[PlannedTenant] = []
     for target in sorted(targets, key=lambda item: item.database_name):
+        if target.managed and (
+            target.version_schema != bundle.schema_version
+            and target.version_schema not in bundle.allowed_source_schema_versions
+        ):
+            raise MigrationError(
+                f"Tenant {target.database_name} has unsupported schema version "
+                f"{target.version_schema}; refusing a possible downgrade"
+            )
         database = factory.open(target)
         try:
             ledger = database.ledger_state()
-            if not ledger.exists:
-                # This SQL begins a transaction READ ONLY and rolls it back.
-                database.run_preflight(bundle.preflight_sql)
+            # El preflight es de solo lectura y debe ejecutarse incluso cuando
+            # ya existe ledger: cada nueva version puede agregar prerrequisitos.
+            database.run_preflight(bundle.preflight_sql)
             states = _migration_states(bundle, ledger)
+            _validate_schema_ledger_prerequisites(bundle, target, ledger)
             if target.version_schema == bundle.schema_version and any(
                 state != "applied" for _, state in states
             ):
@@ -388,6 +541,10 @@ def build_plan(
         migrations=tuple(
             (item.version, item.checksum) for item in bundle.migrations
         ),
+        external_migrations=tuple(
+            (item.version, item.name, item.checksum)
+            for item in bundle.external_migrations
+        ),
         supporting_checksums=bundle.supporting_checksums,
         tenants=tenants,
         plan_hash=_sha256(canonical),
@@ -409,6 +566,10 @@ def execute_plan(
         or plan.migrations != tuple(
             (item.version, item.checksum) for item in bundle.migrations
         )
+        or plan.external_migrations != tuple(
+            (item.version, item.name, item.checksum)
+            for item in bundle.external_migrations
+        )
         or plan.supporting_checksums != bundle.supporting_checksums
     ):
         raise PlanChangedError("Migration artifacts changed after planning")
@@ -429,6 +590,7 @@ def execute_plan(
 
             ledger = database.ledger_state()
             current_states = _migration_states(bundle, ledger)
+            _validate_schema_ledger_prerequisites(bundle, planned.target, ledger)
             if (
                 ledger.exists != planned.ledger_exists
                 or ledger.entries != planned.ledger_entries
@@ -438,8 +600,9 @@ def execute_plan(
                     f"Tenant {planned.target.database_name} changed after planning"
                 )
 
-            if not ledger.exists:
-                database.run_preflight(bundle.preflight_sql)
+            # Repetir bajo advisory lock cierra la ventana entre --plan y
+            # --execute sin depender de que el tenant tenga o no ledger.
+            database.run_preflight(bundle.preflight_sql)
 
             legacy_before = database.fingerprint_legacy_table()
             if not ledger.exists:

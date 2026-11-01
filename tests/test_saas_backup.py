@@ -305,6 +305,7 @@ def test_runner_full_dump_no_secrets_and_read_only_list(tmp_path, monkeypatch):
     assert timeout == 17 and "--format=custom" in dump
     assert {"--no-owner", "--no-privileges"} <= set(dump)
     assert "--schema-only" not in dump and "--schema=public" in dump
+    assert "--schema=app_migrations" in dump
     assert dump[dump.index("-d") + 1] == "tenant_acme"
     assert "SECRET" not in " ".join(dump) and env["PGPASSWORD"] == "SECRET"
     assert calls[1][0][1:] == ["--list", str(path)]

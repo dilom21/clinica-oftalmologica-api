@@ -24,6 +24,7 @@ from .backup_runner import _client_path, _minimal_client_environment
 # Public tables whose presence is required before a restored tenant is trusted.
 CRITICAL_TENANT_TABLES = ("usuario", "rol", "paciente", "cita", "historial_clinico")
 _RESERVED_DATABASES = frozenset({"postgres", "template0", "template1", "saas_control"})
+_LEDGER_SCHEMA = "app_migrations"
 
 # ACL privilege characters relevant to a schema owner/grants round-trip.
 _SCHEMA_ACL_PRIVILEGES = {"U": "USAGE", "C": "CREATE"}
@@ -163,6 +164,19 @@ class TenantRestoreRunner:
         self.runner.run([str(self.pg_restore), "--list", str(archive)],
                         self._env(), self.timeout_seconds)
 
+    def archive_contains_schema(self, archive: Path, schema: str) -> bool:
+        """Return whether a custom archive owns a schema definition.
+
+        Older backups contain only ``public``.  New backups also contain the
+        migration ledger.  The distinction lets old archives preserve the
+        existing ledger while new archives restore it atomically with data.
+        """
+        output = self.runner.run(
+            [str(self.pg_restore), "--list", str(archive)],
+            self._env(), self.timeout_seconds,
+        )
+        return re.search(rf"\bSCHEMA - {re.escape(schema)}(?:\s|$)", output) is not None
+
     def probe_capabilities(self) -> RestoreCapabilities:
         role = self._admin_query(
             "SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user;"
@@ -262,9 +276,28 @@ class TenantRestoreRunner:
         if state.cross_schema_dependencies > 0:
             raise SchemaResetRefused("external objects depend on the public schema")
 
-    def reset_public_schema(self, database_name: str) -> None:
-        self._command_db(database_name, "DROP SCHEMA IF EXISTS public CASCADE;")
-        self._command_db(database_name, "CREATE SCHEMA public;")
+    def reset_public_schema(self, database_name: str, *, restore_ledger: bool = False) -> None:
+        """Remove schemas owned by the archive without recreating them.
+
+        ``pg_dump --schema=...`` archives contain ``CREATE SCHEMA`` entries.
+        Recreating ``public`` here caused ``pg_restore`` to stop with
+        ``schema public already exists``.  The archive must create the schema
+        whose objects it owns.
+        """
+        statements = []
+        if restore_ledger:
+            statements.append(f"DROP SCHEMA IF EXISTS {_LEDGER_SCHEMA} CASCADE;")
+        statements.append("DROP SCHEMA IF EXISTS public CASCADE;")
+        self._command_db(database_name, " ".join(statements))
+
+    def verify_migration_ledger(self, database_name: str) -> bool:
+        output = self._query_db(
+            database_name,
+            "SELECT CASE WHEN to_regclass('app_migrations.schema_migration') IS NOT NULL "
+            "AND EXISTS (SELECT 1 FROM app_migrations.schema_migration) "
+            "THEN 1 ELSE 0 END;",
+        )
+        return output.strip() == "1"
 
     def apply_public_schema_state(self, database_name: str, state: PublicSchemaState) -> None:
         if state.owner and state.owner != self.connection.user:
@@ -278,11 +311,14 @@ class TenantRestoreRunner:
     def restore_exact(self, database_name: str, archive: Path) -> PublicSchemaState:
         """Rebuild ``public`` from an archive so the target matches it exactly."""
         self._require_manageable(database_name)
+        restore_ledger = self.archive_contains_schema(archive, _LEDGER_SCHEMA)
         state = self.inspect_public_schema(database_name)
         self.assert_reset_safe(state)
-        self.reset_public_schema(database_name)
+        self.reset_public_schema(database_name, restore_ledger=restore_ledger)
         self.restore_into(database_name, archive, clean=True)
         self.apply_public_schema_state(database_name, state)
+        if restore_ledger and not self.verify_migration_ledger(database_name):
+            raise RuntimeError("Restored migration ledger is missing or empty")
         return state
 
     # -------------------------------------------------------------- verifying

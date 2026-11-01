@@ -148,8 +148,8 @@ def _require_valid_backup(backup: BackupTenant, tenant: TenantDatabase) -> None:
         raise HTTPException(409, "Backup type is not restorable")
     if not backup.storage_key or not backup.sha256 or not backup.size_bytes or backup.size_bytes <= 0:
         raise HTTPException(409, "Backup metadata is incomplete")
-    if backup.version_schema != tenant.version_schema:
-        raise HTTPException(409, "Backup schema version is incompatible")
+    if not backup.version_schema or not backup.version_schema.strip():
+        raise HTTPException(409, "Backup schema version is unavailable")
 
 
 # ------------------------------------------------------------------ archive I/O
@@ -255,7 +255,10 @@ def _perform_restore(backend, database_name: str, archive: Path, allow_swap: boo
         temporary_name = "restore_" + uuid.uuid4().hex
         backend.create_database(temporary_name)
         try:
-            backend.restore_into(temporary_name, archive)
+            # A new PostgreSQL database already owns an empty ``public``
+            # schema.  Use the same exact restore path as in-place recovery so
+            # the archive can create both ``public`` and ``app_migrations``.
+            backend.restore_exact(temporary_name, archive)
             if not backend.verify_structure(temporary_name) or not backend.health_check(temporary_name):
                 raise RuntimeError("Validation database verification failed")
             backend.terminate_sessions(database_name)
@@ -289,6 +292,7 @@ def _rollback(session_factory, restore_id, empresa_id, tenant_id, database_name,
             if pre is None or pre.estado != "COMPLETADO" or not pre.storage_key:
                 raise RuntimeError("Pre-restore backup is unavailable")
             pre_key, pre_size, pre_sha = pre.storage_key, pre.size_bytes, pre.sha256
+            pre_version = pre.version_schema
             db.rollback()
         pre_archive = _read_storage_archive(storage, pre_key, pre_size, pre_sha, workdir,
                                             name="pre_restore.dump")
@@ -319,6 +323,8 @@ def _rollback(session_factory, restore_id, empresa_id, tenant_id, database_name,
             row.rollback_estado = "COMPLETADO"
             if tenant is not None:
                 tenant.estado = "ACTIVA"
+                if pre_version:
+                    tenant.version_schema = pre_version
                 tenant.ultima_verificacion = _now()
         _audit(db, user_id, empresa_id, restore_id, "ERROR_RESTORE", "ERROR", ip)
         if failure is None:
@@ -339,6 +345,7 @@ def create_restore(session_factory: sessionmaker, backup_id: int, confirmacion: 
         empresa_id = empresa.id
         tenant_id = tenant.id
         database_name = tenant.database_name
+        restored_version = backup.version_schema
         storage_key, size_bytes, sha256 = backup.storage_key, backup.size_bytes, backup.sha256
         db.rollback()
 
@@ -444,6 +451,9 @@ def create_restore(session_factory: sessionmaker, backup_id: int, confirmacion: 
         with session_factory() as db:
             tenant_row = db.get(TenantDatabase, tenant_id)
             tenant_row.estado = "ACTIVA"
+            # The physical schema and its ledger were restored from the same
+            # backup snapshot; the Control Plane must describe that state.
+            tenant_row.version_schema = restored_version
             tenant_row.ultima_verificacion = _now()
             restore_row = db.get(RestoreTenant, restore_id)
             restore_row.estado = "COMPLETADO"

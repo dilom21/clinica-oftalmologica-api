@@ -112,6 +112,34 @@ def db_pagos():
             fecha_aceptado TIMESTAMP, fecha_entregado TIMESTAMP,
             UNIQUE(pago_id, tipo)
         )""",
+        """CREATE TABLE plan_pago (
+            id INTEGER PRIMARY KEY, paciente_id INTEGER NOT NULL,
+            consulta_clinica_id INTEGER NOT NULL, monto_total NUMERIC(12,2) NOT NULL,
+            moneda TEXT NOT NULL DEFAULT 'BOB', cantidad_cuotas INTEGER NOT NULL,
+            fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            estado TEXT NOT NULL DEFAULT 'ACTIVO', observaciones TEXT,
+            creado_por INTEGER NOT NULL, clave_idempotencia TEXT NOT NULL UNIQUE
+        )""",
+        """CREATE TABLE plan_pago_servicio (
+            plan_pago_id INTEGER NOT NULL, servicio_realizado_id INTEGER NOT NULL,
+            monto_financiado NUMERIC(12,2) NOT NULL, activo BOOLEAN NOT NULL DEFAULT 1,
+            PRIMARY KEY(plan_pago_id, servicio_realizado_id)
+        )""",
+        """CREATE UNIQUE INDEX uq_pps_servicio_comprometido
+            ON plan_pago_servicio(servicio_realizado_id) WHERE activo IS 1""",
+        """CREATE TABLE cuota (
+            id INTEGER PRIMARY KEY, plan_pago_id INTEGER NOT NULL,
+            numero_cuota INTEGER NOT NULL, monto_programado NUMERIC(12,2) NOT NULL,
+            fecha_vencimiento DATE NOT NULL, estado TEXT NOT NULL DEFAULT 'PENDIENTE',
+            UNIQUE(plan_pago_id, numero_cuota)
+        )""",
+        """CREATE TABLE intento_pago_cuota (
+            id INTEGER PRIMARY KEY, cuota_id INTEGER NOT NULL, pago_id INTEGER NOT NULL UNIQUE,
+            fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            aplicado_a_cuota BOOLEAN NOT NULL DEFAULT 0
+        )""",
+        """CREATE UNIQUE INDEX uq_intento_cuota_aplicada
+            ON intento_pago_cuota(cuota_id) WHERE aplicado_a_cuota IS 1""",
     ]
     ahora = "2026-10-01 12:00:00"
     with engine.begin() as conn:

@@ -50,6 +50,14 @@ class StripeWebhookScope:
     def consulta_clinica_id(self) -> int | None:
         return _optional_positive_int(self.metadata, "consulta_clinica_id")
 
+    @property
+    def plan_pago_id(self) -> int | None:
+        return _optional_positive_int(self.metadata, "plan_pago_id")
+
+    @property
+    def cuota_id(self) -> int | None:
+        return _optional_positive_int(self.metadata, "cuota_id")
+
 
 def _metadata_inconsistente() -> HTTPException:
     return HTTPException(
