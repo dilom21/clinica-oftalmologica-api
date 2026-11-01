@@ -9,7 +9,7 @@ from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from app.core.dependencies import obtener_administrador_actual
+from app.core.dependencies import get_tenant_claims, obtener_administrador_actual
 from app.database.session import get_db
 from app.modules.gestion_inventario_proveedores.api.movimientos import router
 from app.modules.gestion_inventario_proveedores.services import movimientos
@@ -67,6 +67,7 @@ def entorno_cu27():
 
     app.dependency_overrides[get_db] = fake_db
     app.dependency_overrides[obtener_administrador_actual] = lambda: SimpleNamespace(id=7)
+    app.dependency_overrides[get_tenant_claims] = lambda: {'tenant_id': 1}
 
     try:
         with TestClient(app) as client:
@@ -180,3 +181,21 @@ def test_cu27_rollback_si_falla_antes_de_confirmar(entorno_cu27, monkeypatch):
     with engine.connect() as con:
         assert con.scalar(text("SELECT count(*) FROM inventario")) == 0
         assert con.scalar(text("SELECT count(*) FROM movimiento_inventario")) == 0
+
+
+def test_cu27_no_duplicar_referencia_automatica(entorno_cu27):
+    _, engine = entorno_cu27
+    with Session(engine) as db:
+        movimientos.registrar_movimiento_automatico(
+            db, lote_id=1, tipo="ENTRADA_COMPRA", cantidad=5, usuario_id=7,
+            referencia_tipo="DETALLE_COMPRA", referencia_id=321,
+        )
+        db.commit()
+        with pytest.raises(HTTPException) as exc:
+            movimientos.registrar_movimiento_automatico(
+                db, lote_id=1, tipo="ENTRADA_COMPRA", cantidad=5, usuario_id=7,
+                referencia_tipo="DETALLE_COMPRA", referencia_id=321,
+            )
+        assert exc.value.status_code == 409
+        db.rollback()
+        assert movimientos.consultar_existencia(db, 1).stock_actual == 5
