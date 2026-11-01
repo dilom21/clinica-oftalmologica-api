@@ -11,8 +11,6 @@ tenant de integración separado). Sí validan persistencia, locks, restricciones
 PostgreSQL y separación de sesiones entre dos schemas aislados.
 """
 from contextlib import contextmanager
-from datetime import datetime, timezone
-import ipaddress
 import os
 from types import SimpleNamespace
 from uuid import uuid4
@@ -165,7 +163,7 @@ def _cliente(engine, schema):
 def test_postgres_rutas_y_tenants_aislados(pg_cu27):
     engine, (empresa_a, empresa_b) = pg_cu27
     with _cliente(engine, empresa_a) as a, _cliente(engine, empresa_b) as b:
-        assert "POST" in a.get("/openapi.json").json()["paths"]["/inventario-proveedores/movimientos"]
+        assert "post" in a.get("/openapi.json").json()["paths"]["/inventario-proveedores/movimientos"]
         crear = a.post("/inventario-proveedores/movimientos", json={
             "lote_id": 1, "tipo": "STOCK_INICIAL", "cantidad": 17,
         })
@@ -238,8 +236,6 @@ def test_postgres_movimiento_automatico_reintento_y_rollback(pg_cu27):
 
 def test_postgres_no_autorizado_y_usuario_no_falsificable(pg_cu27):
     engine, (empresa_a, _) = pg_cu27
-    with TestClient(FastAPI()) as _:  # No se requiere sesión real ni token de producción.
-        pass
     api = FastAPI()
     api.include_router(router)
     with TestClient(api) as no_autorizado:
