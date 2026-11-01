@@ -408,7 +408,7 @@ def test_cu27_jwt_manipulado_cruzado_o_legacy_denegado(api_cu27_jwt_real):
         {"sub": "7", "rol_id": 1, "tenant_id": 1001,
          "empresa_id": 101, "empresa_codigo": "CLINICA-A",
          "token_type": "tenant", "exp": datetime.now(timezone.utc) + timedelta(minutes=5)},
-        "clave-falsa-solo-pruebas", algorithm=JWT_ALGORITHM,
+        "clave-falsa-solo-pruebas-para-pruebas-2026", algorithm=JWT_ALGORITHM,
     )
     assert client.get(ruta, headers=_headers(firmado_mal)).status_code == 401
     vencido = jwt.encode(
