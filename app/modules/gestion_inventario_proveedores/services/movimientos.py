@@ -4,13 +4,14 @@ Solo usa la sesión tenant entregada por FastAPI; no abre conexiones externas.
 Las operaciones automáticas (compras/devoluciones) se integran mediante
 registrar_movimiento_automatico() dentro de la MISMA transacción del llamador.
 """
-from datetime import date, datetime, timezone
+from datetime import datetime, timezone
 
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.time import fecha_local_aplicacion
 from app.modules.gestion_inventario_proveedores.models.catalogo import Categoria, Lote, Producto
 from app.modules.gestion_inventario_proveedores.models.movimientos import Inventario, MovimientoInventario
 from app.modules.gestion_inventario_proveedores.schemas.movimientos import (
@@ -75,15 +76,30 @@ def _registrar(
 
     lote = _lote_habilitado(db, lote_id, bloquear=True)
     if tipo == "SALIDA_VENCIMIENTO" and (
-        lote.fecha_vencimiento is None or lote.fecha_vencimiento >= date.today()
+        lote.fecha_vencimiento is None or lote.fecha_vencimiento >= fecha_local_aplicacion()
     ):
         raise HTTPException(status_code=409, detail="El lote no está vencido")
     if tipo == "SALIDA_USO" and (
-        lote.fecha_vencimiento is not None and lote.fecha_vencimiento < date.today()
+        lote.fecha_vencimiento is not None and lote.fecha_vencimiento < fecha_local_aplicacion()
     ):
         raise HTTPException(status_code=409, detail="No se puede consumir un lote vencido")
 
     inventario = _inventario_bloqueado(db, lote_id)
+    # El bloqueo del lote también serializa intentos de repetir la misma
+    # referencia de compra o devolución. No registrar dos veces el origen.
+    if referencia_tipo is not None:
+        duplicado = db.scalar(
+            select(MovimientoInventario.id)
+            .join(Inventario, Inventario.id == MovimientoInventario.inventario_id)
+            .where(
+                Inventario.lote_id == lote_id,
+                MovimientoInventario.tipo == tipo,
+                MovimientoInventario.referencia_tipo == referencia_tipo,
+                MovimientoInventario.referencia_id == referencia_id,
+            )
+        )
+        if duplicado is not None:
+            raise HTTPException(status_code=409, detail="El movimiento de origen ya fue registrado")
     if tipo == "STOCK_INICIAL":
         # Impide usar 'stock inicial' para ocultar operaciones posteriores.
         if inventario is not None:
