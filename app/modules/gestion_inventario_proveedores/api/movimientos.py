@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import obtener_administrador_actual
+from app.core.dependencies import get_tenant_claims, obtener_administrador_actual
 from app.database.session import get_db
 from app.modules.gestion_inventario_proveedores.schemas.movimientos import (
     ExistenciaRespuesta, MovimientoManualCrear, MovimientoRespuesta,
@@ -14,7 +14,7 @@ from app.modules.gestion_inventario_proveedores.services import movimientos
 router = APIRouter(
     prefix="/inventario-proveedores",
     tags=["CU27 - Movimientos de inventario"],
-    dependencies=[Depends(obtener_administrador_actual)],
+    dependencies=[Depends(get_tenant_claims), Depends(obtener_administrador_actual)],
 )
 
 
