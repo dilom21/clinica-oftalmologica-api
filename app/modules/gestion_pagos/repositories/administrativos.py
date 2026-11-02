@@ -60,6 +60,7 @@ def conflictos_por_servicio(db: Session, servicio_ids: Iterable[int]):
         .where(
             PagoDetalle.servicio_realizado_id.in_(ids),
             or_(
+                Pago.estado == "APROBADO",
                 Pago.estado == "PENDIENTE",
                 (Pago.pasarela == "STRIPE") & (Pago.estado == "RECHAZADO"),
             ),
@@ -67,13 +68,25 @@ def conflictos_por_servicio(db: Session, servicio_ids: Iterable[int]):
     ).all()
     resultado = {}
     for servicio_id, pasarela, estado in filas:
-        conflicto = (
-            "INTENTO_STRIPE_POTENCIALMENTE_COBRABLE"
-            if pasarela == "STRIPE"
-            else "PAGO_MANUAL_PENDIENTE"
-        )
-        # Stripe tiene prioridad informativa sobre un pendiente manual.
-        if servicio_id not in resultado or pasarela == "STRIPE":
+        if estado == "APROBADO":
+            conflicto = "PAGO_APROBADO_EXISTENTE"
+        else:
+            conflicto = (
+                "INTENTO_STRIPE_POTENCIALMENTE_COBRABLE"
+                if pasarela == "STRIPE"
+                else "PAGO_MANUAL_PENDIENTE"
+            )
+        # Un pago aprobado siempre prevalece; entre pendientes, Stripe aporta
+        # el conflicto más fuerte porque todavía podría confirmarse por webhook.
+        actual = resultado.get(servicio_id)
+        if (
+            actual is None
+            or conflicto == "PAGO_APROBADO_EXISTENTE"
+            or (
+                actual == "PAGO_MANUAL_PENDIENTE"
+                and conflicto == "INTENTO_STRIPE_POTENCIALMENTE_COBRABLE"
+            )
+        ):
             resultado[servicio_id] = conflicto
     return resultado
 

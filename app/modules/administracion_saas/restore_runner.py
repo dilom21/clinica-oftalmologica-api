@@ -20,10 +20,21 @@ from scripts.saas.provision_tenant import (
 )
 
 from .backup_runner import _client_path, _minimal_client_environment
+from .tenant_migrator import load_bundle
 
 # Public tables whose presence is required before a restored tenant is trusted.
 CRITICAL_TENANT_TABLES = ("usuario", "rol", "paciente", "cita", "historial_clinico")
 _RESERVED_DATABASES = frozenset({"postgres", "template0", "template1", "saas_control"})
+_LEDGER_SCHEMA = "app_migrations"
+# These are the only schema labels that existed while backups contained only
+# ``public``: the original provisioner (v1), CU31 (v2), inventory (v3), and
+# the initial CU32/CU33 rollout (v4). No other ledgerless version is inferred.
+LEGACY_LEDGERLESS_SCHEMA_VERSIONS = frozenset({
+    "v1",
+    "v2-cu31",
+    "v3-sprint3-cu26-cu27-cu29",
+    "v4-sprint3-cu32-cu33",
+})
 
 # ACL privilege characters relevant to a schema owner/grants round-trip.
 _SCHEMA_ACL_PRIVILEGES = {"U": "USAGE", "C": "CREATE"}
@@ -163,6 +174,19 @@ class TenantRestoreRunner:
         self.runner.run([str(self.pg_restore), "--list", str(archive)],
                         self._env(), self.timeout_seconds)
 
+    def archive_contains_schema(self, archive: Path, schema: str) -> bool:
+        """Return whether a custom archive owns a schema definition.
+
+        Older backups contain only ``public``.  New backups also contain the
+        migration ledger.  The distinction lets old archives preserve the
+        existing ledger while new archives restore it atomically with data.
+        """
+        output = self.runner.run(
+            [str(self.pg_restore), "--list", str(archive)],
+            self._env(), self.timeout_seconds,
+        )
+        return re.search(rf"\bSCHEMA - {re.escape(schema)}(?:\s|$)", output) is not None
+
     def probe_capabilities(self) -> RestoreCapabilities:
         role = self._admin_query(
             "SELECT rolcreatedb FROM pg_roles WHERE rolname = current_user;"
@@ -262,9 +286,108 @@ class TenantRestoreRunner:
         if state.cross_schema_dependencies > 0:
             raise SchemaResetRefused("external objects depend on the public schema")
 
-    def reset_public_schema(self, database_name: str) -> None:
-        self._command_db(database_name, "DROP SCHEMA IF EXISTS public CASCADE;")
-        self._command_db(database_name, "CREATE SCHEMA public;")
+    def reset_public_schema(self, database_name: str, *, restore_ledger: bool = False) -> None:
+        """Remove schemas owned by the archive without recreating them.
+
+        ``pg_dump --schema=...`` archives contain ``CREATE SCHEMA`` entries.
+        Recreating ``public`` here caused ``pg_restore`` to stop with
+        ``schema public already exists``.  The archive must create the schema
+        whose objects it owns.
+        """
+        statements = []
+        if restore_ledger:
+            statements.append(f"DROP SCHEMA IF EXISTS {_LEDGER_SCHEMA} CASCADE;")
+        statements.append("DROP SCHEMA IF EXISTS public CASCADE;")
+        self._command_db(database_name, " ".join(statements))
+
+    @staticmethod
+    def _expected_ledger(schema_version: str) -> dict[str, str] | None:
+        """Return the exact immutable ledger expected for a known schema version."""
+        root = Path(__file__).resolve().parents[3] / "database" / "tenant_migrations"
+        bundle = load_bundle(root)
+        regular = {item.version: item.checksum for item in bundle.migrations}
+        external = {item.version: item.checksum for item in bundle.external_migrations}
+        if schema_version == bundle.schema_version:
+            return regular | external
+        if schema_version in bundle.allowed_source_schema_versions:
+            return {
+                version: checksum
+                for version, checksum in regular.items()
+                if version != bundle.migrations[-1].version
+            } | external
+        if schema_version == "v2-cu31":
+            return {
+                item.version: item.checksum
+                for item in bundle.migrations[:-1]
+            }
+        return None
+
+    @classmethod
+    def is_known_schema_version(cls, schema_version: str | None) -> bool:
+        if not schema_version:
+            return False
+        return (
+            schema_version in LEGACY_LEDGERLESS_SCHEMA_VERSIONS
+            or cls._expected_ledger(schema_version) is not None
+        )
+
+    @classmethod
+    def supports_archive_version(
+        cls,
+        schema_version: str,
+        *,
+        has_ledger: bool,
+    ) -> bool:
+        if has_ledger:
+            return cls._expected_ledger(schema_version) is not None
+        return schema_version in LEGACY_LEDGERLESS_SCHEMA_VERSIONS
+
+    def _migration_ledger_exists(self, database_name: str) -> bool:
+        return self._query_db(
+            database_name,
+            "SELECT CASE WHEN to_regclass('app_migrations.schema_migration') IS NOT NULL "
+            "THEN 1 ELSE 0 END;",
+        ).strip() == "1"
+
+    def verify_migration_ledger(
+        self,
+        database_name: str,
+        expected_schema_version: str | None = None,
+    ) -> bool:
+        if not self._migration_ledger_exists(database_name):
+            return False
+        output = self._query_db(
+            database_name,
+            "SELECT version || E'\\t' || checksum "
+            "FROM app_migrations.schema_migration ORDER BY version;",
+        )
+        entries: dict[str, str] = {}
+        for line in output.splitlines():
+            parts = line.strip().split("\t", 1)
+            if len(parts) != 2 or parts[0] in entries:
+                return False
+            entries[parts[0]] = parts[1]
+        if not entries:
+            return False
+        if expected_schema_version is None:
+            return True
+        expected = self._expected_ledger(expected_schema_version)
+        return expected is not None and entries == expected
+
+    def verify_database_schema_version(
+        self,
+        database_name: str,
+        expected_schema_version: str,
+    ) -> bool:
+        """Verify that physical ledger state agrees with Control Plane metadata."""
+        if not self.is_known_schema_version(expected_schema_version):
+            return False
+        if expected_schema_version == "v1":
+            return not self._migration_ledger_exists(database_name)
+        return self.verify_migration_ledger(
+            database_name,
+            expected_schema_version,
+        )
 
     def apply_public_schema_state(self, database_name: str, state: PublicSchemaState) -> None:
         if state.owner and state.owner != self.connection.user:
@@ -275,14 +398,26 @@ class TenantRestoreRunner:
         for statement in state.grants:
             self._command_db(database_name, statement)
 
-    def restore_exact(self, database_name: str, archive: Path) -> PublicSchemaState:
+    def restore_exact(
+        self,
+        database_name: str,
+        archive: Path,
+        *,
+        expected_schema_version: str | None = None,
+    ) -> PublicSchemaState:
         """Rebuild ``public`` from an archive so the target matches it exactly."""
         self._require_manageable(database_name)
+        restore_ledger = self.archive_contains_schema(archive, _LEDGER_SCHEMA)
         state = self.inspect_public_schema(database_name)
         self.assert_reset_safe(state)
-        self.reset_public_schema(database_name)
+        self.reset_public_schema(database_name, restore_ledger=restore_ledger)
         self.restore_into(database_name, archive, clean=True)
         self.apply_public_schema_state(database_name, state)
+        if restore_ledger and not self.verify_migration_ledger(
+            database_name,
+            expected_schema_version,
+        ):
+            raise RuntimeError("Restored migration ledger is missing or inconsistent")
         return state
 
     # -------------------------------------------------------------- verifying

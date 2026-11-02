@@ -1,6 +1,25 @@
 {
-  "schema_version": "v2-cu31",
-  "runner_version": "cu31-tenant-migrator-v1",
+  "schema_version": "v4-sprint3-cu32-cu33",
+  "runner_version": "tenant-migrator-v2",
+  "allowed_source_schema_versions": [
+    "v3-sprint3-cu26-cu27-cu29"
+  ],
+  "external_migrations": [
+    {
+      "version": "20261024150000",
+      "name": "cu26_cu27_cu29_inventario_compras",
+      "sha256": "d94e3e71041b5c823a08143081a8a6d9b341893a41f32ba15d072083163409b1",
+      "required_for_schema_versions": [
+        "v3-sprint3-cu26-cu27-cu29",
+        "v4-sprint3-cu32-cu33"
+      ]
+    }
+  ],
+  "supporting_files": {
+    "bootstrap": "bootstrap_ledger.sql",
+    "preflight": "000_preflight_cu32_cu33.sql",
+    "verification": "999_verify_cu32_cu33.sql"
+  },
   "migrations": [
     {
       "version": "20261007211200",
@@ -25,6 +44,13 @@
       "path": "../../db/cu31_pagos_administrativos_resend.sql",
       "sha256": "81b50e7bf454d359b82568964fac2f129fc06570c488edc537247cbb2a8a181d",
       "transaction": "script_idempotent"
+    },
+    {
+      "version": "20261031000000",
+      "name": "cu32_cu33_planes_cuotas",
+      "path": "versions/20261031000000_cu32_cu33_planes_cuotas.sql",
+      "sha256": "625fd5caef7f39bea228e7019145826839891ebfec00c8c07b91c6742e01e312",
+      "transaction": "runner"
     }
   ]
 }

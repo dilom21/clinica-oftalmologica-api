@@ -15,6 +15,9 @@ from app.modules.gestion_pagos.schemas.schemas import (
 from app.modules.gestion_pagos.api.administrativos import (
     router as administrativos_router,
 )
+from app.modules.gestion_pagos.api.planes_cuotas import (
+    router as planes_cuotas_router,
+)
 from app.modules.gestion_pagos.schemas.administrativos import (
     NotificacionPagoRespuesta,
     ResultadoWebhookResend,
@@ -34,6 +37,7 @@ from app.modules.gestion_pagos.providers import (
 
 router = APIRouter(prefix="/pagos", tags=["Gestión de Pagos"])
 router.include_router(administrativos_router)
+router.include_router(planes_cuotas_router)
 
 
 @router.get("/")

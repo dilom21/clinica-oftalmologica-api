@@ -34,19 +34,22 @@ EXCLUDED_SCHEMAS = (
     "vault", "graphql", "graphql_public", "supabase_functions",
 )
 REQUIRED_TOOLS = ("pg_dump", "pg_restore", "psql")
-SCHEMA_VERSION = "v2-cu31"
+SCHEMA_VERSION = "v4-sprint3-cu32-cu33"
 RECONCILE_COUNT_TABLES = ("usuario", "paciente", "cita")
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 900
-EXPECTED_SOURCE_TABLE_COUNT = 29
-EXPECTED_SOURCE_SEQUENCE_COUNT = 29
-EXPECTED_SOURCE_COLUMN_COUNT = 207
-EXPECTED_SOURCE_INDEX_COUNT = 75
+EXPECTED_SOURCE_TABLE_COUNT = 41
+EXPECTED_SOURCE_SEQUENCE_COUNT = 40
+EXPECTED_SOURCE_COLUMN_COUNT = 297
+EXPECTED_SOURCE_INDEX_COUNT = 121
 SOURCE_TABLES = (
-    "accion", "antecedente_clinico", "bitacora", "bloqueo_horario", "cita",
-    "consulta_clinica", "control_medico", "detalle_receta", "diagnostico",
+    "accion", "antecedente_clinico", "bitacora", "bloqueo_horario", "categoria",
+    "cita", "compra", "consulta_clinica", "control_medico", "detalle_compra",
+    "detalle_receta", "diagnostico",
     "examen_oftalmologico", "funcion", "historial_clinico", "horario_oftalmologo",
-    "indicacion", "modulo", "oftalmologo", "paciente", "receta", "resultado_examen",
-    "notificacion_pago", "pago", "pago_detalle", "rol", "rol_funcion",
+    "indicacion", "inventario", "lote", "modulo", "movimiento_inventario",
+    "oftalmologo", "paciente", "producto", "proveedores", "receta", "resultado_examen",
+    "notificacion_pago", "pago", "pago_detalle", "plan_pago",
+    "plan_pago_servicio", "cuota", "intento_pago_cuota", "rol", "rol_funcion",
     "servicio_oftalmologico",
     "servicio_realizado", "token_recuperacion", "tratamiento", "usuario",
 )
@@ -58,10 +61,14 @@ CLEAN_CATALOG_COUNTS = {
     "accion": 3, "modulo": 6, "funcion": 21, "rol": 4, "rol_funcion": 43,
 }
 CLEAN_EMPTY_TABLES = (
-    "antecedente_clinico", "bitacora", "bloqueo_horario", "cita", "consulta_clinica",
-    "control_medico", "detalle_receta", "diagnostico", "examen_oftalmologico",
+    "antecedente_clinico", "bitacora", "bloqueo_horario", "categoria", "cita",
+    "compra", "consulta_clinica", "control_medico", "detalle_compra", "detalle_receta",
+    "diagnostico", "examen_oftalmologico",
     "historial_clinico", "horario_oftalmologo", "indicacion", "oftalmologo", "paciente",
-    "notificacion_pago", "pago", "pago_detalle", "receta", "resultado_examen",
+    "inventario", "lote", "movimiento_inventario", "producto", "proveedores",
+    "notificacion_pago", "pago", "pago_detalle", "plan_pago",
+    "plan_pago_servicio", "cuota", "intento_pago_cuota",
+    "receta", "resultado_examen",
     "servicio_oftalmologico",
     "servicio_realizado", "token_recuperacion", "tratamiento",
 )
@@ -216,7 +223,7 @@ class ProgressReporter(Protocol):
 class ConsoleProgressReporter:
     def report(self, step: int, label: str, duration_seconds: float | None = None) -> None:
         suffix = "" if duration_seconds is None else f" ({duration_seconds:.2f}s)"
-        print(f"[{step}/10] {label}{suffix}")
+        print(f"[{step}/11] {label}{suffix}")
 
 
 class ControlPlaneReader(Protocol):
@@ -241,6 +248,7 @@ class ProvisioningBackend(Protocol):
     def dump_public(self, source_database: str, destination: Path, source_counts: dict[str, int] | None) -> None: ...
     def seed_catalogs(self, source_database: str, target_database: str, directory: Path) -> None: ...
     def bootstrap_admin(self, target_database: str, email: str, password_hash: str) -> None: ...
+    def record_schema_baseline(self, target_database: str) -> None: ...
     def verify_clean(self, target_database: str, source_structure: SchemaSnapshot,
                      admin_email: str) -> CleanVerification: ...
     def restore_public(self, target_database: str, dump_path: Path) -> None: ...
@@ -415,6 +423,63 @@ END $$;
 """.strip()
         self._run([str(self.tools.psql), *self._common(target_database), "-v", "ON_ERROR_STOP=1", "-f", "-"], sql)
 
+    def record_schema_baseline(self, target_database: str) -> None:
+        """Create the immutable ledger baseline for a newly cloned v4 schema."""
+        from app.modules.administracion_saas.tenant_migrator import load_bundle
+
+        migration_root = Path(__file__).resolve().parents[2] / "database" / "tenant_migrations"
+        bundle = load_bundle(migration_root)
+        entries = sorted([
+            (item.version, item.name, item.checksum)
+            for item in bundle.migrations
+        ] + [
+            (item.version, item.name, item.checksum)
+            for item in bundle.external_migrations
+        ], key=lambda item: item[0])
+
+        def literal(value: str) -> str:
+            return "'" + value.replace("'", "''") + "'"
+
+        values = ",\n".join(
+            f"({literal(version)}, {literal(name)}, {literal(checksum)}, 0, "
+            "'tenant-provisioner-baseline-v1')"
+            for version, name, checksum in entries
+        )
+        expected_rows = ",\n".join(
+            f"({literal(version)}, {literal(name)}, {literal(checksum)})"
+            for version, name, checksum in entries
+        )
+        sql = f"""
+BEGIN;
+{bundle.bootstrap_sql}
+INSERT INTO app_migrations.schema_migration
+    (version, nombre, checksum_sha256, duracion_ms, runner_version)
+VALUES
+{values}
+ON CONFLICT (version) DO NOTHING;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+          FROM (VALUES
+{expected_rows}
+          ) AS e(version, nombre, checksum)
+          LEFT JOIN app_migrations.schema_migration m ON m.version=e.version
+         WHERE m.version IS NULL OR m.nombre<>e.nombre
+            OR trim(m.checksum_sha256)<>e.checksum
+    ) THEN
+        RAISE EXCEPTION 'Provisioning baseline ledger is incomplete or inconsistent';
+    END IF;
+END $$;
+COMMIT;
+""".strip()
+        self._run(
+            [str(self.tools.psql), *self._common(target_database),
+             "-v", "ON_ERROR_STOP=1", "-f", "-"],
+            sql,
+        )
+
     def verify_clean(self, target_database: str, source_structure: SchemaSnapshot,
                      admin_email: str) -> CleanVerification:
         validate_database_identifier(target_database)
@@ -534,7 +599,7 @@ END $$;
         counts_ok = (
             set(source_counts) == set(SOURCE_TABLES)
             and tables == len(SOURCE_TABLES)
-            and sequences == len(SOURCE_TABLES)
+            and sequences == EXPECTED_SOURCE_SEQUENCE_COUNT
         )
         for table, expected in source_counts.items():
             actual = self.count_tables(target_database, (table,))[table]
@@ -1032,8 +1097,7 @@ def execute_provision(
 
     progress(1, "Preflight")
     preflight = backend.preflight(mapping)
-    if not preflight.role_createdb or not preflight.dependencies_ok:
-        raise ProvisioningError("Read-only prechecks failed")
+    _validate_batch_source_preflight(preflight)
     if backend.database_exists(mapping.database_name):
         raise ProvisioningError("Target database already exists")
 
@@ -1062,10 +1126,12 @@ def execute_provision(
             progress(8, "Verificando conteos")
             if not verification.counts_ok:
                 raise ProvisioningError("Tenant count verification failed")
-            progress(9, "Health check")
+            progress(9, "Registrando baseline de migraciones")
+            backend.record_schema_baseline(mapping.database_name)
+            progress(10, "Health check")
             if not backend.health_check(mapping):
                 raise ProvisioningError("Tenant health check failed")
-            progress(10, "Activando tenant")
+            progress(11, "Activando tenant")
         finally:
             if dump_path is not None:
                 backend.cleanup_dump(dump_path)
@@ -1158,8 +1224,7 @@ def _execute_provision_clean_mapping(
 
     progress(1, "Preflight clean")
     preflight = preflight or backend.preflight(mapping)
-    if not preflight.role_createdb or not preflight.dependencies_ok or preflight.source_structure is None:
-        raise ProvisioningError("Read-only clean prechecks failed")
+    _validate_batch_source_preflight(preflight)
     if backend.database_exists(mapping.database_name):
         raise ProvisioningError("Target database already exists")
 
@@ -1194,10 +1259,12 @@ def _execute_provision_clean_mapping(
             verification = backend.verify_clean(mapping.database_name, preflight.source_structure, email)
             if not verification.ok:
                 raise ProvisioningError("Clean tenant verification failed")
-            progress(9, "Health check")
+            progress(9, "Registrando baseline de migraciones")
+            backend.record_schema_baseline(mapping.database_name)
+            progress(10, "Health check")
             if not backend.health_check(mapping):
                 raise ProvisioningError("Tenant health check failed")
-            progress(10, "Activando tenant")
+            progress(11, "Activando tenant")
         finally:
             if dump_path is not None:
                 try:
@@ -1215,7 +1282,7 @@ def _validate_batch_source_preflight(preflight: Preflight) -> None:
     if not preflight.role_createdb or not preflight.dependencies_ok:
         raise ProvisioningError("Batch read-only PostgreSQL prechecks failed")
     if preflight.source_structure is None or preflight.source_counts is None:
-        raise ProvisioningError("Batch source schema v1 snapshot is unavailable")
+        raise ProvisioningError("Batch source schema v4 snapshot is unavailable")
     if set(preflight.source_counts) != set(SOURCE_TABLES):
         raise ProvisioningError("Batch source counts are incomplete or unexpected")
     object_counts = set(preflight.source_structure.object_counts)

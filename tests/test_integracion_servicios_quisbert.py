@@ -275,6 +275,12 @@ def test_integracion_no_duplica_modelos_rutas_ni_tablas():
     }.issubset(publicas)
     assert "notificacion_pago" in publicas
     assert "servicio_oftalmologico" in publicas
+    assert {
+        "plan_pago",
+        "plan_pago_servicio",
+        "cuota",
+        "intento_pago_cuota",
+    }.issubset(publicas)
     assert "servicios_oftalmologicos" not in Base.metadata.tables
     assert ServicioOftalmologico.__table__ is Base.metadata.tables["servicio_oftalmologico"]
 

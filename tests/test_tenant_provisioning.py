@@ -107,7 +107,15 @@ class FakeBackend:
     def __init__(self, *, exists=False, preflight=None, verification=None, health=True, failure=None,
                  failure_stage=None):
         self.exists = exists
-        self.preflight_result = preflight or Preflight(source_counts={"usuario": 1})
+        self.preflight_result = preflight or Preflight(
+            source_counts={table: 0 for table in SOURCE_TABLES},
+            source_structure=SchemaSnapshot(
+                tuple(fixture_column_rows()), (),
+                tuple(str(index) for index in range(EXPECTED_SOURCE_INDEX_COUNT)),
+                (f"tables={EXPECTED_SOURCE_TABLE_COUNT}",
+                 f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT}"),
+            ),
+        )
         self.verification = verification or Verification()
         self.health = health
         self.failure = failure
@@ -144,6 +152,11 @@ class FakeBackend:
         self.events.append(("restore", target, dump_path))
         if self.failure_stage == "restore":
             raise self.failure or RuntimeError("restore failure")
+
+    def record_schema_baseline(self, target):
+        self.events.append(("baseline", target))
+        if self.failure_stage == "baseline":
+            raise self.failure or RuntimeError("baseline failure")
 
     def verify(self, counts, target, source_structure=None):
         self.events.append(("verify", counts, target))
@@ -495,6 +508,32 @@ def test_public_dump_restore_arguments_and_secret_boundary(tmp_path):
     assert "TEMPLATE postgres" not in " ".join(dump_argv + restore_argv).upper()
 
 
+def test_new_tenant_baseline_records_external_ledger_without_replaying_sql():
+    class Runner:
+        def __init__(self):
+            self.calls = []
+
+        def run(self, argv, env, timeout_seconds, input_text=None):
+            self.calls.append((argv, env.copy(), input_text))
+            return ""
+
+    runner = Runner()
+    backend = SubprocessPostgresBackend(
+        ToolPaths(Path("pg_dump.exe"), Path("pg_restore.exe"), Path("psql.exe")),
+        PostgresConnection("host", 5432, "user", "SECRET"), runner,
+    )
+    backend.record_schema_baseline("tenant_new_test")
+
+    argv, env, sql = runner.calls[-1]
+    assert argv[-2:] == ["-f", "-"]
+    assert env["PGPASSWORD"] == "SECRET" and "SECRET" not in argv
+    assert "20261024150000" in sql
+    assert "d94e3e71041b5c823a08143081a8a6d9b341893a41f32ba15d072083163409b1" in sql
+    assert "20261031000000" in sql
+    assert "tenant-provisioner-baseline-v1" in sql
+    assert "CREATE TABLE public.plan_pago" not in sql
+
+
 def test_recovery_audit_reports_activity_fields_and_classifies_only_idle_supavisor():
     class Runner:
         def __init__(self):
@@ -754,14 +793,14 @@ def test_configurable_timeout_and_restore_waits_for_normal_completion(tmp_path):
     assert runner.calls[0][0].count(EXPECTED_DATABASE) == 1
 
 
-def test_progress_reporter_has_ten_steps_without_secrets(tmp_path):
+def test_progress_reporter_has_eleven_steps_without_secrets(tmp_path):
     reports = []
     reader = FakeReader(valid_mapping())
     writer = FakeWriter()
     backend = FakeBackend()
     execute_provision(reader, writer, backend, FakeTools(), EXPECTED_DATABASE,
                       dump_directory=tmp_path, reporter=lambda step, label: reports.append((step, label)))
-    assert [step for step, _ in reports] == list(range(1, 11))
+    assert [step for step, _ in reports] == list(range(1, 12))
     text = " ".join(label for _, label in reports)
     assert "PGPASSWORD" not in text and "DATABASE_URL" not in text and "SECRET" not in text
 
@@ -903,8 +942,8 @@ def test_batch_source_preflight_keeps_structural_guards(object_counts, indexes, 
         ))
 
 
-def test_batch_source_preflight_requires_schema_v1_snapshot():
-    with pytest.raises(ProvisioningError, match="schema v1"):
+def test_batch_source_preflight_requires_schema_v4_snapshot():
+    with pytest.raises(ProvisioningError, match="schema v4"):
         _validate_batch_source_preflight(Preflight(source_counts=source_counts()))
 
 
@@ -1069,7 +1108,13 @@ class CleanBackend(FakeBackend):
     def __init__(self, verification=None, exists=False):
         super().__init__(exists=exists, preflight=Preflight(
             role_createdb=True, dependencies_ok=True,
-            source_structure=snapshot(),
+            source_counts={table: 0 for table in SOURCE_TABLES},
+            source_structure=SchemaSnapshot(
+                tuple(fixture_column_rows()), (),
+                tuple(str(index) for index in range(EXPECTED_SOURCE_INDEX_COUNT)),
+                (f"tables={EXPECTED_SOURCE_TABLE_COUNT}",
+                 f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT}"),
+            ),
         ))
         self.clean_verification = verification or CleanVerification()
         self.clean_calls = []
@@ -1082,6 +1127,11 @@ class CleanBackend(FakeBackend):
 
     def bootstrap_admin(self, target, email, password_hash):
         self.clean_calls.append(("admin", target, email, password_hash))
+
+    def record_schema_baseline(self, target):
+        self.clean_calls.append(("baseline", target))
+        if self.failure_stage == "baseline":
+            raise self.failure or RuntimeError("baseline failure")
 
     def verify_clean(self, target, source_structure, admin_email):
         self.clean_calls.append(("verify_clean", target, admin_email))
@@ -1117,6 +1167,7 @@ def test_clean_provision_uses_schema_only_catalog_seed_and_hashes_password(tmp_p
     assert backend.clean_calls[0] == ("dump", "postgres", True)
     assert backend.clean_calls[1][0] == "seed"
     assert backend.clean_calls[2] == ("admin", "tenant_oftalmo_norte", "admin@norte.test", hashed)
+    assert backend.clean_calls[4] == ("baseline", "tenant_oftalmo_norte")
     assert "not-in-argv" not in repr(backend.clean_calls)
     assert writer.events == ["start", "complete"]
 
@@ -1128,6 +1179,39 @@ def test_clean_provision_fail_closed_before_activation(tmp_path):
         execute_provision_clean(FakeReader(clean_mapping()), writer, backend, FakeTools(),
                                 "tenant_oftalmo_norte", "admin@norte.test",
                                 password_provider=lambda _: "same", dump_directory=tmp_path)
+    assert "complete" not in writer.events
+    assert writer.tenant_state == ERROR
+
+
+def test_clean_provision_rejects_non_v4_source_before_any_write():
+    backend = CleanBackend()
+    backend.preflight_result = Preflight(
+        role_createdb=True,
+        dependencies_ok=True,
+        source_counts={"usuario": 0},
+        source_structure=SchemaSnapshot((), (), (), ("tables=29",)),
+    )
+    writer = FakeWriter()
+    with pytest.raises(ProvisioningError, match="source counts"):
+        execute_provision_clean(
+            FakeReader(clean_mapping()), writer, backend, FakeTools(),
+            "tenant_oftalmo_norte", "admin@norte.test",
+            password_provider=lambda _: "unused",
+        )
+    assert writer.events == []
+    assert backend.clean_calls == []
+
+
+def test_clean_provision_baseline_failure_blocks_activation(tmp_path):
+    backend = CleanBackend()
+    backend.failure_stage = "baseline"
+    writer = FakeWriter()
+    with pytest.raises(ProvisioningError, match="marked ERROR"):
+        execute_provision_clean(
+            FakeReader(clean_mapping()), writer, backend, FakeTools(),
+            "tenant_oftalmo_norte", "admin@norte.test",
+            password_provider=lambda _: "same", dump_directory=tmp_path,
+        )
     assert "complete" not in writer.events
     assert writer.tenant_state == ERROR
 
@@ -1167,6 +1251,11 @@ def test_source_inventory_matches_current_tenant_models():
     assert "pago_detalle" in SOURCE_TABLES
     assert "notificacion_pago" in SOURCE_TABLES
     assert "servicios_oftalmologicos" not in SOURCE_TABLES
+    for table in (
+        "categoria", "compra", "detalle_compra", "inventario", "lote",
+        "movimiento_inventario", "producto", "proveedores",
+    ):
+        assert table in SOURCE_TABLES
 
 
 @dataclass
