@@ -1,10 +1,15 @@
+
 from fastapi import APIRouter
 
-router = APIRouter(
-    prefix="/inventario-proveedores",
-    tags=["Inventario y Proveedores"]
-)
+from .catalogo import router as catalogo_router
+from .movimientos import router as movimientos_router
 
-@router.get("/")
+router = APIRouter()
+
+router.include_router(catalogo_router)
+router.include_router(movimientos_router)
+
+
+@router.get("/inventario-proveedores/", tags=["Inventario y Proveedores"])
 def obtener_modulo():
     return {"mensaje": "Módulo de inventario y proveedores funcionando"}
