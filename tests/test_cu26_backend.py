@@ -1,6 +1,10 @@
 """Pruebas aisladas CU26: SQLite en memoria, jamás Supabase.
 Se ejecutan con pytest. El conftest existente bloquea conexión compartida.
 """
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+import jwt
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -8,10 +12,12 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
+from app.core.config import JWT_ALGORITHM, JWT_SECRET_KEY
 from app.core.dependencies import (
     get_db,
     get_tenant_claims,
     obtener_administrador_actual,
+    obtener_usuario_actual,
 )
 from app.modules.gestion_inventario_proveedores.api.router import router
 
@@ -36,11 +42,15 @@ def cliente_cu26():
             yield db
     api.dependency_overrides[get_db] = fake_db
     api.dependency_overrides[get_tenant_claims] = lambda: {
-    "tenant_id": 1,
-    "empresa_id": 1,
-    "empresa_codigo": "PRUEBA",
-}
+        "sub": "7",
+        "rol_id": 1,
+        "tenant_id": 1,
+        "empresa_id": 1,
+        "empresa_codigo": "PRUEBA",
+        "token_type": "tenant",
+    }
     api.dependency_overrides[obtener_administrador_actual] = lambda: type('Admin', (), {'id': 7})()
+    api.state.cu26_engine = engine
     try:
         with TestClient(api) as client:
             yield client
@@ -124,6 +134,7 @@ def test_cu26_solo_admite_jwt_tenant(monkeypatch):
         for token in (
             crear_access_token(7, 1),
             crear_saas_access_token(7),
+            "not-a-jwt",
         ):
             respuesta = cliente.get(
                 ruta,
@@ -141,4 +152,109 @@ def test_cu26_solo_admite_jwt_tenant(monkeypatch):
 
         assert respuesta.status_code == 200, respuesta.text
         assert respuesta.json() == []
+
+
+def test_cu26_rechaza_token_tenant_expirado():
+    token = jwt.encode(
+        {
+            "sub": "7",
+            "rol_id": 1,
+            "tenant_id": 17,
+            "empresa_id": 4,
+            "empresa_codigo": "VISION-CLARA",
+            "token_type": "tenant",
+            "exp": datetime.now(timezone.utc) - timedelta(minutes=1),
+        },
+        JWT_SECRET_KEY,
+        algorithm=JWT_ALGORITHM,
+    )
+    api = FastAPI()
+    api.include_router(router)
+    api.dependency_overrides[get_db] = lambda: None
+
+    with TestClient(api) as client:
+        respuesta = client.get(
+            "/inventario-proveedores/categorias",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert respuesta.status_code == 401
+
+
+def test_cu26_rechaza_rol_no_administrador_sin_anular_guard_tenant():
+    from app.core.security import crear_tenant_access_token
+
+    api = FastAPI()
+    api.include_router(router)
+    api.dependency_overrides[get_db] = lambda: None
+    api.dependency_overrides[obtener_usuario_actual] = lambda: SimpleNamespace(
+        rol=SimpleNamespace(nombre="Profesional")
+    )
+    token = crear_tenant_access_token(7, 2, 17, 4, "VISION-CLARA")
+
+    with TestClient(api) as client:
+        respuesta = client.get(
+            "/inventario-proveedores/categorias",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert respuesta.status_code == 403
+
+
+def test_cu26_unidad_inmutable_con_lotes_y_baja_bloqueada_por_inventario(
+    cliente_cu26,
+):
+    cliente = cliente_cu26
+    categoria = cliente.post(
+        "/inventario-proveedores/categorias",
+        json={"nombre": "Óptica"},
+    ).json()
+    producto = cliente.post(
+        "/inventario-proveedores/productos",
+        json={
+            "categoria_id": categoria["id"],
+            "codigo": "OPT-001",
+            "nombre": "Producto",
+        },
+    ).json()
+
+    cambio_previo = cliente.put(
+        f'/inventario-proveedores/productos/{producto["id"]}',
+        json={
+            "categoria_id": categoria["id"],
+            "codigo": "OPT-001",
+            "nombre": "Producto",
+            "unidad_medida": "CAJA",
+            "stock_minimo": 0,
+        },
+    )
+    assert cambio_previo.status_code == 200, cambio_previo.text
+
+    lote = cliente.post(
+        "/inventario-proveedores/lotes",
+        json={"producto_id": producto["id"], "numero_lote": "LOT-1"},
+    ).json()
+    cambio_con_lote = cliente.put(
+        f'/inventario-proveedores/productos/{producto["id"]}',
+        json={
+            "categoria_id": categoria["id"],
+            "codigo": "OPT-001",
+            "nombre": "Producto",
+            "unidad_medida": "PZA",
+            "stock_minimo": 0,
+        },
+    )
+    assert cambio_con_lote.status_code == 409
+
+    with cliente.app.state.cu26_engine.begin() as conexion:
+        conexion.exec_driver_sql(
+            "INSERT INTO inventario "
+            "(lote_id, stock_actual, stock_reservado) VALUES (?, ?, ?)",
+            (lote["id"], 2, 2),
+        )
+    baja = cliente.patch(
+        f'/inventario-proveedores/lotes/{lote["id"]}/estado',
+        json={"estado": False},
+    )
+    assert baja.status_code == 409
 
