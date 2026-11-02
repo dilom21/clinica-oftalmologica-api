@@ -1,6 +1,6 @@
 """Exercise real clinical dependencies against three disjoint local databases."""
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
 import jwt
 import pytest
@@ -127,7 +127,8 @@ def auth(token):
 def tenant(code, **changes):
     values = {"sub": "7", "rol_id": 1, "tenant_id": 1 if code == "ALPHA" else 2,
               "empresa_id": 1 if code == "ALPHA" else 2, "empresa_codigo": code,
-              "token_type": "tenant"}
+              "token_type": "tenant",
+              "exp": datetime.now(timezone.utc) + timedelta(minutes=30)}
     values.update(changes)
     return jwt.encode(values, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
@@ -151,19 +152,19 @@ def test_read_write_are_tenant_bound_even_on_unprotected_route(routed_client):
     assert registry.calls == ["ALPHA"] * 4 + ["BETA"] * 4
 
 
-@pytest.mark.parametrize("token", [
-    tenant("BETA", empresa_id=1), tenant("BETA", tenant_id=1),
-    tenant("ALPHA", rol_id=2), tenant("ALPHA", empresa_codigo="UNKNOWN"),
-    crear_saas_access_token(7), tenant("BETA") + "tampered",
+@pytest.mark.parametrize("token, expected_calls", [
+    (tenant("BETA", empresa_id=1), []), (tenant("BETA", tenant_id=1), []),
+    (tenant("ALPHA", rol_id=2), ["ALPHA", "ALPHA"]),
+    (tenant("ALPHA", empresa_codigo="UNKNOWN"), []),
+    (crear_saas_access_token(7), []), (tenant("BETA") + "tampered", []),
 ])
-def test_bad_tokens_cannot_read_even_public_clinical_handlers(routed_client, token):
+def test_bad_tokens_cannot_read_even_public_clinical_handlers(
+    routed_client, token, expected_calls,
+):
     client, _, _, registry = routed_client
     assert client.get("/pacientes/1", headers=auth(token)).status_code in (401, 503)
     assert client.get("/seguridad/usuarios", headers=auth(token)).status_code in (401, 503)
-    if token == tenant("ALPHA", rol_id=2):
-        assert registry.calls == ["ALPHA", "ALPHA"]
-    else:
-        assert registry.calls == []
+    assert registry.calls == expected_calls
 
 
 def test_suspension_is_rechecked_on_every_request(routed_client):
