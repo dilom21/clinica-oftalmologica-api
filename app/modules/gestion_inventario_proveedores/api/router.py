@@ -2,7 +2,7 @@
 from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import obtener_administrador_actual
+from app.core.dependencies import get_tenant_claims, obtener_administrador_actual
 from app.database.session import get_db
 from app.modules.gestion_inventario_proveedores.schemas.catalogo import (
     CategoriaActualizar, CategoriaCrear, CategoriaRespuesta, EstadoActualizar,
@@ -11,7 +11,11 @@ from app.modules.gestion_inventario_proveedores.schemas.catalogo import (
 )
 from app.modules.gestion_inventario_proveedores.services import catalogo
 
-router = APIRouter(prefix="/inventario-proveedores", tags=["CU26 - Catálogo de productos y lotes"])
+router = APIRouter(
+    prefix="/inventario-proveedores",
+    tags=["CU26 - Catálogo de productos y lotes"],
+    dependencies=[Depends(get_tenant_claims)],
+)
 
 # Seguridad inicial: solo administradores de la clínica autenticada.
 # En la siguiente entrega conectar CU26 con requerir_permiso(..., LECTURA/ESCRITURA)

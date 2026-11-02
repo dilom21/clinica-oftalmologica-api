@@ -1,6 +1,10 @@
 """Pruebas aisladas CU26: SQLite en memoria, jamás Supabase.
 Se ejecutan con pytest. El conftest existente bloquea conexión compartida.
 """
+from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
+
+import jwt
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
@@ -8,7 +12,13 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from app.core.dependencies import obtener_administrador_actual
+from app.core.config import JWT_ALGORITHM, JWT_SECRET_KEY
+from app.core.dependencies import (
+    get_tenant_claims,
+    obtener_administrador_actual,
+    obtener_usuario_actual,
+)
+from app.core.security import crear_access_token, crear_saas_access_token, crear_tenant_access_token
 from app.database.session import get_db
 from app.modules.gestion_inventario_proveedores.api.router import router
 
@@ -33,6 +43,11 @@ def cliente_cu26():
             yield db
     api.dependency_overrides[get_db] = fake_db
     api.dependency_overrides[obtener_administrador_actual] = lambda: type('Admin', (), {'id': 7})()
+    api.dependency_overrides[get_tenant_claims] = lambda: {
+        'sub': '7', 'rol_id': 1, 'tenant_id': 17, 'empresa_id': 4,
+        'empresa_codigo': 'VISION-CLARA', 'token_type': 'tenant',
+    }
+    api.state.cu26_engine = engine
     try:
         with TestClient(api) as client:
             yield client
@@ -82,3 +97,79 @@ def test_cu26_no_autorizado_sin_token():
     with TestClient(api) as c:
         r = c.get('/inventario-proveedores/categorias')
         assert r.status_code in (401, 403)
+
+
+@pytest.mark.parametrize('token_factory', [
+    lambda: crear_access_token(7, 1),
+    lambda: crear_saas_access_token(7),
+    lambda: 'not-a-jwt',
+])
+def test_cu26_rechaza_tokens_no_tenant(token_factory):
+    api = FastAPI()
+    api.include_router(router)
+    api.dependency_overrides[get_db] = lambda: None
+    with TestClient(api) as client:
+        response = client.get(
+            '/inventario-proveedores/categorias',
+            headers={'Authorization': f'Bearer {token_factory()}'},
+        )
+    assert response.status_code == 401
+
+
+def test_cu26_rechaza_token_tenant_expirado():
+    token = jwt.encode({
+        'sub': '7', 'rol_id': 1, 'tenant_id': 17, 'empresa_id': 4,
+        'empresa_codigo': 'VISION-CLARA', 'token_type': 'tenant',
+        'exp': datetime.now(timezone.utc) - timedelta(minutes=1),
+    }, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    api = FastAPI()
+    api.include_router(router)
+    api.dependency_overrides[get_db] = lambda: None
+    with TestClient(api) as client:
+        response = client.get(
+            '/inventario-proveedores/categorias',
+            headers={'Authorization': f'Bearer {token}'},
+        )
+    assert response.status_code == 401
+
+
+def test_cu26_rechaza_rol_no_administrador_sin_anular_guard_tenant():
+    api = FastAPI()
+    api.include_router(router)
+    api.dependency_overrides[get_db] = lambda: None
+    api.dependency_overrides[obtener_usuario_actual] = lambda: SimpleNamespace(
+        rol=SimpleNamespace(nombre='Profesional')
+    )
+    token = crear_tenant_access_token(7, 2, 17, 4, 'VISION-CLARA')
+    with TestClient(api) as client:
+        response = client.get(
+            '/inventario-proveedores/categorias',
+            headers={'Authorization': f'Bearer {token}'},
+        )
+    assert response.status_code == 403
+
+
+def test_cu26_reglas_lote_existencias_y_unidad_bloqueada(cliente_cu26):
+    c = cliente_cu26
+    categoria = c.post('/inventario-proveedores/categorias', json={'nombre': 'Óptica'}).json()
+    producto = c.post('/inventario-proveedores/productos', json={
+        'categoria_id': categoria['id'], 'codigo': 'OPT-001', 'nombre': 'Producto',
+    }).json()
+    lote = c.post('/inventario-proveedores/lotes', json={
+        'producto_id': producto['id'], 'numero_lote': 'LOT-1',
+    }).json()
+    # The fixture is an isolated SQLite database; this models CU27 inventory state.
+    c.put(f'/inventario-proveedores/productos/{producto["id"]}', json={
+        'categoria_id': categoria['id'], 'codigo': 'OPT-001', 'nombre': 'Producto',
+        'unidad_medida': 'CAJA', 'stock_minimo': 0,
+    })
+    assert c.put(f'/inventario-proveedores/productos/{producto["id"]}', json={
+        'categoria_id': categoria['id'], 'codigo': 'OPT-001', 'nombre': 'Producto',
+        'unidad_medida': 'PZA', 'stock_minimo': 0,
+    }).status_code == 409
+    with cliente_cu26.app.state.cu26_engine.begin() as connection:
+        connection.exec_driver_sql(
+            'INSERT INTO inventario (lote_id, stock_actual, stock_reservado) VALUES (?, ?, ?)',
+            (lote['id'], 0, 2),
+        )
+    assert c.patch(f'/inventario-proveedores/lotes/{lote["id"]}/estado', json={'estado': False}).status_code == 409
