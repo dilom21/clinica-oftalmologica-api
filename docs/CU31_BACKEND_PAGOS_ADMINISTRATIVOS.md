@@ -87,6 +87,15 @@ tenant/pago/tipo, lease de 10 minutos, máximo 8 intentos y backoff exponencial.
 Un fallo deja el pago APROBADO y el PDF disponible. `ACEPTADO_POR_PROVEEDOR`
 solo significa aceptación de Resend; `ENTREGADO` exige webhook firmado.
 
+Con `RESEND_DEMO_MODE=true` el worker envía exclusivamente a `EMAIL_TEST`. Si una
+fila anterior conserva el correo del paciente, la reasigna solo cuando ningún
+intento previo pudo registrar la clave idempotente en Resend; si el envío
+anterior pudo ser aceptado, la fila queda `FALLIDO` con
+`ultimo_error = DEMO_DESTINATARIO_NO_REASIGNABLE` y requiere revisión manual (no
+se emite una clave nueva para no duplicar el comprobante). Las filas antiguas
+sin destinatario nunca llegaron al proveedor y se adoptan con el destinatario
+único.
+
 Variables requeridas por API/worker (solo nombres):
 
 - `RESEND_API_KEY`
@@ -96,6 +105,10 @@ Variables requeridas por API/worker (solo nombres):
 - `RESEND_TIMEOUT_SECONDS` (opcional)
 - `RESEND_WORKER_BATCH_SIZE` (opcional)
 - `RESEND_WORKER_INTERVAL_SECONDS` (opcional)
+- `EMAIL_TEST` (destinatario unico de la demostracion; ver
+  `docs/DESARROLLO_LOCAL_API_WORKER.md`)
+- `RESEND_DEMO_MODE` (opcional, desactivado por defecto; habilita `EMAIL_TEST`
+  fuera de localhost)
 
 Eventos Resend a suscribir: `email.delivered`, `email.failed` y
 `email.bounced`. URL: `https://<api>/pagos/resend/webhook`.

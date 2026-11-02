@@ -778,6 +778,30 @@ def _activar_destinatario_pruebas(
         monkeypatch.delenv(nombre, raising=False)
 
 
+DEMO_EMAIL = "haroldresend@gmail.com"
+
+
+def _activar_modo_demo(monkeypatch, *, correo=DEMO_EMAIL, activo=True):
+    """Configura el destinatario unico tal como se desplegara en AWS."""
+    _activar_destinatario_pruebas(monkeypatch, correo=correo)
+    monkeypatch.setattr(config, "RESEND_DEMO_MODE", activo)
+
+
+def _simular_intento_previo(db, pago, *, destinatario, intentos, error, estado="PENDIENTE"):
+    """Reproduce una fila de outbox creada antes del modo demostracion."""
+    item = db.scalar(select(NotificacionPago).where(
+        NotificacionPago.pago_id == pago.id,
+    ))
+    item.destinatario = destinatario
+    item.intentos = intentos
+    item.estado = estado
+    item.ultimo_error = error
+    item.proximo_intento = None
+    item.bloqueado_hasta = None
+    db.commit()
+    return item
+
+
 def _contexto_tenant(
     db,
     codigo="VISION-CLARA",
@@ -802,6 +826,7 @@ def _texto_pdf(contenido: bytes) -> str:
 
 def test_worker_adjunta_pdf_destinatario_real_y_aceptado(db_cu31, monkeypatch):
     monkeypatch.setattr(config, "EMAIL_TEST", "")
+    monkeypatch.setattr(config, "RESEND_DEMO_MODE", False)
     _servicio(db_cu31, 2001)
     pago = administrativos.registrar_pago(
         db_cu31, _datos([2001]), "email-2001", _admin(db_cu31),
@@ -957,10 +982,12 @@ def test_worker_en_modo_pruebas_procesa_otro_paciente_del_tenant(
     assert item.ultimo_error is None
 
 
-def test_worker_congela_destinatario_de_notificacion_pendiente_preexistente(
-    db_cu31, monkeypatch,
+def test_worker_no_envia_notificacion_previa_a_un_destinatario_no_autorizado(
+    db_cu31, monkeypatch, caplog,
 ):
+    """Una notificacion anterior al modo demo nunca sale al correo del paciente."""
     monkeypatch.setattr(config, "EMAIL_TEST", "")
+    monkeypatch.setattr(config, "RESEND_DEMO_MODE", False)
     _contexto_tenant(db_cu31, "VISION-CLARA")
     _servicio(db_cu31, 2020)
     pago = administrativos.registrar_pago(
@@ -971,14 +998,20 @@ def test_worker_congela_destinatario_de_notificacion_pendiente_preexistente(
     ))
     assert item.destinatario == "ana@example.com"
 
-    _activar_destinatario_pruebas(monkeypatch)
+    _activar_modo_demo(monkeypatch)
     proveedor = _ResendExitoso()
-    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+    with caplog.at_level("WARNING"):
+        assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
 
     db_cu31.refresh(item)
-    assert proveedor.llamadas[0]["destinatario"] == "ana@example.com"
-    assert item.destinatario == "ana@example.com"
+    assert [llamada["destinatario"] for llamada in proveedor.llamadas] == [DEMO_EMAIL]
+    assert item.destinatario == DEMO_EMAIL
+    assert item.estado == "ACEPTADO_POR_PROVEEDOR"
     assert item.ultimo_error is None
+    assert any(
+        getattr(record, "evento", None) == "CU31_DEMO_DESTINATARIO_REASIGNADO"
+        for record in caplog.records
+    )
 
 
 def test_email_test_funciona_sin_contexto_tenant_legacy(
@@ -1082,6 +1115,320 @@ def test_email_test_ausente_desactiva_override_sin_afectar_produccion(
     monkeypatch.setenv("RENDER", "true")
 
     assert config.obtener_configuracion_resend_pruebas() is None
+
+
+def test_config_modo_demo_permite_email_test_fuera_de_localhost(monkeypatch):
+    _activar_modo_demo(monkeypatch)
+    monkeypatch.setenv("APP_ENV", "production")
+    monkeypatch.setenv("RENDER", "true")
+
+    assert config.obtener_configuracion_resend_pruebas() == DEMO_EMAIL
+
+    # Apagar el modo demo restaura el guard de produccion/Render.
+    monkeypatch.setattr(config, "RESEND_DEMO_MODE", False)
+    with pytest.raises(RuntimeError):
+        config.obtener_configuracion_resend_pruebas()
+
+
+@pytest.mark.parametrize("correo", ["", "correo-invalido"])
+def test_config_modo_demo_exige_email_test_valido(monkeypatch, correo):
+    _activar_modo_demo(monkeypatch, correo=correo)
+    monkeypatch.setenv("APP_ENV", "production")
+
+    with pytest.raises(RuntimeError):
+        config.obtener_configuracion_resend_pruebas()
+
+
+def test_config_modo_demo_desactivado_conserva_comportamiento(monkeypatch):
+    _activar_modo_demo(monkeypatch, activo=False)
+    assert config.obtener_configuracion_resend_pruebas() == DEMO_EMAIL
+
+    monkeypatch.setattr(config, "EMAIL_TEST", "")
+    assert config.obtener_configuracion_resend_pruebas() is None
+
+
+def test_modo_demo_envia_comprobantes_de_todos_los_tenants_al_unico_destinatario(
+    db_cu31, monkeypatch,
+):
+    _activar_modo_demo(monkeypatch)
+    proveedor = _ResendExitoso()
+
+    _contexto_tenant(
+        db_cu31, "VISION-CLARA", "Centro Oftalmologico Vision Clara",
+    )
+    _servicio(db_cu31, 2301)
+    pago_a = administrativos.registrar_pago(
+        db_cu31, _datos([2301]), "demo-tenant-a", _admin(db_cu31),
+    )
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+
+    _contexto_tenant(
+        db_cu31, "OTRA-CLINICA", "Centro Oftalmologico Otra Clinica",
+        database_name="tenant_otra",
+    )
+    db_cu31.execute(text(
+        "UPDATE usuario SET correo='beto@example.com' WHERE id=12"
+    ))
+    db_cu31.commit()
+    _servicio(db_cu31, 2302, paciente=2, consulta=200)
+    pago_b = administrativos.registrar_pago(
+        db_cu31, _datos([2302], paciente=2), "demo-tenant-b", _admin(db_cu31),
+    )
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+
+    assert [
+        llamada["destinatario"] for llamada in proveedor.llamadas
+    ] == [DEMO_EMAIL, DEMO_EMAIL]
+    assert {llamada["pago_id"] for llamada in proveedor.llamadas} == {
+        pago_a.id, pago_b.id,
+    }
+    textos = [_texto_pdf(llamada["pdf"]) for llamada in proveedor.llamadas]
+    assert "CENTRO OFTALMOLOGICO VISION CLARA" in textos[0]
+    assert "CENTRO OFTALMOLOGICO OTRA CLINICA" in textos[1]
+    acciones = db_cu31.scalars(select(NotificacionPago)).all()
+    assert [item.estado for item in acciones] == [
+        "ACEPTADO_POR_PROVEEDOR", "ACEPTADO_POR_PROVEEDOR",
+    ]
+    assert [item.destinatario for item in acciones] == [DEMO_EMAIL, DEMO_EMAIL]
+
+
+def test_modo_demo_incompleto_falla_sin_reclamar_ni_enviar(
+    db_cu31, monkeypatch,
+):
+    monkeypatch.setattr(config, "EMAIL_TEST", "")
+    monkeypatch.setattr(config, "RESEND_DEMO_MODE", False)
+    _contexto_tenant(db_cu31)
+    _servicio(db_cu31, 2321)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([2321]), "demo-incompleto-2321", _admin(db_cu31),
+    )
+    item = db_cu31.scalar(select(NotificacionPago).where(
+        NotificacionPago.pago_id == pago.id,
+    ))
+    assert item.destinatario == "ana@example.com"
+
+    monkeypatch.setattr(config, "RESEND_DEMO_MODE", True)
+    proveedor = _ResendExitoso()
+    with pytest.raises(RuntimeError):
+        notificaciones.procesar_siguiente(db_cu31, proveedor)
+
+    db_cu31.refresh(item)
+    assert proveedor.llamadas == []
+    assert item.estado == "PENDIENTE"
+    assert item.intentos == 0
+    assert item.destinatario == "ana@example.com"
+
+
+def test_modo_demo_no_duplica_comprobantes_por_eventos_repetidos(
+    db_cu31, monkeypatch,
+):
+    _activar_modo_demo(monkeypatch)
+    _contexto_tenant(db_cu31)
+    _servicio(db_cu31, 2331)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([2331]), "demo-reintento-2331", _admin(db_cu31),
+    )
+    # El webhook Stripe puede repetirse: no debe crear otra fila de outbox.
+    assert notificaciones.programar_comprobante(db_cu31, pago.id) is not None
+    assert notificaciones.programar_comprobante(db_cu31, pago.id) is not None
+    assert db_cu31.scalar(select(func.count()).select_from(NotificacionPago)) == 1
+
+    proveedor = _ResendExitoso()
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is False
+    assert [llamada["destinatario"] for llamada in proveedor.llamadas] == [
+        DEMO_EMAIL,
+    ]
+    assert proveedor.llamadas[0]["pdf"].startswith(b"%PDF")
+
+
+def test_modo_demo_no_reasigna_con_intento_previo_posiblemente_aceptado(
+    db_cu31, monkeypatch, caplog,
+):
+    """Reutilizar la clave con otro destinatario arriesga un 409 del proveedor."""
+    monkeypatch.setattr(config, "EMAIL_TEST", "")
+    monkeypatch.setattr(config, "RESEND_DEMO_MODE", False)
+    _contexto_tenant(db_cu31)
+    _servicio(db_cu31, 2341)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([2341]), "demo-previa-2341", _admin(db_cu31),
+    )
+    item = _simular_intento_previo(
+        db_cu31, pago,
+        destinatario="ana@example.com",
+        intentos=1,
+        error="ENVIO_NO_ACEPTADO",
+    )
+    clave_original = item.clave_idempotencia
+
+    _activar_modo_demo(monkeypatch)
+    proveedor = _ResendExitoso()
+    with caplog.at_level("ERROR"):
+        assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+
+    db_cu31.refresh(item)
+    assert proveedor.llamadas == []
+    assert item.destinatario == "ana@example.com"
+    assert item.clave_idempotencia == clave_original
+    assert item.estado == "FALLIDO"
+    assert item.ultimo_error == "DEMO_DESTINATARIO_NO_REASIGNABLE"
+    assert item.proximo_intento is None
+    assert item.intentos == 2
+    assert any(
+        getattr(registro, "evento", None) == "CU31_DEMO_REASIGNACION_BLOQUEADA"
+        for registro in caplog.records
+    )
+
+    # Ni el ciclo siguiente ni un reintento manual reutilizan la clave.
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is False
+    db_cu31.refresh(item)
+    assert item.intentos == 2
+    assert proveedor.llamadas == []
+    with pytest.raises(HTTPException) as exc:
+        notificaciones.solicitar_reintento(db_cu31, pago.id)
+    assert exc.value.status_code == 409
+
+    # Los pagos nuevos siguen saliendo solo al destinatario unico.
+    _servicio(db_cu31, 2342)
+    pago_nuevo = administrativos.registrar_pago(
+        db_cu31, _datos([2342]), "demo-previa-2342", _admin(db_cu31),
+    )
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+    assert [
+        llamada["destinatario"] for llamada in proveedor.llamadas
+    ] == [DEMO_EMAIL]
+    assert proveedor.llamadas[0]["pago_id"] == pago_nuevo.id
+
+
+def test_modo_demo_reasigna_si_el_intento_previo_no_llego_a_resend(
+    db_cu31, monkeypatch,
+):
+    """Sin clave de API configurada nunca hubo payload registrado en Resend."""
+    monkeypatch.setattr(config, "EMAIL_TEST", "")
+    monkeypatch.setattr(config, "RESEND_DEMO_MODE", False)
+    _contexto_tenant(db_cu31)
+    _servicio(db_cu31, 2351)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([2351]), "demo-sin-api-key-2351", _admin(db_cu31),
+    )
+    item = _simular_intento_previo(
+        db_cu31, pago,
+        destinatario="ana@example.com",
+        intentos=1,
+        error="RESEND_NO_CONFIGURADO",
+        estado="FALLIDO",
+    )
+    clave_original = item.clave_idempotencia
+
+    _activar_modo_demo(monkeypatch)
+    proveedor = _ResendExitoso()
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+
+    db_cu31.refresh(item)
+    assert [
+        llamada["destinatario"] for llamada in proveedor.llamadas
+    ] == [DEMO_EMAIL]
+    assert proveedor.llamadas[0]["clave_idempotencia"] == clave_original
+    assert item.destinatario == DEMO_EMAIL
+    assert item.clave_idempotencia == clave_original
+    assert item.estado == "ACEPTADO_POR_PROVEEDOR"
+    assert item.ultimo_error is None
+    assert item.intentos == 2
+
+
+def test_modo_demo_redirige_notificacion_antigua_sin_destinatario(
+    db_cu31, monkeypatch,
+):
+    """Una fila sin destinatario nunca se envio: se puede adoptar en la demo."""
+    monkeypatch.setattr(config, "EMAIL_TEST", "")
+    monkeypatch.setattr(config, "RESEND_DEMO_MODE", False)
+    _contexto_tenant(db_cu31)
+    db_cu31.execute(text("UPDATE usuario SET correo='' WHERE id=11"))
+    db_cu31.commit()
+    _servicio(db_cu31, 2361)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([2361]), "demo-sin-correo-2361", _admin(db_cu31),
+    )
+    item = db_cu31.scalar(select(NotificacionPago).where(
+        NotificacionPago.pago_id == pago.id,
+    ))
+    assert item.destinatario is None
+    assert item.estado == "FALLIDO"
+    assert item.ultimo_error == "DESTINATARIO_NO_DISPONIBLE"
+
+    # Sin destinatario unico la fila no se reclama ni se reintenta sola.
+    proveedor = _ResendExitoso()
+    for _ in range(2):
+        assert notificaciones.procesar_siguiente(db_cu31, proveedor) is False
+    assert proveedor.llamadas == []
+    db_cu31.refresh(item)
+    assert item.intentos == 0
+    assert item.estado == "FALLIDO"
+
+    _activar_modo_demo(monkeypatch)
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+
+    db_cu31.refresh(item)
+    assert [
+        llamada["destinatario"] for llamada in proveedor.llamadas
+    ] == [DEMO_EMAIL]
+    assert item.destinatario == DEMO_EMAIL
+    assert item.estado == "ACEPTADO_POR_PROVEEDOR"
+    assert item.ultimo_error is None
+    assert item.intentos == 1
+
+
+def test_modo_demo_sin_destinatario_conserva_destinatario_tras_fallar(
+    db_cu31, monkeypatch,
+):
+    """El reintento de una fila adoptada reutiliza payload y clave identicos."""
+    monkeypatch.setattr(config, "EMAIL_TEST", "")
+    monkeypatch.setattr(config, "RESEND_DEMO_MODE", False)
+    _contexto_tenant(db_cu31)
+    db_cu31.execute(text("UPDATE usuario SET correo='correo-invalido' WHERE id=11"))
+    db_cu31.commit()
+    _servicio(db_cu31, 2371)
+    pago = administrativos.registrar_pago(
+        db_cu31, _datos([2371]), "demo-sin-correo-2371", _admin(db_cu31),
+    )
+    item = db_cu31.scalar(select(NotificacionPago).where(
+        NotificacionPago.pago_id == pago.id,
+    ))
+    assert item.destinatario is None
+
+    class FallaSiempre:
+        def __init__(self):
+            self.llamadas = []
+
+        def enviar_comprobante(self, **kwargs):
+            self.llamadas.append(kwargs)
+            raise ErrorResend("rechazo confirmado")
+
+    _activar_modo_demo(monkeypatch)
+    proveedor = FallaSiempre()
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+
+    db_cu31.refresh(item)
+    assert proveedor.llamadas[0]["destinatario"] == DEMO_EMAIL
+    assert item.destinatario == DEMO_EMAIL
+    assert item.estado == "FALLIDO"
+    assert item.ultimo_error == "ENVIO_NO_ACEPTADO"
+    assert item.proximo_intento is not None
+
+    item.proximo_intento = notificaciones._ahora() - timedelta(seconds=1)
+    db_cu31.commit()
+    assert notificaciones.procesar_siguiente(db_cu31, proveedor) is True
+
+    db_cu31.refresh(item)
+    assert len(proveedor.llamadas) == 2
+    assert proveedor.llamadas[0]["destinatario"] == proveedor.llamadas[1]["destinatario"]
+    assert (
+        proveedor.llamadas[0]["clave_idempotencia"]
+        == proveedor.llamadas[1]["clave_idempotencia"]
+    )
+    assert item.destinatario == DEMO_EMAIL
+    assert item.estado == "FALLIDO"
+    assert item.intentos == 2
 
 
 def test_error_resend_no_revierte_pago_y_programa_reintento(db_cu31):
