@@ -4,7 +4,7 @@
 **Base de código revisada:** backend `main` `1d932e1c77` (02/11/2026).
 **Alcance según acuerdo:** solo FastAPI, worker de Resend y Nginx en Docker Compose. Angular permanece en Vercel; Flutter es cliente externo; no se crea un PostgreSQL ni se modifican los siete tenants existentes en Supabase.
 
-> Este paquete es una entrega **pendiente de smoke test Docker real**. La validación estática NO equivale a verificar imágenes, conexiones Supabase ni Resend. No publicar en `main` hasta ejecutar los controles de aceptación.
+> **Estado:** Docker validado localmente: imagen, Compose, API, Nginx y reinicio del worker. Las conexiones reales con Supabase, Stripe, Resend y HTTPS quedan pendientes para AWS.
 
 ## 1. Archivos y arquitectura
 
@@ -16,8 +16,8 @@
 - `nginx/configs/https.conf.template`: HTTPS una vez emitido el certificado. Los webhooks `POST /pagos/stripe/webhook` y `POST /pagos/resend/webhook` pasan a FastAPI sin modificar URL ni cuerpo.
 - `.env.example`: variables documentadas sin secretos válidos.
 - `scripts/docker/smoke.ps1`: validación local segura con configuración ficticia.
-- `patches/requirements.txt.patch` (solo en el paquete, no se copia al repositorio): agrega `httpx==0.28.1`, dependencia real de Resend omitida en el archivo base.
-- `REPORTE-TRASPASO-AWS-BORRADOR.md`: lista de evidencias y pendientes para completar después del smoke en Docker Desktop.
+- `requirements.txt`: incluye `httpx==0.28.1`, necesario para Resend.
+- **Reporte de traspaso AWS**: PDF entregado por separado con las evidencias locales y las instrucciones de despliegue.
 
 La infraestructura esperada es:
 
