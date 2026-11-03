@@ -1,0 +1,86 @@
+name: clinica-oftalmologica
+
+x-backend-common: &backend-common
+  image: clinica-oftalmologica-api:${DOCKER_IMAGE_TAG:-local}
+  env_file:
+    - path: ${APP_ENV_FILE:-.env}
+      required: true
+  restart: unless-stopped
+  init: true
+  networks:
+    - backend
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  stop_grace_period: 45s
+
+services:
+  api:
+    <<: *backend-common
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command:
+      - python
+      - -m
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --proxy-headers
+      - --forwarded-allow-ips=*
+    expose:
+      - "8000"
+    volumes:
+      - private_backups:/opt/app/private-backups
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/', timeout=3).close()"]
+      interval: 20s
+      timeout: 5s
+      retries: 6
+      start_period: 40s
+
+  worker:
+    <<: *backend-common
+    command: ["python", "-m", "app.modules.gestion_pagos.notificacion_runner"]
+    depends_on:
+      api:
+        condition: service_healthy
+    # Exactly one worker for this demo; do not scale with --scale worker.
+    # No ports and no direct external exposure.
+
+  nginx:
+    image: nginx:1.28-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      NGINX_MODE: ${NGINX_MODE:-http}
+      DUCKDNS_FQDN: ${DUCKDNS_FQDN:-localhost}
+    entrypoint: ["/bin/sh", "/etc/nginx/configs/start.sh"]
+    volumes:
+      - ./nginx/configs:/etc/nginx/configs:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/__health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  private_backups:

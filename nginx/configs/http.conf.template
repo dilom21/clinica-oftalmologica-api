@@ -1,0 +1,43 @@
+# Avoid recording tokens or PII embedded in query strings in access logs.
+log_format clinic_safe '$remote_addr $request_method $uri $status $body_bytes_sent';
+access_log /var/log/nginx/access.log clinic_safe;
+
+# BOOTSTRAP MODE ONLY. Do not allow credentialed API calls over HTTP.
+# GET / and GET /openapi.json are allowed for smoke tests; all other API
+# routes return 403 until HTTPS is provisioned.
+server {
+    listen 80;
+    server_name ${DUCKDNS_FQDN};
+    server_tokens off;
+    client_max_body_size 20m;
+
+    location = /__health {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    location = / {
+        limit_except GET { deny all; }
+        proxy_pass http://api:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location = /openapi.json {
+        limit_except GET { deny all; }
+        proxy_pass http://api:8000;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    location / {
+        return 403;
+    }
+}

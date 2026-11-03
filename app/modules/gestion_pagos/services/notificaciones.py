@@ -119,13 +119,58 @@ def _tags(db: Session, pago_id: int) -> dict[str, str]:
     return tags
 
 
+def _reasignacion_segura(item) -> bool:
+    """Indica si ningun intento previo pudo registrar la clave en Resend."""
+    if item.intentos <= 1:
+        return True
+    # Con dos intentos, el error almacenado proviene del unico envio anterior:
+    # RESEND_NO_CONFIGURADO se produce antes de cualquier llamada HTTP.
+    return item.intentos == 2 and item.ultimo_error == "RESEND_NO_CONFIGURADO"
+
+
+def _bloquear_reasignacion(db: Session, item) -> bool:
+    """Deja la notificacion en estado terminal sin llamar al proveedor.
+
+    Cambiar el destinatario reutilizando la clave de idempotencia puede
+    devolver ``409 invalid_idempotent_request`` o dejar ambiguo que se acepto;
+    generar otra clave podria duplicar el comprobante. Se detiene el envio y la
+    fila queda para revision manual.
+    """
+    modelo, notificacion_id = type(item), item.id
+    pago_id, intentos = item.pago_id, item.intentos
+    db.rollback()
+    actual = db.get(modelo, notificacion_id)
+    actual.estado = "FALLIDO"
+    actual.ultimo_error = repo.ERROR_DESTINATARIO_NO_REASIGNABLE
+    actual.bloqueado_hasta = None
+    actual.proximo_intento = None
+    actual.fecha_actualizacion = _ahora()
+    db.commit()
+    logger.error(
+        "CU31: notificacion previa no reasignada al destinatario de "
+        "demostracion; requiere revision manual",
+        extra={
+            "evento": "CU31_DEMO_REASIGNACION_BLOQUEADA",
+            "pago_id": pago_id,
+            "notificacion_id": notificacion_id,
+            "intentos": intentos,
+        },
+    )
+    return True
+
+
 def procesar_siguiente(db: Session, proveedor: ResendProvider) -> bool:
     ahora = _ahora()
+    # Se resuelve antes de reclamar: si el modo demostracion esta incompleto la
+    # ejecucion falla sin tomar trabajo ni dejar la notificacion en lease.
+    correo_pruebas = config.obtener_configuracion_resend_pruebas()
     try:
         item = repo.reclamar_notificacion(
             db,
             ahora,
             ahora + timedelta(minutes=10),
+            # Sin destinatario unico no se reclaman filas sin destinatario.
+            sin_destinatario_permitido=correo_pruebas is not None,
         )
         db.commit()
     except Exception:
@@ -134,14 +179,35 @@ def procesar_siguiente(db: Session, proveedor: ResendProvider) -> bool:
     if item is None:
         return False
 
-    correo_pruebas = config.obtener_configuracion_resend_pruebas()
-    redirigido_pruebas = bool(
-        correo_pruebas is not None and item.destinatario == correo_pruebas
-    )
-    # El destinatario queda congelado al crear la entrada outbox. Cambiarlo en
-    # el worker conservaria la clave idempotente pero alteraria el payload.
     destinatario_efectivo = item.destinatario
-    if redirigido_pruebas:
+    if correo_pruebas is not None:
+        # Mientras el destinatario unico esta activo el worker no puede enviar a
+        # ninguna otra direccion. Las notificaciones creadas antes de activarlo
+        # se reasignan aqui de forma explicita y auditada, sin tocar la clave
+        # idempotente ni el resto del outbox.
+        if item.destinatario != correo_pruebas:
+            if not _reasignacion_segura(item):
+                return _bloquear_reasignacion(db, item)
+            item.destinatario = correo_pruebas
+            logger.warning(
+                "CU31: notificacion previa reasignada al destinatario de "
+                "demostracion; no representa entrega al paciente",
+                extra={
+                    "evento": "CU31_DEMO_DESTINATARIO_REASIGNADO",
+                    "redireccion_email_test": True,
+                    "pago_id": item.pago_id,
+                    "notificacion_id": item.id,
+                },
+            )
+            try:
+                # Se persiste antes de llamar al proveedor: si el proceso se
+                # interrumpe, la recuperacion reutiliza la misma clave con un
+                # payload identico en lugar de bloquearse o duplicar el envio.
+                db.commit()
+            except Exception:
+                db.rollback()
+                raise
+        destinatario_efectivo = correo_pruebas
         logger.warning(
             "CU31: worker enviara un comprobante al destinatario de pruebas; "
             "no representa entrega al paciente",
@@ -218,6 +284,12 @@ def solicitar_reintento(db: Session, pago_id: int):
         raise HTTPException(
             409,
             "No se puede reintentar manualmente: la aceptacion del proveedor es incierta",
+        )
+    if item.ultimo_error == repo.ERROR_DESTINATARIO_NO_REASIGNABLE:
+        raise HTTPException(
+            409,
+            "La notificacion conserva un destinatario no autorizado y su clave "
+            "de idempotencia ya pudo usarse: requiere revision manual",
         )
     if item.estado == "PENDIENTE":
         return item

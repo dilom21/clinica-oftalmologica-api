@@ -44,6 +44,14 @@ def _env_flag(nombre: str, valor: str | None, *, default: bool = False) -> bool:
 
 EMAIL_TEST = (os.getenv("EMAIL_TEST") or "").strip()
 
+# Modo demostracion universitaria: habilita EMAIL_TEST como destinatario unico
+# fuera de localhost (por ejemplo AWS) sin relajar ninguna otra validacion.
+# Desactivado por defecto: sin esta bandera el guard de Render/produccion sigue
+# vigente y EMAIL_TEST solo se acepta en un entorno local.
+RESEND_DEMO_MODE = _env_flag(
+    "RESEND_DEMO_MODE", os.getenv("RESEND_DEMO_MODE"), default=False,
+)
+
 
 def _es_entorno_produccion_o_render() -> bool:
     if _env_flag("RENDER", os.getenv("RENDER"), default=False):
@@ -62,16 +70,9 @@ def _es_entorno_produccion_o_render() -> bool:
     return entorno in {"production", "prod"}
 
 
-def obtener_configuracion_resend_pruebas():
-    """Valida y devuelve EMAIL_TEST, o ``None`` si esta desactivado."""
-    if not EMAIL_TEST:
-        return None
-
-    if _es_entorno_produccion_o_render():
-        raise RuntimeError("EMAIL_TEST no puede activarse en produccion o Render")
-
+def _email_test_normalizado() -> str:
     try:
-        correo = validate_email(
+        return validate_email(
             EMAIL_TEST, check_deliverability=False,
         ).normalized
     except EmailNotValidError as exc:
@@ -79,10 +80,30 @@ def obtener_configuracion_resend_pruebas():
             "EMAIL_TEST debe contener un correo valido"
         ) from exc
 
-    return correo
+
+def obtener_configuracion_resend_pruebas():
+    """Valida y devuelve EMAIL_TEST, o ``None`` si esta desactivado."""
+    if RESEND_DEMO_MODE:
+        # El despliegue de demostracion exige un unico destinatario valido y
+        # sustituye al guard de Render/produccion. Un valor ausente o invalido
+        # impide el arranque de API y worker en lugar de enviar a otro correo.
+        if not EMAIL_TEST:
+            raise RuntimeError(
+                "RESEND_DEMO_MODE requiere EMAIL_TEST con un correo valido"
+            )
+        return _email_test_normalizado()
+
+    if not EMAIL_TEST:
+        return None
+
+    if _es_entorno_produccion_o_render():
+        raise RuntimeError("EMAIL_TEST no puede activarse en produccion o Render")
+
+    return _email_test_normalizado()
 
 
-# Falla durante el arranque de API/worker si el override activo es inseguro.
+# Falla durante el arranque de API/worker si el override activo es inseguro o
+# si RESEND_DEMO_MODE quedo habilitado sin un EMAIL_TEST valido.
 obtener_configuracion_resend_pruebas()
 try:
     RESEND_TIMEOUT_SECONDS = float(os.getenv("RESEND_TIMEOUT_SECONDS") or "15")

@@ -1,75 +1,105 @@
+"""CU28: reglas de negocio y bitacora atomicas en la sesion tenant."""
+
 from fastapi import HTTPException
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.modules.gestion_inventario_proveedores.repositories import proveedor as repo
+from app.modules.gestion_inventario_proveedores.repositories import (
+    proveedor as repo,
+)
 from app.modules.gestion_inventario_proveedores.schemas.proveedor import (
     ProveedorActualizar,
     ProveedorCrear,
+    ProveedorOperacion,
+    ProveedorRespuesta,
+    ProveedoresPagina,
 )
+from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 from app.modules.gestion_usuarios_seguridad.repositories.repository import (
     registrar_bitacora,
 )
 
 
-ENTIDAD = "proveedores"
-_NIT_DUPLICADO = "El NIT ya esta registrado en otro proveedor"
-
-
-def _obtener_o_404(db: Session, proveedor_id: int, *, bloquear: bool = False):
+def consultar(db: Session, proveedor_id: int, *, bloquear: bool = False):
     proveedor = repo.obtener_por_id(db, proveedor_id, bloquear=bloquear)
     if proveedor is None:
         raise HTTPException(404, "Proveedor no encontrado")
     return proveedor
 
 
-def _validar_nit_disponible(db: Session, nit: str | None, *, excluir_id: int | None = None):
-    if nit is not None and repo.existe_nit(db, nit, excluir_id=excluir_id):
-        raise HTTPException(409, _NIT_DUPLICADO)
+def listar(
+    db: Session,
+    *,
+    estado: bool | None = True,
+    buscar: str | None = None,
+    pagina: int = 1,
+):
+    items, total = repo.listar(
+        db, estado=estado, buscar=buscar, pagina=pagina
+    )
+    return ProveedoresPagina(items=items, total=total, pagina=pagina)
 
 
-def _auditar(db: Session, usuario, ip: str | None, accion: str, proveedor, descripcion: str):
+def _validar_nit(
+    db: Session,
+    nit: str | None,
+    proveedor_id: int | None = None,
+):
+    if nit is not None and repo.existe_nit(db, nit, proveedor_id):
+        raise HTTPException(409, "El NIT ya está registrado en otro proveedor")
+
+
+def _auditar(db, usuario, ip, proveedor, accion, descripcion):
     registrar_bitacora(
         db=db,
         usuario_id=usuario.id,
-        ip=ip,
         accion=accion,
-        entidad_afectada=ENTIDAD,
+        ip=ip,
+        entidad_afectada="proveedores",
         id_registro_afectado=proveedor.id,
         descripcion=descripcion,
     )
 
 
-def listar(
+def _error_integridad(error: IntegrityError):
+    diagnostico = getattr(error.orig, "diag", None)
+    restriccion = getattr(diagnostico, "constraint_name", None) or ""
+    if restriccion in {"ix_proveedores_nit", "proveedores_nit_key"}:
+        return HTTPException(409, "El NIT ya está registrado en otro proveedor")
+    return HTTPException(
+        409, "La operación incumple una restricción de integridad"
+    )
+
+
+def crear(
     db: Session,
-    *,
-    estado: bool | None = True,
-    busqueda: str | None = None,
-    skip: int = 0,
-    limit: int = 100,
+    datos: ProveedorCrear,
+    usuario: Usuario,
+    ip: str | None = None,
 ):
-    return repo.listar(db, estado=estado, busqueda=busqueda, skip=skip, limit=limit)
-
-
-def consultar(db: Session, proveedor_id: int):
-    return _obtener_o_404(db, proveedor_id)
-
-
-def crear(db: Session, datos: ProveedorCrear, usuario, ip: str | None = None):
     try:
-        _validar_nit_disponible(db, datos.nit)
+        _validar_nit(db, datos.nit)
         proveedor = repo.crear(db, datos.model_dump())
         _auditar(
-            db, usuario, ip, "CREAR_PROVEEDOR", proveedor,
-            f"Proveedor '{proveedor.razon_social}' creado",
+            db,
+            usuario,
+            ip,
+            proveedor,
+            "CREAR_PROVEEDOR",
+            "Proveedor registrado",
+        )
+        respuesta = ProveedorOperacion(
+            mensaje="Proveedor registrado correctamente",
+            proveedor=ProveedorRespuesta.model_validate(proveedor),
         )
         db.commit()
-        db.refresh(proveedor)
-        return proveedor
-    except IntegrityError as exc:
-        # Carrera entre dos altas con el mismo NIT: decide el indice unico.
+        return respuesta
+    except IntegrityError as error:
         db.rollback()
-        raise HTTPException(409, _NIT_DUPLICADO) from exc
+        raise _error_integridad(error) from error
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise HTTPException(500, "No se pudo registrar el proveedor") from error
     except Exception:
         db.rollback()
         raise
@@ -79,43 +109,86 @@ def actualizar(
     db: Session,
     proveedor_id: int,
     datos: ProveedorActualizar,
-    usuario,
+    usuario: Usuario,
     ip: str | None = None,
+    *,
+    confirmar: bool = False,
 ):
     try:
-        proveedor = _obtener_o_404(db, proveedor_id, bloquear=True)
-        cambios = datos.model_dump(exclude_unset=True)
+        proveedor = consultar(db, proveedor_id, bloquear=True)
+        entrada = datos.model_dump(exclude_unset=True)
+        cambios = {
+            campo: valor
+            for campo, valor in entrada.items()
+            if getattr(proveedor, campo) != valor
+        }
+        if cambios.get("estado") is False and not confirmar:
+            raise HTTPException(
+                400, "Confirme la baja del proveedor con confirmar=true"
+            )
         if "nit" in cambios:
-            _validar_nit_disponible(db, cambios["nit"], excluir_id=proveedor.id)
-        proveedor = repo.actualizar(db, proveedor, cambios)
-        _auditar(
-            db, usuario, ip, "ACTUALIZAR_PROVEEDOR", proveedor,
-            f"Proveedor '{proveedor.razon_social}' actualizado",
+            _validar_nit(db, cambios["nit"], proveedor_id)
+
+        accion = "ACTUALIZAR_PROVEEDOR"
+        mensaje = "Proveedor actualizado correctamente"
+        if "estado" in cambios:
+            accion = (
+                "REACTIVAR_PROVEEDOR"
+                if cambios["estado"]
+                else "BAJA_PROVEEDOR"
+            )
+            mensaje = (
+                "Proveedor reactivado correctamente"
+                if cambios["estado"]
+                else "Proveedor dado de baja correctamente"
+            )
+        if cambios:
+            proveedor = repo.actualizar(db, proveedor, cambios)
+            _auditar(
+                db,
+                usuario,
+                ip,
+                proveedor,
+                accion,
+                "Campos modificados: " + ", ".join(sorted(cambios)),
+            )
+        else:
+            mensaje = "No hay cambios que guardar"
+
+        respuesta = ProveedorOperacion(
+            mensaje=mensaje,
+            proveedor=ProveedorRespuesta.model_validate(proveedor),
         )
         db.commit()
-        db.refresh(proveedor)
-        return proveedor
-    except IntegrityError as exc:
+        return respuesta
+    except IntegrityError as error:
         db.rollback()
-        raise HTTPException(409, _NIT_DUPLICADO) from exc
+        raise _error_integridad(error) from error
+    except SQLAlchemyError as error:
+        db.rollback()
+        raise HTTPException(500, "No se pudo actualizar el proveedor") from error
     except Exception:
         db.rollback()
         raise
 
 
-def desactivar(db: Session, proveedor_id: int, usuario, ip: str | None = None):
-    # Baja logica: compra.proveedor_id referencia la fila con ON DELETE RESTRICT
-    # y el historial de compras debe conservarse.
-    try:
-        proveedor = _obtener_o_404(db, proveedor_id, bloquear=True)
-        if proveedor.estado is not True:
-            raise HTTPException(409, "El proveedor ya esta inactivo")
-        proveedor = repo.actualizar(db, proveedor, {"estado": False})
-        _auditar(
-            db, usuario, ip, "DESACTIVAR_PROVEEDOR", proveedor,
-            f"Proveedor '{proveedor.razon_social}' desactivado",
+def dar_baja(
+    db: Session,
+    proveedor_id: int,
+    usuario: Usuario,
+    ip: str | None = None,
+    *,
+    confirmar: bool = False,
+):
+    if not confirmar:
+        raise HTTPException(
+            400, "Confirme la baja del proveedor con confirmar=true"
         )
-        db.commit()
-    except Exception:
-        db.rollback()
-        raise
+    return actualizar(
+        db,
+        proveedor_id,
+        ProveedorActualizar(estado=False),
+        usuario,
+        ip,
+        confirmar=True,
+    )

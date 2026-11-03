@@ -255,11 +255,33 @@ def test_catalogo_esta_aislado_entre_tenants(routed_client):
 
 
 def test_integracion_no_duplica_modelos_rutas_ni_tablas():
-    publicas = {tabla.name for tabla in Base.metadata.tables.values() if tabla.schema is None}
-    assert len(publicas) == 30
+    tablas_publicas = [
+        tabla.name
+        for tabla in Base.metadata.tables.values()
+        if tabla.schema in (None, "public")
+    ]
+    publicas = set(tablas_publicas)
+
+    assert len(tablas_publicas) == len(publicas), (
+        "Existen modelos duplicados para una misma tabla publica"
+    )
+
+    assert {
+        "categoria",
+        "producto",
+        "lote",
+        "inventario",
+        "movimiento_inventario",
+    }.issubset(publicas)
     assert "notificacion_pago" in publicas
     assert "proveedores" in publicas
     assert "servicio_oftalmologico" in publicas
+    assert {
+        "plan_pago",
+        "plan_pago_servicio",
+        "cuota",
+        "intento_pago_cuota",
+    }.issubset(publicas)
     assert "servicios_oftalmologicos" not in Base.metadata.tables
     assert ServicioOftalmologico.__table__ is Base.metadata.tables["servicio_oftalmologico"]
 
