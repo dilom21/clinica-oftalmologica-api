@@ -1,0 +1,6 @@
+# Docker/Linux scripts must preserve Unix newlines on Windows checkout.
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf
+nginx/configs/*.sh text eol=lf
+nginx/configs/*.template text eol=lf
+.env.example text eol=lf
