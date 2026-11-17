@@ -1,5 +1,3 @@
-from app.modules.gestion_inventario_proveedores.api.router import router as inventario_router
-from app.modules.gestion_inventario_proveedores.api.movimientos import router as movimientos_router
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
@@ -17,12 +15,14 @@ from app.modules.gestion_historial_clinico.api.router import (
 from app.modules.gestion_agenda_citas.api.router import (
     router as agenda_router,
 )
-
-from app.modules.integracion_ia.api.router import (
-    router as integracion_ia_router,
+from app.modules.gestion_pagos.api.router import router as pagos_router
+from app.modules.gestion_reportes.api.router import (
+    router as reportes_router,
 )
-from app.modules.gestion_reportes.api.router import router as reportes_router
+from app.modules.integracion_ia.api.router import router as ia_router
 from app.modules.administracion_saas.api.router import router as saas_router
+from app.modules.gestion_servicios.api.router import router as servicios_router
+from app.modules.gestion_inventario_proveedores.api.router import router as inventario_router
 
 app = FastAPI(
     title="API Clínica Oftalmológica",
@@ -42,7 +42,7 @@ app.add_middleware(
     allow_origins=allowed_origins,
     allow_credentials=False,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
+    allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
 )
 
 
@@ -50,12 +50,12 @@ app.include_router(seguridad_router)
 app.include_router(pacientes_router)
 app.include_router(agenda_router)
 app.include_router(historial_clinico_router)
-app.include_router(integracion_ia_router)
+app.include_router(pagos_router)
 app.include_router(reportes_router)
+app.include_router(ia_router)
 app.include_router(saas_router)
+app.include_router(servicios_router)
 app.include_router(inventario_router)
-app.include_router(movimientos_router)
-
 
 @app.get("/")
 def root():

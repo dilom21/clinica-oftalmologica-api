@@ -5,15 +5,12 @@ from collections.abc import Generator
 from app.database import session as control_session
 from app.core.tenancy.context import TenantContext
 from app.core.tenancy.engine_registry import TenantEngineRegistry
+from app.core.tenancy.registry_provider import (
+    get_tenant_engine_registry,
+    tenant_engine_registry,
+)
 from app.core.tenancy.repository import TenantControlPlaneRepository
 from app.core.tenancy.resolver import TenantResolver
-
-
-tenant_engine_registry = TenantEngineRegistry()
-
-
-def get_tenant_engine_registry() -> TenantEngineRegistry:
-    return tenant_engine_registry
 
 
 def get_control_db() -> Generator:

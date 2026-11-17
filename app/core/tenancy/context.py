@@ -19,3 +19,4 @@ class TenantContext:
     database_name: str
     database_estado: str
     version_schema: str | None
+    empresa_nombre: str | None = None

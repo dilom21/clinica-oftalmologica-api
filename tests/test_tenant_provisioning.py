@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 import os
 import sys
@@ -18,6 +18,10 @@ from scripts.saas.provision_tenant import (
     CleanVerification,
     ERROR,
     EXCLUDED_SCHEMAS,
+    EXPECTED_SOURCE_COLUMN_COUNT,
+    EXPECTED_SOURCE_INDEX_COUNT,
+    EXPECTED_SOURCE_SEQUENCE_COUNT,
+    EXPECTED_SOURCE_TABLE_COUNT,
     EXPECTED_CODE,
     EXPECTED_DATABASE,
     IN_PROGRESS,
@@ -31,6 +35,7 @@ from scripts.saas.provision_tenant import (
     SchemaSnapshot,
     SOURCE_TABLES,
     SqlAlchemyControlPlaneReader,
+    SqlAlchemyControlPlaneWriter,
     SubprocessPostgresBackend,
     TenantMapping,
     ToolPaths,
@@ -46,7 +51,9 @@ from scripts.saas.provision_tenant import (
     reconcile_existing,
     _normalize_check_definition,
     _sql_literal,
+    _validate_admin_connection_context,
     _validate_batch_source_preflight,
+    validate_provisioning_eligibility,
     validate_database_identifier,
 )
 
@@ -101,7 +108,15 @@ class FakeBackend:
     def __init__(self, *, exists=False, preflight=None, verification=None, health=True, failure=None,
                  failure_stage=None):
         self.exists = exists
-        self.preflight_result = preflight or Preflight(source_counts={"usuario": 1})
+        self.preflight_result = preflight or Preflight(
+            source_counts={table: 0 for table in SOURCE_TABLES},
+            source_structure=SchemaSnapshot(
+                tuple(fixture_column_rows()), (),
+                tuple(str(index) for index in range(EXPECTED_SOURCE_INDEX_COUNT)),
+                (f"tables={EXPECTED_SOURCE_TABLE_COUNT}",
+                 f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT}"),
+            ),
+        )
         self.verification = verification or Verification()
         self.health = health
         self.failure = failure
@@ -138,6 +153,11 @@ class FakeBackend:
         self.events.append(("restore", target, dump_path))
         if self.failure_stage == "restore":
             raise self.failure or RuntimeError("restore failure")
+
+    def record_schema_baseline(self, target):
+        self.events.append(("baseline", target))
+        if self.failure_stage == "baseline":
+            raise self.failure or RuntimeError("baseline failure")
 
     def verify(self, counts, target, source_structure=None):
         self.events.append(("verify", counts, target))
@@ -190,6 +210,9 @@ def valid_mapping(**changes):
         code=EXPECTED_CODE, database_name=EXPECTED_DATABASE,
         tenant_state=PENDING, provisioning_state=PENDING,
         empresa_id=1, tenant_database_id=2, provisioning_id=3,
+        empresa_state=ACTIVE, subscription_id=4, subscription_state=ACTIVE,
+        subscription_start=date(2020, 1, 1), subscription_end=date(2099, 12, 31),
+        active_subscription_count=1,
     )
     values.update(changes)
     return TenantMapping(**values)
@@ -216,6 +239,9 @@ class FakeResult:
     def first(self):
         return self.row
 
+    def all(self):
+        return self.row if isinstance(self.row, list) else [self.row]
+
 
 class FakeSession:
     def __init__(self, row):
@@ -233,18 +259,174 @@ class FakeSession:
         self.closed = True
 
 
+class AtomicWriterResult:
+    def __init__(self, rowcount=1):
+        self.rowcount = rowcount
+
+
+class AtomicWriterSession:
+    def __init__(self, rowcounts=(1, 1), failure_at=None):
+        self.rowcounts = iter(rowcounts)
+        self.failure_at = failure_at
+        self.execute_count = 0
+        self.commits = 0
+        self.rollbacks = 0
+        self.closed = False
+
+    def execute(self, _sql, _parameters):
+        self.execute_count += 1
+        if self.failure_at == self.execute_count:
+            raise RuntimeError("database failure")
+        return AtomicWriterResult(next(self.rowcounts))
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+    def close(self):
+        self.closed = True
+
+
+def test_control_plane_start_commits_both_transitions_atomically():
+    session = AtomicWriterSession()
+    SqlAlchemyControlPlaneWriter(lambda: session).start(valid_mapping())
+    assert session.execute_count == 2
+    assert session.commits == 1
+    assert session.rollbacks == 0
+    assert session.closed
+
+
+@pytest.mark.parametrize("session", [
+    AtomicWriterSession(failure_at=2),
+    AtomicWriterSession(rowcounts=(1, 0)),
+])
+def test_control_plane_start_rolls_back_if_either_transition_fails(session):
+    with pytest.raises((RuntimeError, ProvisioningError)):
+        SqlAlchemyControlPlaneWriter(lambda: session).start(valid_mapping())
+    assert session.commits == 0
+    assert session.rollbacks == 1
+    assert session.closed
+
+
+@pytest.mark.parametrize(("host", "port"), [
+    ("aws-0-us-east-1.pooler.supabase.com", 5432),
+    ("db.example.internal", 6543),
+    ("supavisor.example.internal", 5432),
+])
+def test_administrative_connection_rejects_poolers(host, port):
+    with pytest.raises(ProvisioningError, match="direct administrative"):
+        _validate_admin_connection_context(host, port)
+
+
+def test_administrative_connection_accepts_direct_postgres_host():
+    _validate_admin_connection_context("db.project.supabase.co", 5432)
+
+
 def test_sql_reader_uses_explicit_state_keys_and_dry_run_builds_plan():
     session = FakeSession({
         "empresa_id": 1, "codigo": EXPECTED_CODE,
         "tenant_database_id": 2, "database_name": EXPECTED_DATABASE,
         "tenant_state": PENDING, "provisioning_id": 3,
         "provisioning_state": PENDING,
+        "empresa_state": ACTIVE, "subscription_id": 4,
+        "subscription_state": ACTIVE,
+        "subscription_start": date(2020, 1, 1),
+        "subscription_end": date(2099, 12, 31),
     })
     output = dry_run(SqlAlchemyControlPlaneReader(lambda: session), FakeTools())
     assert "Planned database: tenant_vision_clara." in output
     assert "td.estado AS tenant_state" in session.sql
     assert "pt.estado AS provisioning_state" in session.sql
     assert session.closed
+
+
+def subscription_row(**changes):
+    row = {
+        "empresa_id": 1, "codigo": EXPECTED_CODE,
+        "empresa_state": ACTIVE,
+        "tenant_database_id": 2, "database_name": EXPECTED_DATABASE,
+        "tenant_state": PENDING, "provisioning_id": 3,
+        "provisioning_state": PENDING,
+        "subscription_id": 4, "subscription_state": ACTIVE,
+        "subscription_start": date(2020, 1, 1),
+        "subscription_end": date(2099, 12, 31),
+    }
+    row.update(changes)
+    return row
+
+
+@pytest.mark.parametrize(("rows", "expected_count", "expected_id"), [
+    ([subscription_row(subscription_id=None, subscription_state="SUSPENDIDA")], 0, None),
+    ([subscription_row()], 1, 4),
+    ([subscription_row(subscription_id=4), subscription_row(subscription_id=5)], 2, 4),
+])
+def test_sql_reader_counts_zero_one_and_two_eligible_subscriptions(
+    rows, expected_count, expected_id,
+):
+    """The SQL reader must derive eligibility from rows, not from a fixture flag."""
+    session = FakeSession(rows)
+    mapping = SqlAlchemyControlPlaneReader(lambda: session).read_mapping(EXPECTED_CODE)
+
+    assert mapping.active_subscription_count == expected_count
+    assert mapping.subscription_id == expected_id
+    assert session.closed
+    if expected_count != 1:
+        with pytest.raises(ProvisioningError):
+            validate_provisioning_eligibility(mapping)
+
+
+@pytest.mark.parametrize(("hoy", "start", "end"), [
+    (date(2026, 11, 16), date(2026, 11, 16), date(2026, 11, 16)),
+    (date(2026, 11, 16), date(2026, 11, 15), date(2026, 11, 16)),
+    (date(2026, 11, 16), date(2026, 11, 16), date(2026, 11, 17)),
+])
+def test_subscription_vigencia_accepts_boundary_local_days(hoy, start, end):
+    validate_provisioning_eligibility(
+        valid_mapping(subscription_start=start, subscription_end=end),
+        today=hoy,
+    )
+
+
+@pytest.mark.parametrize(("hoy", "start", "end"), [
+    (date(2026, 11, 16), date(2026, 11, 17), date(2026, 12, 1)),
+    (date(2026, 11, 16), date(2026, 10, 1), date(2026, 11, 15)),
+])
+def test_subscription_vigencia_rejects_future_and_expired_local_days(hoy, start, end):
+    with pytest.raises(ProvisioningError, match="not vigente"):
+        validate_provisioning_eligibility(
+            valid_mapping(subscription_start=start, subscription_end=end),
+            today=hoy,
+        )
+
+
+def test_provisioning_uses_la_paz_local_day_instead_of_utc(monkeypatch):
+    """2026-11-17 02:30 UTC is still 2026-11-16 in America/La_Paz (UTC-4)."""
+    import scripts.saas.provision_tenant as provisioning
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = datetime(2026, 11, 17, 2, 30, tzinfo=timezone.utc)
+            return instant.astimezone(tz) if tz is not None else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr("app.core.time.datetime", FixedDatetime)
+
+    utc_instant = datetime(2026, 11, 17, 2, 30, tzinfo=timezone.utc)
+    assert utc_instant.date() == date(2026, 11, 17)
+    assert provisioning._fecha_local_aplicacion() == date(2026, 11, 16)
+    # A subscription ending on the local day is still valid even though the
+    # UTC calendar already moved to the next day.
+    validate_provisioning_eligibility(
+        valid_mapping(subscription_start=date(2026, 11, 1),
+                      subscription_end=date(2026, 11, 16))
+    )
+    with pytest.raises(ProvisioningError, match="not vigente"):
+        validate_provisioning_eligibility(
+            valid_mapping(subscription_start=date(2026, 11, 1),
+                          subscription_end=date(2026, 11, 15))
+        )
 
 
 def test_dry_run_does_not_mutate():
@@ -303,6 +485,30 @@ def test_existing_database_rejected_before_state():
 def test_non_pending_tenant_rejected(field):
     with pytest.raises(ProvisioningError, match="PENDIENTE"):
         execute_provision(FakeReader(valid_mapping(**{field: ACTIVE})), FakeWriter(), FakeBackend(), FakeTools(), EXPECTED_DATABASE)
+
+
+ELIGIBILITY_FAILURES = (
+    {"empresa_state": "SUSPENDIDA"},
+    {"subscription_id": None, "active_subscription_count": 0},
+    {"active_subscription_count": 2},
+    {"subscription_state": "SUSPENDIDA"},
+    {"subscription_end": date(2020, 1, 2)},
+    {"subscription_start": date(2099, 1, 1)},
+)
+
+
+@pytest.mark.parametrize("changes", ELIGIBILITY_FAILURES)
+def test_initial_provisioning_rejects_ineligible_company_before_resources(changes):
+    writer = FakeWriter()
+    backend = FakeBackend()
+
+    with pytest.raises(ProvisioningError):
+        execute_provision(
+            FakeReader(valid_mapping(**changes)), writer, backend, FakeTools(), EXPECTED_DATABASE,
+        )
+
+    assert writer.events == []
+    assert backend.events == []
 
 
 def test_prechecks_happen_before_state_transition():
@@ -422,6 +628,32 @@ def test_public_dump_restore_arguments_and_secret_boundary(tmp_path):
     assert "SECRET" not in dump_argv and dump_env["PGPASSWORD"] == "SECRET"
     assert "SECRET" not in restore_argv and restore_env["PGPASSWORD"] == "SECRET"
     assert "TEMPLATE postgres" not in " ".join(dump_argv + restore_argv).upper()
+
+
+def test_new_tenant_baseline_records_external_ledger_without_replaying_sql():
+    class Runner:
+        def __init__(self):
+            self.calls = []
+
+        def run(self, argv, env, timeout_seconds, input_text=None):
+            self.calls.append((argv, env.copy(), input_text))
+            return ""
+
+    runner = Runner()
+    backend = SubprocessPostgresBackend(
+        ToolPaths(Path("pg_dump.exe"), Path("pg_restore.exe"), Path("psql.exe")),
+        PostgresConnection("host", 5432, "user", "SECRET"), runner,
+    )
+    backend.record_schema_baseline("tenant_new_test")
+
+    argv, env, sql = runner.calls[-1]
+    assert argv[-2:] == ["-f", "-"]
+    assert env["PGPASSWORD"] == "SECRET" and "SECRET" not in argv
+    assert "20261024150000" in sql
+    assert "d94e3e71041b5c823a08143081a8a6d9b341893a41f32ba15d072083163409b1" in sql
+    assert "20261031000000" in sql
+    assert "tenant-provisioner-baseline-v1" in sql
+    assert "CREATE TABLE public.plan_pago" not in sql
 
 
 def test_recovery_audit_reports_activity_fields_and_classifies_only_idle_supavisor():
@@ -683,20 +915,24 @@ def test_configurable_timeout_and_restore_waits_for_normal_completion(tmp_path):
     assert runner.calls[0][0].count(EXPECTED_DATABASE) == 1
 
 
-def test_progress_reporter_has_ten_steps_without_secrets(tmp_path):
+def test_progress_reporter_has_eleven_steps_without_secrets(tmp_path):
     reports = []
     reader = FakeReader(valid_mapping())
     writer = FakeWriter()
     backend = FakeBackend()
     execute_provision(reader, writer, backend, FakeTools(), EXPECTED_DATABASE,
                       dump_directory=tmp_path, reporter=lambda step, label: reports.append((step, label)))
-    assert [step for step, _ in reports] == list(range(1, 11))
+    assert [step for step, _ in reports] == list(range(1, 12))
     text = " ".join(label for _, label in reports)
     assert "PGPASSWORD" not in text and "DATABASE_URL" not in text and "SECRET" not in text
 
 
 def snapshot(*, columns=(), constraints=(), indexes=()):
-    return SchemaSnapshot(tuple(columns), tuple(constraints), tuple(indexes), ("tables=27", "sequences=27"))
+    return SchemaSnapshot(
+        tuple(columns), tuple(constraints), tuple(indexes),
+        (f"tables={EXPECTED_SOURCE_TABLE_COUNT}",
+         f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT}"),
+    )
 
 
 def source_counts(**changes):
@@ -737,11 +973,15 @@ class SnapshotRunner:
         if "FROM pg_indexes" in query:
             return "idx_table\tidx_name\tCREATE INDEX idx_name ON public.idx_table (id)"
         if "'tables='" in query:
-            return "tables=27\nsequences=27\nviews=0\nmaterialized_views=0"
+            return (
+                f"tables={EXPECTED_SOURCE_TABLE_COUNT}\n"
+                f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT}\n"
+                "views=0\nmaterialized_views=0"
+            )
         raise AssertionError(f"Unexpected snapshot query: {query}")
 
 
-def fixture_column_rows(count=182):
+def fixture_column_rows(count=EXPECTED_SOURCE_COLUMN_COUNT):
     return [
         f"table_{index // 10}\tcolumn_{index}\tinteger\tpg_catalog\tint4\tYES\t{index + 1}"
         for index in range(count)
@@ -758,7 +998,7 @@ def test_schema_snapshot_keeps_all_columns_when_processing_constraints():
     snapshot_result = backend.snapshot_target("postgres")
 
     assert snapshot_result.columns == tuple(rows)
-    assert len(snapshot_result.columns) == 182
+    assert len(snapshot_result.columns) == EXPECTED_SOURCE_COLUMN_COUNT
 
 
 def test_schema_snapshot_constraint_columns_do_not_overwrite_column_rows():
@@ -775,34 +1015,43 @@ def test_schema_snapshot_constraint_columns_do_not_overwrite_column_rows():
             "SIMPLE", "NO ACTION", "CASCADE", "False", "False",
         ),
     )
-    assert len(snapshot_result.columns) == 182
+    assert len(snapshot_result.columns) == EXPECTED_SOURCE_COLUMN_COUNT
 
 
-def test_batch_source_preflight_accepts_the_182_column_fixture():
+def test_batch_source_preflight_accepts_the_integrated_schema_fixture():
     _validate_batch_source_preflight(Preflight(
         source_counts=source_counts(),
         source_structure=SchemaSnapshot(
-            tuple(fixture_column_rows()), (), tuple(str(index) for index in range(67)),
-            ("tables=27", "sequences=27", "views=0", "materialized_views=0"),
+            tuple(fixture_column_rows()), (),
+            tuple(str(index) for index in range(EXPECTED_SOURCE_INDEX_COUNT)),
+            (f"tables={EXPECTED_SOURCE_TABLE_COUNT}",
+             f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT}",
+             "views=0", "materialized_views=0"),
         ),
     ))
 
 
 def test_batch_source_preflight_rejects_a_missing_column():
-    with pytest.raises(ProvisioningError, match="182 columns"):
+    with pytest.raises(ProvisioningError, match=f"{EXPECTED_SOURCE_COLUMN_COUNT} columns"):
         _validate_batch_source_preflight(Preflight(
             source_counts=source_counts(),
             source_structure=SchemaSnapshot(
-                tuple(fixture_column_rows(181)), (), tuple(str(index) for index in range(67)),
-                ("tables=27", "sequences=27"),
+                tuple(fixture_column_rows(EXPECTED_SOURCE_COLUMN_COUNT - 1)), (),
+                tuple(str(index) for index in range(EXPECTED_SOURCE_INDEX_COUNT)),
+                (f"tables={EXPECTED_SOURCE_TABLE_COUNT}",
+                 f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT}"),
             ),
         ))
 
 
 @pytest.mark.parametrize(("object_counts", "indexes", "message"), [
-    (("tables=26", "sequences=27"), 67, "27 tables"),
-    (("tables=27", "sequences=26"), 67, "27 tables and 27 sequences"),
-    (("tables=27", "sequences=27"), 66, "67 indexes"),
+    ((f"tables={EXPECTED_SOURCE_TABLE_COUNT - 1}", f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT}"),
+     EXPECTED_SOURCE_INDEX_COUNT, f"{EXPECTED_SOURCE_TABLE_COUNT} tables"),
+    ((f"tables={EXPECTED_SOURCE_TABLE_COUNT}", f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT - 1}"),
+     EXPECTED_SOURCE_INDEX_COUNT,
+     f"{EXPECTED_SOURCE_TABLE_COUNT} tables and {EXPECTED_SOURCE_SEQUENCE_COUNT} sequences"),
+    ((f"tables={EXPECTED_SOURCE_TABLE_COUNT}", f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT}"),
+     EXPECTED_SOURCE_INDEX_COUNT - 1, f"{EXPECTED_SOURCE_INDEX_COUNT} indexes"),
 ])
 def test_batch_source_preflight_keeps_structural_guards(object_counts, indexes, message):
     with pytest.raises(ProvisioningError, match=message):
@@ -815,8 +1064,8 @@ def test_batch_source_preflight_keeps_structural_guards(object_counts, indexes, 
         ))
 
 
-def test_batch_source_preflight_requires_schema_v1_snapshot():
-    with pytest.raises(ProvisioningError, match="schema v1"):
+def test_batch_source_preflight_requires_schema_v4_snapshot():
+    with pytest.raises(ProvisioningError, match="schema v4"):
         _validate_batch_source_preflight(Preflight(source_counts=source_counts()))
 
 
@@ -923,6 +1172,45 @@ def test_reconcile_rejects_non_error_states_without_backend_calls(mapping):
     assert backend.events == []
 
 
+@pytest.mark.parametrize("changes", ELIGIBILITY_FAILURES)
+def test_reconcile_rejects_ineligible_company_before_writer_or_resources(changes):
+    mapping = clean_mapping(
+        tenant_state=ERROR, provisioning_state=ERROR, **changes,
+    )
+    writer = FakeWriter(tenant_state=ERROR, provisioning_state=ERROR)
+    backend = FakeBackend(exists=True)
+
+    with pytest.raises(ProvisioningError):
+        reconcile_existing(
+            FakeReader(mapping), writer, backend, CLEAN_EXPECTED_DATABASE,
+        )
+
+    assert writer.events == []
+    assert writer.tenant_state == ERROR and writer.provisioning_state == ERROR
+    assert backend.events == []
+
+
+@pytest.mark.parametrize("flag", ["--reconcile-existing", "--reconcile-clean-existing"])
+def test_cli_reconcile_aliases_apply_eligibility_gate(monkeypatch, flag):
+    writer = FakeWriter(tenant_state=ERROR, provisioning_state=ERROR)
+    backend = FakeBackend()
+    reader = FakeReader(clean_mapping(
+        empresa_state="SUSPENDIDA",
+        tenant_state=ERROR, provisioning_state=ERROR,
+    ))
+    monkeypatch.setattr(
+        "scripts.saas.provision_tenant.build_reconcile_components",
+        lambda *args: (reader, writer, backend),
+    )
+
+    code = main([flag, "--empresa", CLEAN_EXPECTED_CODE,
+                 "--confirm", CLEAN_EXPECTED_DATABASE])
+
+    assert code == 2
+    assert writer.events == []
+    assert backend.events == []
+
+
 def test_reconcile_requires_exact_confirmation_and_existing_database():
     with pytest.raises(ProvisioningError, match="confirmation"):
         run_reconcile(confirm="TENANT_OFTALMO_NORTE")
@@ -981,7 +1269,13 @@ class CleanBackend(FakeBackend):
     def __init__(self, verification=None, exists=False):
         super().__init__(exists=exists, preflight=Preflight(
             role_createdb=True, dependencies_ok=True,
-            source_structure=snapshot(),
+            source_counts={table: 0 for table in SOURCE_TABLES},
+            source_structure=SchemaSnapshot(
+                tuple(fixture_column_rows()), (),
+                tuple(str(index) for index in range(EXPECTED_SOURCE_INDEX_COUNT)),
+                (f"tables={EXPECTED_SOURCE_TABLE_COUNT}",
+                 f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT}"),
+            ),
         ))
         self.clean_verification = verification or CleanVerification()
         self.clean_calls = []
@@ -995,6 +1289,11 @@ class CleanBackend(FakeBackend):
     def bootstrap_admin(self, target, email, password_hash):
         self.clean_calls.append(("admin", target, email, password_hash))
 
+    def record_schema_baseline(self, target):
+        self.clean_calls.append(("baseline", target))
+        if self.failure_stage == "baseline":
+            raise self.failure or RuntimeError("baseline failure")
+
     def verify_clean(self, target, source_structure, admin_email):
         self.clean_calls.append(("verify_clean", target, admin_email))
         return self.clean_verification
@@ -1003,7 +1302,12 @@ class CleanBackend(FakeBackend):
 def clean_mapping(**changes):
     values = dict(code=CLEAN_EXPECTED_CODE, database_name="tenant_oftalmo_norte",
                   tenant_state=PENDING, provisioning_state=PENDING,
-                  empresa_id=10, tenant_database_id=20, provisioning_id=30)
+                  empresa_id=10, tenant_database_id=20, provisioning_id=30,
+                  empresa_state=ACTIVE, subscription_id=40,
+                  subscription_state=ACTIVE,
+                  subscription_start=date(2020, 1, 1),
+                  subscription_end=date(2099, 12, 31),
+                  active_subscription_count=1)
     values.update(changes)
     return TenantMapping(**values)
 
@@ -1014,6 +1318,23 @@ def test_clean_provision_requires_dynamic_pending_mapping_and_confirmation():
         execute_provision_clean(FakeReader(clean_mapping()), FakeWriter(), backend,
                                 FakeTools(), "wrong", "admin@norte.test",
                                 password_provider=lambda _: "x")
+    assert backend.clean_calls == []
+
+
+@pytest.mark.parametrize("changes", ELIGIBILITY_FAILURES)
+def test_clean_provisioning_rejects_ineligible_company_before_resources(changes):
+    writer = FakeWriter()
+    backend = CleanBackend()
+
+    with pytest.raises(ProvisioningError):
+        execute_provision_clean(
+            FakeReader(clean_mapping(**changes)), writer, backend, FakeTools(),
+            CLEAN_EXPECTED_DATABASE, "admin@norte.test",
+            password_provider=lambda _: pytest.fail("password prompt must not run"),
+        )
+
+    assert writer.events == []
+    assert backend.events == []
     assert backend.clean_calls == []
 
 
@@ -1029,6 +1350,7 @@ def test_clean_provision_uses_schema_only_catalog_seed_and_hashes_password(tmp_p
     assert backend.clean_calls[0] == ("dump", "postgres", True)
     assert backend.clean_calls[1][0] == "seed"
     assert backend.clean_calls[2] == ("admin", "tenant_oftalmo_norte", "admin@norte.test", hashed)
+    assert backend.clean_calls[4] == ("baseline", "tenant_oftalmo_norte")
     assert "not-in-argv" not in repr(backend.clean_calls)
     assert writer.events == ["start", "complete"]
 
@@ -1040,6 +1362,39 @@ def test_clean_provision_fail_closed_before_activation(tmp_path):
         execute_provision_clean(FakeReader(clean_mapping()), writer, backend, FakeTools(),
                                 "tenant_oftalmo_norte", "admin@norte.test",
                                 password_provider=lambda _: "same", dump_directory=tmp_path)
+    assert "complete" not in writer.events
+    assert writer.tenant_state == ERROR
+
+
+def test_clean_provision_rejects_non_v4_source_before_any_write():
+    backend = CleanBackend()
+    backend.preflight_result = Preflight(
+        role_createdb=True,
+        dependencies_ok=True,
+        source_counts={"usuario": 0},
+        source_structure=SchemaSnapshot((), (), (), ("tables=29",)),
+    )
+    writer = FakeWriter()
+    with pytest.raises(ProvisioningError, match="source counts"):
+        execute_provision_clean(
+            FakeReader(clean_mapping()), writer, backend, FakeTools(),
+            "tenant_oftalmo_norte", "admin@norte.test",
+            password_provider=lambda _: "unused",
+        )
+    assert writer.events == []
+    assert backend.clean_calls == []
+
+
+def test_clean_provision_baseline_failure_blocks_activation(tmp_path):
+    backend = CleanBackend()
+    backend.failure_stage = "baseline"
+    writer = FakeWriter()
+    with pytest.raises(ProvisioningError, match="marked ERROR"):
+        execute_provision_clean(
+            FakeReader(clean_mapping()), writer, backend, FakeTools(),
+            "tenant_oftalmo_norte", "admin@norte.test",
+            password_provider=lambda _: "same", dump_directory=tmp_path,
+        )
     assert "complete" not in writer.events
     assert writer.tenant_state == ERROR
 
@@ -1063,10 +1418,27 @@ def test_clean_catalog_scope_is_explicit_and_does_not_include_clinical_tables():
     assert "paciente" not in CLEAN_CATALOG_TABLES
 
 
-def test_clean_verification_explicitly_checks_unseeded_services_table_as_empty():
-    assert "servicios_oftalmologicos" in CLEAN_EMPTY_TABLES
-    assert "servicios_oftalmologicos" not in CLEAN_CATALOG_TABLES
+def test_clean_verification_checks_current_services_and_payments_as_empty():
+    assert "servicio_oftalmologico" in CLEAN_EMPTY_TABLES
+    assert "servicio_oftalmologico" not in CLEAN_CATALOG_TABLES
+    assert "pago" in CLEAN_EMPTY_TABLES
+    assert "pago_detalle" in CLEAN_EMPTY_TABLES
+    assert "notificacion_pago" in CLEAN_EMPTY_TABLES
     assert "cita" in CLEAN_EMPTY_TABLES
+
+
+def test_source_inventory_matches_current_tenant_models():
+    assert len(SOURCE_TABLES) == EXPECTED_SOURCE_TABLE_COUNT
+    assert "servicio_oftalmologico" in SOURCE_TABLES
+    assert "pago" in SOURCE_TABLES
+    assert "pago_detalle" in SOURCE_TABLES
+    assert "notificacion_pago" in SOURCE_TABLES
+    assert "servicios_oftalmologicos" not in SOURCE_TABLES
+    for table in (
+        "categoria", "compra", "detalle_compra", "inventario", "lote",
+        "movimiento_inventario", "producto", "proveedores",
+    ):
+        assert table in SOURCE_TABLES
 
 
 @dataclass
@@ -1085,7 +1457,7 @@ def batch_mapping(code, database, index):
         provisioning_state=PENDING, empresa_id=index, tenant_database_id=100 + index,
         provisioning_id=200 + index, empresa_state=ACTIVE, subscription_id=300 + index,
         subscription_state=ACTIVE, subscription_start=date(2020, 1, 1),
-        subscription_end=date(2099, 12, 31),
+        subscription_end=date(2099, 12, 31), active_subscription_count=1,
     )
 
 
@@ -1094,8 +1466,10 @@ def batch_source_preflight():
         role_createdb=True, dependencies_ok=True,
         source_counts={table: 0 for table in SOURCE_TABLES},
         source_structure=SchemaSnapshot(
-            tuple(str(index) for index in range(182)), (),
-            tuple(str(index) for index in range(67)), ("tables=27", "sequences=27"),
+            tuple(str(index) for index in range(EXPECTED_SOURCE_COLUMN_COUNT)), (),
+            tuple(str(index) for index in range(EXPECTED_SOURCE_INDEX_COUNT)),
+            (f"tables={EXPECTED_SOURCE_TABLE_COUNT}",
+             f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT}"),
         ),
     )
 
@@ -1144,6 +1518,24 @@ def test_pending_batch_global_preflight_stops_before_create(tmp_path):
         )
     assert not any(event == "create" for event in backend.events)
     assert writer.events == []
+
+
+@pytest.mark.parametrize("changes", ELIGIBILITY_FAILURES)
+def test_batch_provisioning_rejects_ineligible_company_before_any_resource(changes):
+    reader, writer, backend = batch_components()
+    first_code = PENDING_BATCH_CODES[0]
+    reader.mappings[first_code] = TenantMapping(
+        **{**reader.mappings[first_code].__dict__, **changes}
+    )
+
+    with pytest.raises(ProvisioningError):
+        execute_provision_pending_batch(
+            reader, writer, backend, FakeTools(),
+            password_provider=lambda _: pytest.fail("password prompt must not run"),
+        )
+
+    assert writer.events == []
+    assert backend.created_databases == []
 
 
 def test_pending_batch_is_sequential_prompts_twice_and_keeps_database_isolation(tmp_path):

@@ -11,7 +11,13 @@ database or rerun that probe.
 
 ## Known preflight facts
 
-- The source has **27 public base tables** (and 27 sequences).
+- The historical Paso 7D.1 probe found **27 public base tables** (and 27
+  sequences). After applying the prepared CU31 migration, the integrated
+  application model requires **29 tenant tables/sequences**: the obsolete
+  plural `servicios_oftalmologicos` is not
+  provisioned, while `pago` and `pago_detalle` are required together with the
+  canonical singular `servicio_oftalmologico`. A fresh read-only inventory
+  must confirm this 29-table contract before a future real execution.
 - The read-only probe found no public views, materialized views, routines, or
   triggers.
 - Source row counts are intentionally generated at execution time by
@@ -28,10 +34,8 @@ database or rerun that probe.
 
 The worker reviewed the SQL, provisioner, tests, and documentation locally. It
 did not execute the database probe, connect to PostgreSQL, or run the future
-migration commands. In this execution, `git diff --check` passed; focused
-pytest collection was blocked because the environment lacks `fastapi`
-(`ModuleNotFoundError`). Earlier probe and implementation results must not be
-read as checks executed by this worker.
+migration commands. Automated unit tests use fake database and subprocess
+collaborators; they must not be read as evidence of a real tenant operation.
 
 ## Read-only scripts
 
@@ -66,3 +70,6 @@ for `VISION-CLARA`, requires database `tenant_vision_clara`, and requires both
 tenant and provisioning states `PENDIENTE`. It does not accept an arbitrary
 database mapping, create/drop databases, restore, or mutate Control Plane
 state. Missing client tools produce a controlled status, not installation.
+The mutating execution path additionally rejects pooler/Supavisor endpoints;
+`CREATE DATABASE` and recovery require a direct administrative PostgreSQL
+connection.

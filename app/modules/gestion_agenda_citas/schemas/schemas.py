@@ -160,6 +160,10 @@ ESTADOS_CITA_VALIDOS = (
 ESTADO_CITA_INICIAL = "PROGRAMADA"
 ESTADO_CITA_CANCELADA = "CANCELADA"
 
+# Duración fija de toda cita médica (regla compartida CU09/CU10).
+# El cliente nunca envía hora_fin: se calcula como hora_inicio + esta duración.
+DURACION_CITA_MINUTOS = 30
+
 
 def _normalizar_estado_cita(estado: str) -> str:
     normalizado = (estado or "").strip().upper()

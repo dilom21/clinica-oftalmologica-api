@@ -34,28 +34,43 @@ EXCLUDED_SCHEMAS = (
     "vault", "graphql", "graphql_public", "supabase_functions",
 )
 REQUIRED_TOOLS = ("pg_dump", "pg_restore", "psql")
-SCHEMA_VERSION = "v1"
+SCHEMA_VERSION = "v4-sprint3-cu32-cu33"
 RECONCILE_COUNT_TABLES = ("usuario", "paciente", "cita")
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 900
+EXPECTED_SOURCE_TABLE_COUNT = 41
+EXPECTED_SOURCE_SEQUENCE_COUNT = 40
+EXPECTED_SOURCE_COLUMN_COUNT = 297
+EXPECTED_SOURCE_INDEX_COUNT = 121
 SOURCE_TABLES = (
-    "accion", "antecedente_clinico", "bitacora", "bloqueo_horario", "cita",
-    "consulta_clinica", "control_medico", "detalle_receta", "diagnostico",
+    "accion", "antecedente_clinico", "bitacora", "bloqueo_horario", "categoria",
+    "cita", "compra", "consulta_clinica", "control_medico", "detalle_compra",
+    "detalle_receta", "diagnostico",
     "examen_oftalmologico", "funcion", "historial_clinico", "horario_oftalmologo",
-    "indicacion", "modulo", "oftalmologo", "paciente", "receta", "resultado_examen",
-    "rol", "rol_funcion", "servicio_oftalmologico", "servicio_realizado",
-    "servicios_oftalmologicos", "token_recuperacion", "tratamiento", "usuario",
+    "indicacion", "inventario", "lote", "modulo", "movimiento_inventario",
+    "oftalmologo", "paciente", "producto", "proveedores", "receta", "resultado_examen",
+    "notificacion_pago", "pago", "pago_detalle", "plan_pago",
+    "plan_pago_servicio", "cuota", "intento_pago_cuota", "rol", "rol_funcion",
+    "servicio_oftalmologico",
+    "servicio_realizado", "token_recuperacion", "tratamiento", "usuario",
 )
 CLEAN_EXPECTED_CODE = "OFTALMO-NORTE"
 CLEAN_EXPECTED_DATABASE = "tenant_oftalmo_norte"
 CLEAN_ADMIN_EMAIL = "admin@oftalmonorte.demo"
 CLEAN_CATALOG_TABLES = ("accion", "modulo", "funcion", "rol", "rol_funcion")
-CLEAN_CATALOG_COUNTS = {"accion": 3, "modulo": 6, "funcion": 19, "rol": 4, "rol_funcion": 39}
+CLEAN_CATALOG_COUNTS = {
+    "accion": 3, "modulo": 6, "funcion": 21, "rol": 4, "rol_funcion": 43,
+}
 CLEAN_EMPTY_TABLES = (
-    "antecedente_clinico", "bitacora", "bloqueo_horario", "cita", "consulta_clinica",
-    "control_medico", "detalle_receta", "diagnostico", "examen_oftalmologico",
+    "antecedente_clinico", "bitacora", "bloqueo_horario", "categoria", "cita",
+    "compra", "consulta_clinica", "control_medico", "detalle_compra", "detalle_receta",
+    "diagnostico", "examen_oftalmologico",
     "historial_clinico", "horario_oftalmologo", "indicacion", "oftalmologo", "paciente",
-    "receta", "resultado_examen", "servicio_realizado", "servicios_oftalmologicos",
-    "token_recuperacion", "tratamiento",
+    "inventario", "lote", "movimiento_inventario", "producto", "proveedores",
+    "notificacion_pago", "pago", "pago_detalle", "plan_pago",
+    "plan_pago_servicio", "cuota", "intento_pago_cuota",
+    "receta", "resultado_examen",
+    "servicio_oftalmologico",
+    "servicio_realizado", "token_recuperacion", "tratamiento",
 )
 PG_BIN_DIRS = (
     Path(r"C:\Program Files\PostgreSQL\18\bin"),
@@ -96,6 +111,19 @@ def _ensure_repository_root_on_sys_path() -> None:
         sys.path.insert(0, repository_root)
 
 
+def _fecha_local_aplicacion() -> date:
+    """Return today's date in the validated application timezone.
+
+    Provisioning, restore and ``TenantResolver`` must evaluate subscription
+    vigencia on the same local day (America/La_Paz by default), never on the
+    server's UTC date.
+    """
+    _ensure_repository_root_on_sys_path()
+    from app.core.time import fecha_local_aplicacion
+
+    return fecha_local_aplicacion()
+
+
 class ProvisioningError(RuntimeError):
     """Controlled failure whose message must not contain credentials."""
 
@@ -114,6 +142,7 @@ class TenantMapping:
     subscription_state: str | None = None
     subscription_start: date | None = None
     subscription_end: date | None = None
+    active_subscription_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -208,7 +237,7 @@ class ProgressReporter(Protocol):
 class ConsoleProgressReporter:
     def report(self, step: int, label: str, duration_seconds: float | None = None) -> None:
         suffix = "" if duration_seconds is None else f" ({duration_seconds:.2f}s)"
-        print(f"[{step}/10] {label}{suffix}")
+        print(f"[{step}/11] {label}{suffix}")
 
 
 class ControlPlaneReader(Protocol):
@@ -233,6 +262,7 @@ class ProvisioningBackend(Protocol):
     def dump_public(self, source_database: str, destination: Path, source_counts: dict[str, int] | None) -> None: ...
     def seed_catalogs(self, source_database: str, target_database: str, directory: Path) -> None: ...
     def bootstrap_admin(self, target_database: str, email: str, password_hash: str) -> None: ...
+    def record_schema_baseline(self, target_database: str) -> None: ...
     def verify_clean(self, target_database: str, source_structure: SchemaSnapshot,
                      admin_email: str) -> CleanVerification: ...
     def restore_public(self, target_database: str, dump_path: Path) -> None: ...
@@ -407,6 +437,63 @@ END $$;
 """.strip()
         self._run([str(self.tools.psql), *self._common(target_database), "-v", "ON_ERROR_STOP=1", "-f", "-"], sql)
 
+    def record_schema_baseline(self, target_database: str) -> None:
+        """Create the immutable ledger baseline for a newly cloned v4 schema."""
+        from app.modules.administracion_saas.tenant_migrator import load_bundle
+
+        migration_root = Path(__file__).resolve().parents[2] / "database" / "tenant_migrations"
+        bundle = load_bundle(migration_root)
+        entries = sorted([
+            (item.version, item.name, item.checksum)
+            for item in bundle.migrations
+        ] + [
+            (item.version, item.name, item.checksum)
+            for item in bundle.external_migrations
+        ], key=lambda item: item[0])
+
+        def literal(value: str) -> str:
+            return "'" + value.replace("'", "''") + "'"
+
+        values = ",\n".join(
+            f"({literal(version)}, {literal(name)}, {literal(checksum)}, 0, "
+            "'tenant-provisioner-baseline-v1')"
+            for version, name, checksum in entries
+        )
+        expected_rows = ",\n".join(
+            f"({literal(version)}, {literal(name)}, {literal(checksum)})"
+            for version, name, checksum in entries
+        )
+        sql = f"""
+BEGIN;
+{bundle.bootstrap_sql}
+INSERT INTO app_migrations.schema_migration
+    (version, nombre, checksum_sha256, duracion_ms, runner_version)
+VALUES
+{values}
+ON CONFLICT (version) DO NOTHING;
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+          FROM (VALUES
+{expected_rows}
+          ) AS e(version, nombre, checksum)
+          LEFT JOIN app_migrations.schema_migration m ON m.version=e.version
+         WHERE m.version IS NULL OR m.nombre<>e.nombre
+            OR trim(m.checksum_sha256)<>e.checksum
+    ) THEN
+        RAISE EXCEPTION 'Provisioning baseline ledger is incomplete or inconsistent';
+    END IF;
+END $$;
+COMMIT;
+""".strip()
+        self._run(
+            [str(self.tools.psql), *self._common(target_database),
+             "-v", "ON_ERROR_STOP=1", "-f", "-"],
+            sql,
+        )
+
     def verify_clean(self, target_database: str, source_structure: SchemaSnapshot,
                      admin_email: str) -> CleanVerification:
         validate_database_identifier(target_database)
@@ -526,7 +613,7 @@ END $$;
         counts_ok = (
             set(source_counts) == set(SOURCE_TABLES)
             and tables == len(SOURCE_TABLES)
-            and sequences == len(SOURCE_TABLES)
+            and sequences == EXPECTED_SOURCE_SEQUENCE_COUNT
         )
         for table, expected in source_counts.items():
             actual = self.count_tables(target_database, (table,))[table]
@@ -686,7 +773,7 @@ class SqlAlchemyControlPlaneReader:
 
         session = self._session_factory()
         try:
-            row = session.execute(
+            rows = session.execute(
                 text("""SELECT e.id AS empresa_id, e.codigo AS codigo,
                               e.estado AS empresa_state,
                               td.id AS tenant_database_id,
@@ -705,9 +792,18 @@ class SqlAlchemyControlPlaneReader:
                        LEFT JOIN saas_control.suscripcion AS s ON s.empresa_id = e.id
                        WHERE e.codigo = :code"""),
                 {"code": code},
-            ).mappings().first()
-            if row is None:
+            ).mappings().all()
+            if not rows:
                 raise ProvisioningError("Control Plane mapping was not found")
+            today = _fecha_local_aplicacion()
+            eligible = [
+                item for item in rows
+                if item.get("subscription_state") == ACTIVE
+                and item.get("subscription_start") is not None
+                and item.get("subscription_end") is not None
+                and item["subscription_start"] <= today <= item["subscription_end"]
+            ]
+            row = eligible[0] if len(eligible) == 1 else rows[0]
             return TenantMapping(
                 code=row["codigo"], database_name=row["database_name"],
                 tenant_state=row["tenant_state"], provisioning_state=row["provisioning_state"],
@@ -718,6 +814,7 @@ class SqlAlchemyControlPlaneReader:
                 subscription_state=row.get("subscription_state"),
                 subscription_start=row.get("subscription_start"),
                 subscription_end=row.get("subscription_end"),
+                active_subscription_count=len(eligible),
             )
         finally:
             session.close()
@@ -727,55 +824,98 @@ class SqlAlchemyControlPlaneWriter:
     def __init__(self, session_factory: Callable[[], object]):
         self._session_factory = session_factory
 
-    def _execute(self, mapping: TenantMapping, sql: str, params: dict) -> None:
+    def _execute_all(
+        self,
+        mapping: TenantMapping,
+        statements: tuple[tuple[str, dict], ...],
+    ) -> None:
         from sqlalchemy import text
 
         if mapping.tenant_database_id is None or mapping.provisioning_id is None:
             raise ProvisioningError("Control Plane identifiers are unavailable")
         session = self._session_factory()
         try:
-            session.execute(text(sql), params)
+            for sql, params in statements:
+                result = session.execute(text(sql), params)
+                if result.rowcount != 1:
+                    raise ProvisioningError(
+                        "Control Plane state transition did not affect exactly one row"
+                    )
             session.commit()
+        except Exception:
+            session.rollback()
+            raise
         finally:
             session.close()
 
     def start(self, mapping: TenantMapping) -> None:
-        self._execute(mapping, """UPDATE saas_control.tenant_database
-            SET estado = 'PROVISIONANDO' WHERE id = :tenant_id AND estado = 'PENDIENTE'""",
-            {"tenant_id": mapping.tenant_database_id})
-        self._execute(mapping, """UPDATE saas_control.provisionamiento_tenant
-            SET estado = 'EN_PROCESO', intentos = intentos + 1,
-                fecha_inicio = now(), paso_actual = 'PROVISIONANDO'
-            WHERE id = :provisioning_id AND estado = 'PENDIENTE'""",
-            {"provisioning_id": mapping.provisioning_id})
+        self._execute_all(mapping, (
+            ("""UPDATE saas_control.tenant_database
+                SET estado = 'PROVISIONANDO' WHERE id = :tenant_id AND estado = 'PENDIENTE'""",
+             {"tenant_id": mapping.tenant_database_id}),
+            ("""UPDATE saas_control.provisionamiento_tenant
+                SET estado = 'EN_PROCESO', intentos = intentos + 1,
+                    fecha_inicio = now(), paso_actual = 'PROVISIONANDO'
+                WHERE id = :provisioning_id AND estado = 'PENDIENTE'""",
+             {"provisioning_id": mapping.provisioning_id}),
+        ))
 
     def fail(self, mapping: TenantMapping, message: str) -> None:
         safe = message.replace("\n", " ")[:500]
-        self._execute(mapping, "UPDATE saas_control.tenant_database SET estado = 'ERROR' WHERE id = :id",
-                      {"id": mapping.tenant_database_id})
-        self._execute(mapping, """UPDATE saas_control.provisionamiento_tenant
-            SET estado = 'ERROR', fecha_fin = now(), mensaje_error = :message
-            WHERE id = :id""", {"id": mapping.provisioning_id, "message": safe})
+        self._execute_all(mapping, (
+            ("UPDATE saas_control.tenant_database SET estado = 'ERROR' WHERE id = :id",
+             {"id": mapping.tenant_database_id}),
+            ("""UPDATE saas_control.provisionamiento_tenant
+                SET estado = 'ERROR', fecha_fin = now(), mensaje_error = :message
+                WHERE id = :id""", {"id": mapping.provisioning_id, "message": safe}),
+        ))
 
     def complete(self, mapping: TenantMapping, version: str = "v1") -> None:
-        self._execute(mapping, """UPDATE saas_control.tenant_database
-            SET estado = 'ACTIVA', version_schema = :version,
-                fecha_provisionamiento = now(), ultima_verificacion = now()
-            WHERE id = :id""", {"id": mapping.tenant_database_id, "version": version})
-        self._execute(mapping, """UPDATE saas_control.provisionamiento_tenant
-            SET estado = 'COMPLETADO', paso_actual = 'COMPLETADO',
-                fecha_fin = now(), mensaje_error = NULL
-            WHERE id = :id""", {"id": mapping.provisioning_id})
+        self._execute_all(mapping, (
+            ("""UPDATE saas_control.tenant_database
+                SET estado = 'ACTIVA', version_schema = :version,
+                    fecha_provisionamiento = now(), ultima_verificacion = now()
+                WHERE id = :id""", {"id": mapping.tenant_database_id, "version": version}),
+            ("""UPDATE saas_control.provisionamiento_tenant
+                SET estado = 'COMPLETADO', paso_actual = 'COMPLETADO',
+                    fecha_fin = now(), mensaje_error = NULL
+                WHERE id = :id""", {"id": mapping.provisioning_id}),
+        ))
 
     def reset_after_recovery(self, mapping: TenantMapping) -> None:
-        self._execute(mapping, """UPDATE saas_control.tenant_database
-            SET estado = 'PENDIENTE', fecha_provisionamiento = NULL,
-                ultima_verificacion = NULL
-            WHERE id = :id AND estado = 'ERROR'""", {"id": mapping.tenant_database_id})
-        self._execute(mapping, """UPDATE saas_control.provisionamiento_tenant
-            SET estado = 'PENDIENTE', paso_actual = 'RECUPERACION_COMPLETADA',
-                fecha_inicio = NULL, fecha_fin = NULL, mensaje_error = NULL
-            WHERE id = :id AND estado = 'ERROR'""", {"id": mapping.provisioning_id})
+        self._execute_all(mapping, (
+            ("""UPDATE saas_control.tenant_database
+                SET estado = 'PENDIENTE', fecha_provisionamiento = NULL,
+                    ultima_verificacion = NULL
+                WHERE id = :id AND estado = 'ERROR'""", {"id": mapping.tenant_database_id}),
+            ("""UPDATE saas_control.provisionamiento_tenant
+                SET estado = 'PENDIENTE', paso_actual = 'RECUPERACION_COMPLETADA',
+                    fecha_inicio = NULL, fecha_fin = NULL, mensaje_error = NULL
+                WHERE id = :id AND estado = 'ERROR'""", {"id": mapping.provisioning_id}),
+        ))
+
+
+def validate_provisioning_eligibility(
+    mapping: TenantMapping,
+    *,
+    today: date | None = None,
+) -> None:
+    """Fail closed before any provisioning resource or state is created."""
+    if mapping.empresa_id is None or mapping.tenant_database_id is None or mapping.provisioning_id is None:
+        raise ProvisioningError("Control Plane identifiers are unavailable or inconsistent")
+    if mapping.empresa_state != ACTIVE:
+        raise ProvisioningError(f"Empresa {mapping.code} is not ACTIVA")
+    if mapping.active_subscription_count != 1 or mapping.subscription_id is None:
+        raise ProvisioningError(
+            f"Empresa {mapping.code} must have exactly one active vigente subscription"
+        )
+    if mapping.subscription_state != ACTIVE:
+        raise ProvisioningError(f"Subscription for {mapping.code} is not ACTIVA")
+    current = today or _fecha_local_aplicacion()
+    if mapping.subscription_start is None or mapping.subscription_end is None or not (
+        mapping.subscription_start <= current <= mapping.subscription_end
+    ):
+        raise ProvisioningError(f"Subscription for {mapping.code} is not vigente")
 
 
 def validate_mapping(mapping: TenantMapping, requested_database: str | None = None) -> None:
@@ -787,6 +927,7 @@ def validate_mapping(mapping: TenantMapping, requested_database: str | None = No
         raise ProvisioningError("CLI database name does not match the Control Plane mapping")
     if mapping.tenant_state != PENDING or mapping.provisioning_state != PENDING:
         raise ProvisioningError("Only PENDIENTE tenant and provisioning states are allowed")
+    validate_provisioning_eligibility(mapping)
 
 
 def _normalize_check_definition(definition: str) -> str:
@@ -1004,8 +1145,7 @@ def execute_provision(
 
     progress(1, "Preflight")
     preflight = backend.preflight(mapping)
-    if not preflight.role_createdb or not preflight.dependencies_ok:
-        raise ProvisioningError("Read-only prechecks failed")
+    _validate_batch_source_preflight(preflight)
     if backend.database_exists(mapping.database_name):
         raise ProvisioningError("Target database already exists")
 
@@ -1034,10 +1174,12 @@ def execute_provision(
             progress(8, "Verificando conteos")
             if not verification.counts_ok:
                 raise ProvisioningError("Tenant count verification failed")
-            progress(9, "Health check")
+            progress(9, "Registrando baseline de migraciones")
+            backend.record_schema_baseline(mapping.database_name)
+            progress(10, "Health check")
             if not backend.health_check(mapping):
                 raise ProvisioningError("Tenant health check failed")
-            progress(10, "Activando tenant")
+            progress(11, "Activando tenant")
         finally:
             if dump_path is not None:
                 backend.cleanup_dump(dump_path)
@@ -1071,21 +1213,13 @@ def validate_clean_mapping(
         raise ProvisioningError("confirmation does not match the Control Plane database")
     if mapping.tenant_state != PENDING or mapping.provisioning_state != PENDING:
         raise ProvisioningError("Only PENDIENTE tenant and provisioning states are allowed")
+    validate_provisioning_eligibility(mapping)
 
 
 def _validate_batch_mapping(mapping: TenantMapping, expected_code: str, expected_database: str) -> None:
     if mapping.code in EXCLUDED_BATCH_CODES:
         raise ProvisioningError(f"Batch target is excluded: {mapping.code}")
     validate_clean_mapping(mapping, expected_database, expected_code, expected_database)
-    if mapping.empresa_state != ACTIVE:
-        raise ProvisioningError(f"Empresa {mapping.code} is not ACTIVA")
-    if mapping.subscription_state != ACTIVE:
-        raise ProvisioningError(f"Subscription for {mapping.code} is not ACTIVA")
-    today = date.today()
-    if mapping.subscription_start is None or mapping.subscription_end is None or not (
-        mapping.subscription_start <= today <= mapping.subscription_end
-    ):
-        raise ProvisioningError(f"Subscription for {mapping.code} is not vigente")
 
 
 def execute_provision_clean(
@@ -1130,8 +1264,7 @@ def _execute_provision_clean_mapping(
 
     progress(1, "Preflight clean")
     preflight = preflight or backend.preflight(mapping)
-    if not preflight.role_createdb or not preflight.dependencies_ok or preflight.source_structure is None:
-        raise ProvisioningError("Read-only clean prechecks failed")
+    _validate_batch_source_preflight(preflight)
     if backend.database_exists(mapping.database_name):
         raise ProvisioningError("Target database already exists")
 
@@ -1166,10 +1299,12 @@ def _execute_provision_clean_mapping(
             verification = backend.verify_clean(mapping.database_name, preflight.source_structure, email)
             if not verification.ok:
                 raise ProvisioningError("Clean tenant verification failed")
-            progress(9, "Health check")
+            progress(9, "Registrando baseline de migraciones")
+            backend.record_schema_baseline(mapping.database_name)
+            progress(10, "Health check")
             if not backend.health_check(mapping):
                 raise ProvisioningError("Tenant health check failed")
-            progress(10, "Activando tenant")
+            progress(11, "Activando tenant")
         finally:
             if dump_path is not None:
                 try:
@@ -1187,16 +1322,27 @@ def _validate_batch_source_preflight(preflight: Preflight) -> None:
     if not preflight.role_createdb or not preflight.dependencies_ok:
         raise ProvisioningError("Batch read-only PostgreSQL prechecks failed")
     if preflight.source_structure is None or preflight.source_counts is None:
-        raise ProvisioningError("Batch source schema v1 snapshot is unavailable")
+        raise ProvisioningError("Batch source schema v4 snapshot is unavailable")
     if set(preflight.source_counts) != set(SOURCE_TABLES):
         raise ProvisioningError("Batch source counts are incomplete or unexpected")
     object_counts = set(preflight.source_structure.object_counts)
-    if {"tables=27", "sequences=27"} - object_counts:
-        raise ProvisioningError("Batch source schema must contain 27 tables and 27 sequences")
-    if len(preflight.source_structure.columns) != 182:
-        raise ProvisioningError("Batch source schema must contain 182 columns")
-    if len(preflight.source_structure.indexes) != 67:
-        raise ProvisioningError("Batch source schema must contain 67 indexes")
+    expected_objects = {
+        f"tables={EXPECTED_SOURCE_TABLE_COUNT}",
+        f"sequences={EXPECTED_SOURCE_SEQUENCE_COUNT}",
+    }
+    if expected_objects - object_counts:
+        raise ProvisioningError(
+            f"Batch source schema must contain {EXPECTED_SOURCE_TABLE_COUNT} tables and "
+            f"{EXPECTED_SOURCE_SEQUENCE_COUNT} sequences"
+        )
+    if len(preflight.source_structure.columns) != EXPECTED_SOURCE_COLUMN_COUNT:
+        raise ProvisioningError(
+            f"Batch source schema must contain {EXPECTED_SOURCE_COLUMN_COUNT} columns"
+        )
+    if len(preflight.source_structure.indexes) != EXPECTED_SOURCE_INDEX_COUNT:
+        raise ProvisioningError(
+            f"Batch source schema must contain {EXPECTED_SOURCE_INDEX_COUNT} indexes"
+        )
 
 
 def execute_provision_pending_batch(
@@ -1270,6 +1416,12 @@ def reconcile_existing(
     if mapping.tenant_state != ERROR or mapping.provisioning_state != ERROR:
         raise ProvisioningError("Reconciliation requires ERROR tenant and provisioning states")
     validate_database_identifier(mapping.database_name)
+    # Reconcile is a separate entry point: it must not bypass the same
+    # fail-closed eligibility gate used by initial, clean and batch flows.
+    # Run before any writer, backend lookup, engine disposal or activation so a
+    # suspended company or a missing/duplicated/suspended/expired/future
+    # subscription can never reactivate an ERROR tenant.
+    validate_provisioning_eligibility(mapping)
     progress = _progress_callback(reporter)
     try:
         progress(1, "Preflight reconciliation")
@@ -1388,6 +1540,15 @@ def build_reader() -> SqlAlchemyControlPlaneReader:
     return SqlAlchemyControlPlaneReader(SessionLocal)
 
 
+def _validate_admin_connection_context(host: str, port: int) -> None:
+    """Reject connection-pool endpoints for CREATE/DROP DATABASE operations."""
+    normalized_host = host.strip().lower()
+    if "pooler" in normalized_host or "supavisor" in normalized_host or port == 6543:
+        raise ProvisioningError(
+            "Provisioning requires a direct administrative PostgreSQL connection, not a pooler"
+        )
+
+
 def build_execute_components(pg_bin_dir: str | None, command_timeout_seconds: int = DEFAULT_COMMAND_TIMEOUT_SECONDS):
     """Build production collaborators without opening a tenant connection."""
     _ensure_repository_root_on_sys_path()
@@ -1398,6 +1559,7 @@ def build_execute_components(pg_bin_dir: str | None, command_timeout_seconds: in
     url = make_url(DATABASE_URL)
     if not url.host or not url.username or url.password is None:
         raise ProvisioningError("DATABASE_URL lacks an administrative connection context")
+    _validate_admin_connection_context(url.host, url.port or 5432)
     tools = PathToolRunner(pg_bin_dir)
     paths = tools.resolve()
     connection = PostgresConnection(

@@ -25,7 +25,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
 from app.core.dependencies import get_tenant_claims, obtener_administrador_actual
-from app.database.session import get_db
+from app.core.dependencies import get_db
 from app.modules.gestion_inventario_proveedores.api.movimientos import router
 from app.modules.gestion_inventario_proveedores.services import movimientos
 

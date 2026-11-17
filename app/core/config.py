@@ -1,24 +1,10 @@
 import os
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from dotenv import load_dotenv
+from email_validator import EmailNotValidError, validate_email
 
 load_dotenv()
-
-DEFAULT_APP_TIMEZONE = "America/La_Paz"
-
-
-def _resolver_app_timezone(valor: str | None) -> str:
-    """Valida la zona configurada y evita una caída global por un valor inválido."""
-    zona = (valor or DEFAULT_APP_TIMEZONE).strip()
-    try:
-        ZoneInfo(zona)
-    except (ZoneInfoNotFoundError, ValueError):
-        return DEFAULT_APP_TIMEZONE
-    return zona
-
-
-APP_TIMEZONE = _resolver_app_timezone(os.getenv("APP_TIMEZONE"))
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
@@ -34,24 +20,175 @@ GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
 GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
 GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN")
 GMAIL_SENDER_EMAIL = os.getenv("GMAIL_SENDER_EMAIL")
+STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
+STRIPE_CURRENCY = os.getenv("STRIPE_CURRENCY", "bob").strip().lower()
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+RESEND_FROM_EMAIL = os.getenv("RESEND_FROM_EMAIL")
+RESEND_FROM_NAME = os.getenv("RESEND_FROM_NAME", "Clinica Oftalmologica")
+RESEND_WEBHOOK_SECRET = os.getenv("RESEND_WEBHOOK_SECRET")
 
-# SMTP is optional: password recovery continues to use the Gmail API above.
-SMTP_HOST = os.getenv("SMTP_HOST") or None
+
+def _env_flag(nombre: str, valor: str | None, *, default: bool = False) -> bool:
+    if valor is None or not valor.strip():
+        return default
+    normalizado = valor.strip().lower()
+    if normalizado in {"1", "true", "yes", "on"}:
+        return True
+    if normalizado in {"0", "false", "no", "off"}:
+        return False
+    raise RuntimeError(
+        f"{nombre} debe ser true/false, 1/0, yes/no u on/off"
+    )
+
+
+EMAIL_TEST = (os.getenv("EMAIL_TEST") or "").strip()
+
+# Modo demostracion universitaria: habilita EMAIL_TEST como destinatario unico
+# fuera de localhost (por ejemplo AWS) sin relajar ninguna otra validacion.
+# Desactivado por defecto: sin esta bandera el guard de Render/produccion sigue
+# vigente y EMAIL_TEST solo se acepta en un entorno local.
+RESEND_DEMO_MODE = _env_flag(
+    "RESEND_DEMO_MODE", os.getenv("RESEND_DEMO_MODE"), default=False,
+)
+
+
+def _es_entorno_produccion_o_render() -> bool:
+    if _env_flag("RENDER", os.getenv("RENDER"), default=False):
+        return True
+    if any(
+        os.getenv(nombre)
+        for nombre in ("RENDER_SERVICE_ID", "RENDER_EXTERNAL_HOSTNAME")
+    ):
+        return True
+    entorno = (
+        os.getenv("APP_ENV")
+        or os.getenv("ENVIRONMENT")
+        or os.getenv("ENV")
+        or ""
+    ).strip().lower()
+    return entorno in {"production", "prod"}
+
+
+def _validar_fortaleza_jwt(secret: str, *, entorno_real: bool) -> None:
+    """Require the HS256 minimum key size in real deployments.
+
+    Development remains compatible with historical local fixtures, while
+    production/Render fails closed before accepting a weak HMAC key.
+    """
+    if entorno_real and len(secret.encode("utf-8")) < 32:
+        raise RuntimeError(
+            "JWT_SECRET_KEY debe tener al menos 32 bytes en produccion o Render"
+        )
+
+
+def _email_test_normalizado() -> str:
+    try:
+        return validate_email(
+            EMAIL_TEST, check_deliverability=False,
+        ).normalized
+    except EmailNotValidError as exc:
+        raise RuntimeError(
+            "EMAIL_TEST debe contener un correo valido"
+        ) from exc
+
+
+def obtener_configuracion_resend_pruebas():
+    """Valida y devuelve EMAIL_TEST, o ``None`` si esta desactivado."""
+    if RESEND_DEMO_MODE:
+        # El despliegue de demostracion exige un unico destinatario valido y
+        # sustituye al guard de Render/produccion. Un valor ausente o invalido
+        # impide el arranque de API y worker en lugar de enviar a otro correo.
+        if not EMAIL_TEST:
+            raise RuntimeError(
+                "RESEND_DEMO_MODE requiere EMAIL_TEST con un correo valido"
+            )
+        return _email_test_normalizado()
+
+    if not EMAIL_TEST:
+        return None
+
+    if _es_entorno_produccion_o_render():
+        raise RuntimeError("EMAIL_TEST no puede activarse en produccion o Render")
+
+    return _email_test_normalizado()
+
+
+# Falla durante el arranque de API/worker si el override activo es inseguro o
+# si RESEND_DEMO_MODE quedo habilitado sin un EMAIL_TEST valido.
+obtener_configuracion_resend_pruebas()
 try:
-    SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+    RESEND_TIMEOUT_SECONDS = float(os.getenv("RESEND_TIMEOUT_SECONDS") or "15")
+except ValueError:
+    RESEND_TIMEOUT_SECONDS = 15.0
+try:
+    RESEND_WORKER_BATCH_SIZE = max(
+        1, min(int(os.getenv("RESEND_WORKER_BATCH_SIZE") or "20"), 500)
+    )
+except ValueError:
+    RESEND_WORKER_BATCH_SIZE = 20
+try:
+    RESEND_WORKER_INTERVAL_SECONDS = max(
+        1, int(os.getenv("RESEND_WORKER_INTERVAL_SECONDS") or "15")
+    )
+except ValueError:
+    RESEND_WORKER_INTERVAL_SECONDS = 15
+
+# =========================================================
+# ZONA HORARIA DE LA APLICACIÓN
+# `ZoneInfo` se expone aquí para app/core/time.py. Si la zona configurada
+# es inválida se aplica un fallback seguro (America/La_Paz) en lugar de
+# romper el arranque.
+# =========================================================
+APP_TIMEZONE = os.getenv("APP_TIMEZONE", "America/La_Paz")
+try:
+    ZoneInfo(APP_TIMEZONE)
+except Exception:
+    APP_TIMEZONE = "America/La_Paz"
+
+# =========================================================
+# INTEGRACIÓN IA (DeepSeek) - OPCIONAL
+# Sin DEEPSEEK_API_KEY la aplicación inicia normalmente; solo los endpoints
+# que realmente necesitan IA responden 503 de forma controlada.
+# =========================================================
+DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+try:
+    DEEPSEEK_TIMEOUT_SECONDS = float(
+        os.getenv("DEEPSEEK_TIMEOUT_SECONDS") or "30"
+    )
+except ValueError:
+    DEEPSEEK_TIMEOUT_SECONDS = 30.0
+
+# =========================================================
+# SMTP PARA ENVÍO DE REPORTES - OPCIONAL
+# Sin SMTP configurado la aplicación inicia normalmente; el envío de
+# reportes por correo devuelve un error controlado.
+# =========================================================
+SMTP_HOST = os.getenv("SMTP_HOST")
+try:
+    SMTP_PORT = int(os.getenv("SMTP_PORT") or "587")
 except ValueError:
     SMTP_PORT = 587
-SMTP_USERNAME = os.getenv("SMTP_USERNAME") or None
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD") or None
-SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL") or None
-SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME") or "Clinica Oftalmologica"
-SMTP_USE_TLS = os.getenv("SMTP_USE_TLS", "true").strip().lower() in {"1", "true", "yes", "on"}
+SMTP_USERNAME = os.getenv("SMTP_USERNAME")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
+SMTP_FROM_EMAIL = os.getenv("SMTP_FROM_EMAIL")
+SMTP_FROM_NAME = os.getenv("SMTP_FROM_NAME", "Clínica Oftalmológica")
+SMTP_USE_TLS = (os.getenv("SMTP_USE_TLS") or "true").strip().lower() in {
+    "1", "true", "yes", "on",
+}
 
 if not DATABASE_URL:
     raise RuntimeError("DATABASE_URL no está configurada en el archivo .env")
 
 if not JWT_SECRET_KEY:
     raise RuntimeError("JWT_SECRET_KEY no está configurada en el archivo .env")
+
+_validar_fortaleza_jwt(
+    JWT_SECRET_KEY,
+    entorno_real=_es_entorno_produccion_o_render(),
+)
 
 if JWT_ALGORITHM != "HS256":
     raise RuntimeError("JWT_ALGORITHM debe ser HS256")
@@ -85,27 +222,3 @@ if not GMAIL_SENDER_EMAIL:
     raise RuntimeError(
         "GMAIL_SENDER_EMAIL no está configurada en el archivo .env"
     )
-
-
-# =========================================================
-# INTEGRACIÓN IA - DEEPSEEK
-# DEEPSEEK_API_KEY es opcional al importar: la aplicación debe
-# iniciar sin IA configurada y responder 503 solo al usar los
-# endpoints de IA. Nunca se registra la clave en logs.
-# =========================================================
-
-DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY") or None
-DEEPSEEK_BASE_URL = (
-    os.getenv("DEEPSEEK_BASE_URL") or "https://api.deepseek.com"
-)
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL") or "deepseek-flash"
-
-try:
-    DEEPSEEK_TIMEOUT_SECONDS = int(
-        os.getenv("DEEPSEEK_TIMEOUT_SECONDS", "30")
-    )
-except ValueError:
-    DEEPSEEK_TIMEOUT_SECONDS = 30
-
-if DEEPSEEK_TIMEOUT_SECONDS <= 0:
-    DEEPSEEK_TIMEOUT_SECONDS = 30

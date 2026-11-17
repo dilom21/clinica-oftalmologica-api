@@ -96,8 +96,8 @@ def setup_backup(tmp_path, monkeypatch):
         connection.execute("ATTACH DATABASE ? AS saas_control", (str(tmp_path / "saas.sqlite"),))
 
     with engine.begin() as connection:
-        for model in (Empresa, TenantDatabase, SaasUsuario, SaasBitacora, BackupTenant,
-                      RestoreTenant):
+        for model in (Empresa, Suscripcion, TenantDatabase, SaasUsuario, SaasBitacora,
+                      BackupTenant, RestoreTenant):
             model.__table__.create(connection)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     with factory() as db:
@@ -106,6 +106,10 @@ def setup_backup(tmp_path, monkeypatch):
             Empresa(id=2, codigo="BETA", slug="beta", estado="ACTIVA", nombre_comercial="Beta"),
             TenantDatabase(id=11, empresa_id=1, database_name="tenant_acme", estado="ACTIVA", version_schema="v1"),
             TenantDatabase(id=12, empresa_id=2, database_name="tenant_beta", estado="ACTIVA", version_schema="v2"),
+            Suscripcion(id=1, empresa_id=1, plan_id=1, fecha_inicio=date(2020, 1, 1),
+                        fecha_fin=date(2035, 1, 1), estado="ACTIVA"),
+            Suscripcion(id=2, empresa_id=2, plan_id=1, fecha_inicio=date(2020, 1, 1),
+                        fecha_fin=date(2035, 1, 1), estado="ACTIVA"),
             SaasUsuario(id=1, correo="admin@example.com", password_hash=hash_password("safe-password"),
                         nombres="Test", apellidos="Admin", rol="SUPERADMIN", estado=True),
         ])
@@ -203,6 +207,16 @@ def test_mapping_validation_before_dump(setup_backup, state_field, state, status
         assert db.query(BackupTenant).count() == 0
 
 
+def test_manual_backup_revalidates_current_subscription(setup_backup):
+    client, factory, runner, _ = setup_backup
+    with factory() as db:
+        db.get(Suscripcion, 1).estado = "SUSPENDIDA"
+        db.commit()
+    response = client.post("/saas/backups", json={"empresa_id": 1})
+    assert response.status_code == 409
+    assert runner.calls == []
+
+
 @pytest.mark.parametrize("stage", ["dump", "empty", "list"])
 def test_dump_failures_mark_error_and_remove_files(setup_backup, stage):
     client, factory, runner, storage = setup_backup
@@ -290,7 +304,8 @@ def test_runner_full_dump_no_secrets_and_read_only_list(tmp_path, monkeypatch):
     dump, env, timeout = calls[0]
     assert timeout == 17 and "--format=custom" in dump
     assert {"--no-owner", "--no-privileges"} <= set(dump)
-    assert "--schema-only" not in dump and "--schema=public" not in dump
+    assert "--schema-only" not in dump and "--schema=public" in dump
+    assert "--schema=app_migrations" in dump
     assert dump[dump.index("-d") + 1] == "tenant_acme"
     assert "SECRET" not in " ".join(dump) and env["PGPASSWORD"] == "SECRET"
     assert calls[1][0][1:] == ["--list", str(path)]
@@ -475,7 +490,9 @@ def test_windows_acl_transport_uses_temp_file_and_multiline_script(tmp_path, mon
 
     monkeypatch.setattr(backup_storage.subprocess, "run", result)
     backup_storage._inspect_windows_acl(tmp_path, policy=AclPolicy.ROOT, directory=True)
-    assert captured["argv"][1:4] == ["-NoProfile", "-NonInteractive", "-File"]
+    assert captured["argv"][1:6] == [
+        "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+    ]
     assert "-Command" not in captured["argv"] and "input" not in captured["kwargs"]
     assert captured["existed"] and not captured["path"].exists()
     script = captured["script"]
@@ -1237,6 +1254,16 @@ def test_storage_factory_defaults_to_local_provider(tmp_path, monkeypatch):
     assert isinstance(backup_storage_factory.build_backup_storage(), LocalPrivateBackupStorage)
 
 
+def test_storage_factory_rejects_ephemeral_local_storage_on_render(tmp_path, monkeypatch):
+    from app.modules.administracion_saas import backup_storage_factory
+    root = _private_root(tmp_path, monkeypatch)
+    monkeypatch.setenv("SAAS_BACKUP_PRIVATE_DIR", str(root))
+    monkeypatch.setenv("SAAS_BACKUP_STORAGE_PROVIDER", "local")
+    monkeypatch.setenv("RENDER", "true")
+    with pytest.raises(RuntimeError, match="ephemeral"):
+        backup_storage_factory.build_backup_storage()
+
+
 def test_supabase_provider_requires_configuration(tmp_path, monkeypatch):
     from app.modules.administracion_saas import backup_storage_factory
     root = _private_root(tmp_path, monkeypatch)
@@ -1271,7 +1298,9 @@ def test_supabase_put_uses_authorization_header_without_leaking_key(tmp_path, mo
     calls = []
 
     def transport(method, url, headers, body):
-        calls.append((method, url, headers, body))
+        streamed = body is not None and not isinstance(body, bytes)
+        payload = b"".join(body) if streamed else body
+        calls.append((method, url, headers, payload, streamed))
         return (404, b"") if method == "HEAD" else (200, b"")
 
     local = LocalPrivateBackupStorage(root)
@@ -1283,12 +1312,14 @@ def test_supabase_put_uses_authorization_header_without_leaking_key(tmp_path, mo
         source = directory / "tenant.dump"
         source.write_bytes(b"private archive")
         provider.put(key, source)
-    method, url, headers, _ = calls[-1]
+    method, url, headers, payload, streamed = calls[-1]
     assert method == "POST"
     assert headers["Authorization"] == "Bearer service-role-secret"
     assert "service-role-secret" not in url
     assert "product-images" not in url
     assert url.endswith(f"/storage/v1/object/saas-backups/{key}")
+    assert headers["Content-Length"] == str(len(b"private archive"))
+    assert streamed is True and payload == b"private archive"
 
 
 def test_run_automatic_backups_cli_exit_codes(monkeypatch):

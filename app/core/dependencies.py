@@ -1,13 +1,14 @@
 import unicodedata
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.config import JWT_ALGORITHM, JWT_SECRET_KEY
-from app.database.session import get_db
+from app.core.security import decodificar_access_token
+from app.core.tenancy.registry_provider import get_tenant_engine_registry
+from app.database import session as _session
 from app.modules.gestion_usuarios_seguridad.models.models import (
     Accion,
     Funcion,
@@ -19,39 +20,24 @@ from app.modules.gestion_usuarios_seguridad.models.models import (
 bearer_scheme = HTTPBearer()
 
 
-def get_tenant_claims(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
-) -> dict:
-    """Validate only signed tenant JWTs; legacy tokens are rejected here."""
-    try:
-        payload = jwt.decode(
-            credentials.credentials,
-            JWT_SECRET_KEY,
-            algorithms=[JWT_ALGORITHM],
-        )
-        validate_tenant_claims(payload)
-        return payload
-    except (jwt.InvalidTokenError, KeyError, TypeError, ValueError):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Token tenant inválido o expirado",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+def get_db(
+    request: Request,
+    registry=Depends(get_tenant_engine_registry),
+):
+    """Tenant-aware session dependency shared by clinical routes and auth.
 
+    It is intentionally a *distinct* callable from
+    ``app.database.session.get_db``. The CU19 invariant requires the controles
+    router, ``obtener_usuario_actual`` and ``requerir_permiso`` to resolve the
+    exact same dependency object (exactly one session per request), while the
+    routing implementation itself is reused from ``app.database.session``:
 
-def validate_tenant_claims(payload: dict) -> None:
-    if payload.get("token_type") != "tenant":
-        raise ValueError("token type")
-    subject = payload.get("sub")
-    if not isinstance(subject, str) or not subject.isdecimal() or int(subject) <= 0:
-        raise ValueError("sub")
-    for claim in ("tenant_id", "empresa_id", "rol_id"):
-        value = payload.get(claim)
-        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-            raise ValueError(claim)
-    codigo = payload.get("empresa_codigo")
-    if not isinstance(codigo, str) or not codigo.strip():
-        raise ValueError("empresa_codigo")
+    * no token / legacy token -> original (legacy) database;
+    * valid tenant token      -> the company's database resolved server-side;
+    * SaaS admin token        -> rejected (never a clinical resource).
+    """
+    yield from _session.get_db(request, registry)
+
 
 # =========================================================
 # ACCIONES
@@ -100,28 +86,83 @@ def nombre_rol_actual(usuario: Usuario) -> str:
     return _normalizar_rol(nombre)
 
 
+def get_tenant_claims(
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> dict:
+    """Validate a *signed* tenant JWT and return its claims.
+
+    Invalid signatures, legacy tokens and SaaS admin tokens are rejected:
+    tenant identity is never taken from client-controlled input.
+    """
+    try:
+        claims = decodificar_access_token(credentials.credentials)
+        validate_tenant_claims(claims)
+    except jwt.InvalidTokenError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token inválido o expirado",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return claims
+
+
+def validate_tenant_claims(payload: dict) -> None:
+    """Valida estructura y tipos sin confiar solo en la firma del JWT."""
+    if payload.get("token_type") != "tenant" or payload.get("exp") is None:
+        raise ValueError("token_type")
+
+    subject = payload.get("sub")
+    if (
+        not isinstance(subject, str)
+        or not subject.isdecimal()
+        or int(subject) <= 0
+    ):
+        raise ValueError("sub")
+
+    for claim in ("tenant_id", "empresa_id", "rol_id"):
+        value = payload.get(claim)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise ValueError(claim)
+
+    empresa_codigo = payload.get("empresa_codigo")
+    if not isinstance(empresa_codigo, str) or not empresa_codigo.strip():
+        raise ValueError("empresa_codigo")
+
+    rol_nombre = payload.get("rol_nombre")
+    if rol_nombre is not None and (
+        not isinstance(rol_nombre, str) or not rol_nombre.strip()
+    ):
+        raise ValueError("rol_nombre")
+
+
 def obtener_usuario_actual(
     credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
     db: Session = Depends(get_db),
 ) -> Usuario:
     try:
-        payload = jwt.decode(
-            credentials.credentials,
-            JWT_SECRET_KEY,
-            algorithms=[JWT_ALGORITHM],
-        )
-        if payload.get("token_type") == "saas_admin":
+        payload = decodificar_access_token(credentials.credentials)
+        token_type = payload.get("token_type")
+        if token_type == "saas_admin":
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token SaaS no válido para rutas clínicas",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        if payload.get("token_type") == "tenant":
+        if token_type == "tenant":
             validate_tenant_claims(payload)
-        elif payload.get("token_type") is not None or any(
-            key in payload for key in ("tenant_id", "empresa_id", "empresa_codigo")
+        elif token_type is not None or any(
+            claim in payload
+            for claim in ("tenant_id", "empresa_id", "empresa_codigo")
         ):
-            raise ValueError("unexpected token type")
+            raise ValueError("token_type")
         usuario_id = int(payload["sub"])
     except HTTPException:
         raise
@@ -134,7 +175,8 @@ def obtener_usuario_actual(
 
     usuario = db.get(Usuario, usuario_id)
     if not usuario or not usuario.estado or (
-        payload.get("token_type") == "tenant" and usuario.rol_id != payload["rol_id"]
+        payload.get("token_type") == "tenant"
+        and usuario.rol_id != payload["rol_id"]
     ):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

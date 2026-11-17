@@ -539,4 +539,3 @@ def cleanup_probe(
             sanitize_error(f"probe cleanup failed: {exc}") or "probe cleanup failed"
         ) from None
     return True
-

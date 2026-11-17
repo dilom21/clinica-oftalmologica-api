@@ -15,7 +15,8 @@ import re
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import BinaryIO, Callable, Iterator
+from typing import BinaryIO, Callable, Iterable, Iterator
+from urllib.parse import urlsplit
 
 from .backup_storage import BackupStorage, LocalPrivateBackupStorage
 
@@ -23,14 +24,23 @@ _KEY_PATTERN = re.compile(r"[a-f0-9]{32}\.dump")
 _RESERVED_BUCKETS = frozenset({"product-images", "product_images", "public"})
 _TRUTHY = frozenset({"1", "true", "yes", "on"})
 
-Transport = Callable[[str, str, dict, bytes | None], tuple[int, bytes]]
+RequestBody = bytes | Iterable[bytes] | None
+ResponseBody = bytes | BinaryIO
+Transport = Callable[[str, str, dict, RequestBody], tuple[int, ResponseBody]]
 
 
 def _default_transport(timeout_seconds: int) -> Transport:
-    def transport(method: str, url: str, headers: dict, body: bytes | None) -> tuple[int, bytes]:
+    def transport(
+        method: str, url: str, headers: dict, body: RequestBody,
+    ) -> tuple[int, ResponseBody]:
         request = urllib.request.Request(url, data=body, headers=headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
+            response = urllib.request.urlopen(request, timeout=timeout_seconds)
+            if method == "GET" and response.status == 200:
+                # The caller owns and closes the stream. Avoid buffering a large
+                # database archive in application memory.
+                return response.status, response
+            with response:
                 return response.status, response.read()
         except urllib.error.HTTPError as error:
             return error.code, error.read()
@@ -45,6 +55,14 @@ def _validate_key(key: str) -> str:
     return key
 
 
+def _file_chunks(source: BinaryIO, size: int = 1024 * 1024) -> Iterator[bytes]:
+    while True:
+        block = source.read(size)
+        if not block:
+            return
+        yield block
+
+
 class SupabasePrivateBackupStorage:
     """Private, non-public backup bucket; never proxies a public product bucket."""
 
@@ -53,6 +71,18 @@ class SupabasePrivateBackupStorage:
                  timeout_seconds: int = 120, transport: Transport | None = None):
         if not endpoint or not bucket or not service_key:
             raise ValueError("Supabase backup storage is not fully configured")
+        parsed = urlsplit(endpoint)
+        if (
+            parsed.scheme != "https"
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.password is not None
+            or parsed.query
+            or parsed.fragment
+        ):
+            raise ValueError("Supabase backup endpoint must be a secure base URL")
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,62}", bucket.strip()):
+            raise ValueError("Supabase backup bucket name is invalid")
         if bucket.strip().casefold() in _RESERVED_BUCKETS:
             raise ValueError("Supabase backup bucket must be dedicated and private")
         if (os.getenv("SAAS_BACKUP_SUPABASE_PUBLIC", "") or "").strip().casefold() in _TRUTHY:
@@ -69,13 +99,16 @@ class SupabasePrivateBackupStorage:
     def _url(self, key: str) -> str:
         return f"{self._endpoint}/storage/v1/object/{self._bucket}/{key}"
 
-    def _headers(self) -> dict:
-        return {
+    def _headers(self, *, content_length: int | None = None) -> dict:
+        headers = {
             "Authorization": f"Bearer {self._service_key}",
             "apikey": self._service_key,
             "Content-Type": "application/octet-stream",
             "x-upsert": "false",
         }
+        if content_length is not None:
+            headers["Content-Length"] = str(content_length)
+        return headers
 
     def staging(self) -> Iterator[Path]:
         return self._local.staging()
@@ -89,8 +122,12 @@ class SupabasePrivateBackupStorage:
         if self.exists(key):
             raise FileExistsError("Backup key already exists")
         with source.open("rb") as stream:
-            payload = stream.read()
-        status, _ = self._transport("POST", self._url(key), self._headers(), payload)
+            status, _ = self._transport(
+                "POST",
+                self._url(key),
+                self._headers(content_length=source.stat().st_size),
+                _file_chunks(stream),
+            )
         if status not in (200, 201):
             raise RuntimeError("Supabase backup upload was rejected")
 
@@ -98,8 +135,11 @@ class SupabasePrivateBackupStorage:
         _validate_key(key)
         status, body = self._transport("GET", self._url(key), self._headers(), None)
         if status != 200:
+            closer = getattr(body, "close", None)
+            if callable(closer):
+                closer()
             raise RuntimeError("Supabase backup download failed")
-        return io.BytesIO(body)
+        return body if hasattr(body, "read") else io.BytesIO(body)
 
     def delete(self, key: str) -> None:
         _validate_key(key)
@@ -125,6 +165,10 @@ def build_backup_storage() -> BackupStorage:
     local = LocalPrivateBackupStorage(Path(root))
     provider = (os.getenv("SAAS_BACKUP_STORAGE_PROVIDER", "local") or "local").strip().casefold()
     if provider == "local":
+        if (os.getenv("RENDER", "") or "").strip().casefold() in _TRUTHY:
+            raise RuntimeError(
+                "Local backup storage is ephemeral on Render; configure private remote storage"
+            )
         return local
     if provider == "supabase":
         return SupabasePrivateBackupStorage(

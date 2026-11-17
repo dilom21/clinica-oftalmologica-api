@@ -2,11 +2,11 @@ import base64
 import html
 import os
 import smtplib
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.message import EmailMessage
-from email.utils import formataddr
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
@@ -131,38 +131,66 @@ def enviar_correo_recuperacion_password(
     return service.users().messages().send(userId="me", body={"raw": raw}).execute()
 
 
-class SMTPNoConfiguradoError(RuntimeError):
-    pass
+# =========================================================
+# ENVÍO DE REPORTES POR SMTP (módulo de reportes)
+# Opcional: no comparte credenciales con Gmail ni afecta la
+# recuperación de contraseña. Sin SMTP configurado la aplicación
+# inicia igual y este envío responde un error controlado.
+# =========================================================
+
+SMTP_TIMEOUT_SECONDS = 10
+
+
+class SMTPNoConfiguradoError(Exception):
+    """El servidor SMTP no está configurado en el entorno."""
 
 
 def enviar_reporte_por_smtp(
     destinatario: str,
     asunto: str,
     mensaje: str,
-    contenido: bytes,
-    filename: str,
+    adjunto: bytes,
+    nombre_archivo: str,
     maintype: str,
     subtype: str,
-) -> None:
-    """Send an in-memory report without changing the Gmail recovery flow."""
-    if not SMTP_HOST or not SMTP_FROM_EMAIL:
-        raise SMTPNoConfiguradoError
+):
+    """Envía un reporte como adjunto por SMTP.
 
-    email_message = EmailMessage()
-    email_message["To"] = destinatario
-    email_message["From"] = formataddr((SMTP_FROM_NAME, SMTP_FROM_EMAIL))
-    email_message["Subject"] = asunto
-    email_message.set_content(mensaje)
-    email_message.add_attachment(
-        contenido,
-        maintype=maintype,
-        subtype=subtype,
-        filename=filename,
+    No inventa un envío exitoso: si el SMTP no está configurado lanza
+    `SMTPNoConfiguradoError`. Nunca registra credenciales ni el error crudo
+    del servidor (el router los traduce a un 503 genérico).
+    """
+    if not SMTP_HOST or not SMTP_FROM_EMAIL:
+        raise SMTPNoConfiguradoError("El servicio SMTP no está configurado")
+
+    remitente = (
+        f"{SMTP_FROM_NAME} <{SMTP_FROM_EMAIL}>"
+        if SMTP_FROM_NAME
+        else SMTP_FROM_EMAIL
     )
 
-    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=10) as smtp:
+    cuerpo = MIMEMultipart()
+    cuerpo["to"] = destinatario
+    cuerpo["from"] = remitente
+    cuerpo["subject"] = asunto
+    if mensaje:
+        cuerpo.attach(MIMEText(mensaje, "plain", "utf-8"))
+
+    adjunto_part = MIMEBase(maintype, subtype)
+    adjunto_part.set_payload(adjunto)
+    encoders.encode_base64(adjunto_part)
+    adjunto_part.add_header(
+        "Content-Disposition",
+        "attachment",
+        filename=nombre_archivo,
+    )
+    cuerpo.attach(adjunto_part)
+
+    with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=SMTP_TIMEOUT_SECONDS) as server:
         if SMTP_USE_TLS:
-            smtp.starttls()
+            server.starttls()
         if SMTP_USERNAME:
-            smtp.login(SMTP_USERNAME, SMTP_PASSWORD or "")
-        smtp.send_message(email_message)
+            server.login(SMTP_USERNAME, SMTP_PASSWORD)
+        server.send_message(cuerpo)
+
+    return {"mensaje": "Reporte enviado"}

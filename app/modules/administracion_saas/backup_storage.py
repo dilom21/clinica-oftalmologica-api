@@ -113,7 +113,15 @@ def _run_windows_acl_check(executable: Path, env: dict[str, str]) -> subprocess.
     script = _write_windows_acl_script()
     try:
         return subprocess.run(
-            [str(executable), "-NoProfile", "-NonInteractive", "-File", str(script)],
+            [
+                str(executable),
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-File",
+                str(script),
+            ],
             text=True, capture_output=True, env=env, timeout=15, check=False,
         )
     finally:

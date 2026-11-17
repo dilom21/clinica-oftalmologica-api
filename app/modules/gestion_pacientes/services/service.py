@@ -2,6 +2,9 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import nombre_rol_actual
+from app.modules.gestion_historial_clinico.repositories import (
+    repository as repo_historial,
+)
 from app.modules.gestion_pacientes.repositories import repository as repo
 
 from app.modules.gestion_pacientes.schemas.schemas import (
@@ -40,6 +43,14 @@ def crear_paciente(
         paciente = repo.crear_paciente(
             db,
             datos,
+        )
+
+        # Todo paciente registrado debe poseer exactamente un historial
+        # clínico (relación 1 a 1). Se crea dentro de la MISMA transacción que
+        # el paciente y la bitácora: si falla, no queda paciente huérfano.
+        repo_historial.asegurar_historial_clinico_para_paciente(
+            db,
+            paciente,
         )
 
         registrar_bitacora(

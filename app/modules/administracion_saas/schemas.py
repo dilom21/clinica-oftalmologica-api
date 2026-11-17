@@ -55,7 +55,9 @@ class SuscripcionResponse(BaseModel):
 
 class TenantResponse(BaseModel):
     empresa: int
-    database_name: str
+    # Owner policy M-4: physical database name is only serialized for SUPERADMIN;
+    # for OPERADOR the field is explicitly null (never omitted silently).
+    database_name: str | None
     estado: str
     version_schema: str | None
     fecha_provisionamiento: datetime | None

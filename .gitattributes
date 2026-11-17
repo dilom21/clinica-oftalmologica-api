@@ -1,0 +1,16 @@
+# Docker/Linux scripts must preserve Unix newlines on Windows checkout.
+Dockerfile text eol=lf
+docker-compose.yml text eol=lf
+nginx/configs/*.sh text eol=lf
+nginx/configs/*.template text eol=lf
+scripts/docker/*.sh text eol=lf
+.env.example text eol=lf
+
+# Migration checksums are byte-exact; never rewrite their newlines on Windows.
+database/tenant_migrations/**/*.sql text eol=lf
+db/*.sql text eol=lf
+
+# These immutable artifacts are checksum-bound to whitespace already in main.
+database/tenant_migrations/versions/20261031000000_cu32_cu33_planes_cuotas.sql whitespace=-blank-at-eof
+db/cu17_tratamientos_indicaciones_recetas.sql whitespace=-blank-at-eof
+db/cu31_pagos_administrativos_resend.sql whitespace=-trailing-space

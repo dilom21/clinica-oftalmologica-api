@@ -23,7 +23,8 @@ from app.core.tenancy.resolver import TenantResolver
 from app.main import app
 from app.modules.administracion_saas import backup_service, restore_service
 from app.modules.administracion_saas.models import (BackupTenant, Empresa, RestoreTenant,
-                                                     SaasBitacora, SaasUsuario, TenantDatabase)
+                                                     SaasBitacora, SaasUsuario, Suscripcion,
+                                                     TenantDatabase)
 from app.modules.administracion_saas.restore_runner import (
     PublicSchemaState,
     SchemaResetRefused,
@@ -94,9 +95,15 @@ class FakeRestoreBackend:
     """Records the restore plan and injects controlled failures by archive content."""
 
     def __init__(self, *, supports_swap=False, fail_target=False, fail_verify=False,
-                 fail_rollback=False, fail_rollback_verify=False, fail_list=False,
-                 fail_dispose=False, public_schema_state=None, fail_inspect=False,
-                 fail_reset=False):
+                  fail_rollback=False, fail_rollback_verify=False, fail_list=False,
+                  fail_dispose=False, public_schema_state=None, fail_inspect=False,
+                  fail_reset=False, target_has_ledger=False, ledger_valid=True,
+                  schema_validation_results=None, fail_create=False,
+                  fail_renames=(), fail_drops=(), fail_rename_numbers=(),
+                  fail_drop_numbers=(), verify_structure_results=None,
+                  on_health=None, fail_capabilities=False,
+                  fail_verify_schema_exception=False,
+                  fail_supports_archive_version=False):
         self.supports_swap = supports_swap
         self.fail_target = fail_target
         self.fail_verify = fail_verify
@@ -106,11 +113,29 @@ class FakeRestoreBackend:
         self.fail_dispose = fail_dispose
         self.fail_inspect = fail_inspect
         self.fail_reset = fail_reset
+        self.target_has_ledger = target_has_ledger
+        self.ledger_valid = ledger_valid
+        self.schema_validation_results = list(schema_validation_results or [])
+        self.fail_create = fail_create
+        self.fail_renames = set(fail_renames)
+        self.fail_drops = set(fail_drops)
+        self.fail_rename_numbers = set(fail_rename_numbers)
+        self.fail_drop_numbers = set(fail_drop_numbers)
+        self.verify_structure_results = list(verify_structure_results or [])
+        self.on_health = on_health
+        self.fail_capabilities = fail_capabilities
+        self.fail_verify_schema_exception = fail_verify_schema_exception
+        self.fail_supports_archive_version = fail_supports_archive_version
+        self.rename_count = 0
+        self.drop_count = 0
         self.public_schema_state = public_schema_state or SAFE_PUBLIC_SCHEMA
         self.calls = []
         self.last_data = None
+        self.databases = {"tenant_acme", "tenant_beta"}
 
     def capabilities(self):
+        if self.fail_capabilities:
+            raise RuntimeError("capability probe unavailable")
         return SimpleNamespace(supports_validation_database=self.supports_swap)
 
     def list_archive(self, archive):
@@ -118,22 +143,74 @@ class FakeRestoreBackend:
         if self.fail_list:
             raise RuntimeError("pg_restore --list password=secret")
 
+    def archive_contains_schema(self, archive, schema):
+        self.calls.append(("archive_contains_schema", schema))
+        data = Path(archive).read_bytes()
+        return schema == "app_migrations" and (
+            data == PRE_BYTES or self.target_has_ledger
+        )
+
+    @classmethod
+    def is_known_schema_version(cls, version):
+        return version in {
+            "v1",
+            "v2-cu31",
+            "v3-sprint3-cu26-cu27-cu29",
+            "v4-sprint3-cu32-cu33",
+        }
+
+    def supports_archive_version(self, version, *, has_ledger):
+        if self.fail_supports_archive_version:
+            raise RuntimeError("version capability probe failed password=secret")
+        if has_ledger:
+            return version in {
+                "v2-cu31",
+                "v3-sprint3-cu26-cu27-cu29",
+                "v4-sprint3-cu32-cu33",
+            }
+        return self.is_known_schema_version(version)
+
+    def verify_database_schema_version(self, database_name, version):
+        self.calls.append(("verify_schema_version", database_name, version))
+        if self.fail_verify_schema_exception:
+            raise RuntimeError("psql schema verification failed password=secret")
+        if self.schema_validation_results:
+            return self.schema_validation_results.pop(0)
+        return self.is_known_schema_version(version)
+
     def terminate_sessions(self, database_name):
         self.calls.append(("terminate", database_name))
         return 0
 
     def create_database(self, database_name):
         self.calls.append(("create", database_name))
+        if self.fail_create:
+            raise RuntimeError("temporary create failed password=secret")
+        if database_name in self.databases:
+            raise RuntimeError("database collision")
+        self.databases.add(database_name)
 
     def drop_database(self, database_name):
         self.calls.append(("drop", database_name))
+        self.drop_count += 1
+        if database_name in self.fail_drops or self.drop_count in self.fail_drop_numbers:
+            raise RuntimeError("drop failed password=secret")
+        self.databases.discard(database_name)
 
     def rename_database(self, current_name, new_name):
         self.calls.append(("rename", current_name, new_name))
+        self.rename_count += 1
+        if ((current_name, new_name) in self.fail_renames
+                or self.rename_count in self.fail_rename_numbers):
+            raise RuntimeError("rename failed password=secret")
+        if current_name not in self.databases or new_name in self.databases:
+            raise RuntimeError("invalid rename state")
+        self.databases.remove(current_name)
+        self.databases.add(new_name)
 
     def database_exists(self, database_name):
         self.calls.append(("exists", database_name))
-        return True
+        return database_name in self.databases
 
     def restore_into(self, database_name, archive, *, clean=False):
         data = Path(archive).read_bytes()
@@ -160,15 +237,23 @@ class FakeRestoreBackend:
         if self.fail_reset:
             raise RuntimeError("reset failed password=secret")
 
-    def restore_exact(self, database_name, archive):
+    def restore_exact(self, database_name, archive, *, expected_schema_version=None):
         self.calls.append(("restore_exact", database_name, Path(archive).read_bytes()))
         state = self.inspect_public_schema(database_name)
         self.assert_reset_safe(state)
         self.reset_public_schema(database_name)
         self.restore_into(database_name, archive, clean=True)
+        if (
+            self.archive_contains_schema(archive, "app_migrations")
+            and expected_schema_version is not None
+            and not self.ledger_valid
+        ):
+            raise RuntimeError("Restored migration ledger is inconsistent")
 
     def verify_structure(self, database_name):
         self.calls.append(("verify", database_name))
+        if self.verify_structure_results:
+            return self.verify_structure_results.pop(0)
         if self.last_data == TARGET_BYTES and self.fail_verify:
             return False
         if self.last_data == PRE_BYTES and self.fail_rollback_verify:
@@ -177,6 +262,8 @@ class FakeRestoreBackend:
 
     def health_check(self, database_name):
         self.calls.append(("health", database_name))
+        if self.on_health is not None:
+            self.on_health(database_name)
         return True
 
 
@@ -235,7 +322,8 @@ def env(tmp_path, monkeypatch):
         connection.execute("ATTACH DATABASE ? AS saas_control", (str(tmp_path / "restore_saas.sqlite"),))
 
     with engine.begin() as connection:
-        for model in (Empresa, TenantDatabase, SaasUsuario, SaasBitacora, BackupTenant, RestoreTenant):
+        for model in (Empresa, Suscripcion, TenantDatabase, SaasUsuario, SaasBitacora,
+                      BackupTenant, RestoreTenant):
             model.__table__.create(connection)
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     with factory() as db:
@@ -246,6 +334,10 @@ def env(tmp_path, monkeypatch):
                            version_schema="v1"),
             TenantDatabase(id=12, empresa_id=2, database_name="tenant_beta", estado="ACTIVA",
                            version_schema="v2"),
+            Suscripcion(id=1, empresa_id=1, plan_id=1, fecha_inicio=date(2020, 1, 1),
+                        fecha_fin=date(2035, 1, 1), estado="ACTIVA"),
+            Suscripcion(id=2, empresa_id=2, plan_id=1, fecha_inicio=date(2020, 1, 1),
+                        fecha_fin=date(2035, 1, 1), estado="ACTIVA"),
             SaasUsuario(id=1, correo="admin@example.com", password_hash=hash_password("safe-password"),
                         nombres="Test", apellidos="Admin", rol="SUPERADMIN", estado=True),
         ])
@@ -291,6 +383,15 @@ def _audit(factory):
                 db.scalars(select(SaasBitacora).order_by(SaasBitacora.id)).all()]
 
 
+def _audit_descriptions(factory, accion):
+    with factory() as db:
+        return [
+            row.descripcion for row in db.scalars(
+                select(SaasBitacora).where(SaasBitacora.accion == accion)
+            ).all()
+        ]
+
+
 def _restore(factory, restore_id):
     with factory() as db:
         return db.get(RestoreTenant, restore_id)
@@ -320,6 +421,18 @@ def test_saas_auth_required(env, token, method, path, body):
     kwargs = {"json": body} if body is not None else {}
     response = getattr(env.client, method)(path, headers=headers, **kwargs)
     assert response.status_code in (401, 403)
+    assert env.backend.calls == []
+
+
+def test_operator_cannot_execute_destructive_restore(env):
+    with env.factory() as db:
+        db.get(SaasUsuario, 1).rol = "OPERADOR"
+        db.commit()
+    response = env.client.post(
+        "/saas/restores",
+        json={"backup_id": 1, "confirmacion": "ACME"},
+    )
+    assert response.status_code == 403
     assert env.backend.calls == []
 
 
@@ -353,6 +466,30 @@ def test_backup_error_state_is_rejected(env):
     assert env.backend.calls == []
 
 
+def test_restore_revalidates_company_tenant_and_subscription(env):
+    for field in ("company", "tenant", "subscription"):
+        backup_id = {"company": 51, "tenant": 52, "subscription": 53}[field]
+        add_backup(env.factory, env.storage, backup_id=backup_id)
+        with env.factory() as db:
+            if field == "company":
+                db.get(Empresa, 1).estado = "SUSPENDIDA"
+            elif field == "tenant":
+                db.get(TenantDatabase, 11).estado = "SUSPENDIDA"
+            else:
+                db.get(Suscripcion, 1).estado = "SUSPENDIDA"
+            db.commit()
+        response = env.client.post(
+            "/saas/restores/validate", json={"backup_id": backup_id},
+        )
+        assert response.status_code == 409
+        with env.factory() as db:
+            db.get(Empresa, 1).estado = "ACTIVA"
+            db.get(TenantDatabase, 11).estado = "ACTIVA"
+            db.get(Suscripcion, 1).estado = "ACTIVA"
+            db.commit()
+    assert env.backend.calls == []
+
+
 def test_backup_of_other_company_confirmation_rejected(env):
     add_backup(env.factory, env.storage, backup_id=6, empresa_id=2, tenant_id=12, version="v2")
     response = env.client.post("/saas/restores", json={"backup_id": 6, "confirmacion": "ACME"})
@@ -362,9 +499,23 @@ def test_backup_of_other_company_confirmation_rejected(env):
     assert env.disposed == []  # never touched the tenant
 
 
-def test_incompatible_schema_version_rejected(env):
-    add_backup(env.factory, env.storage, backup_id=7, version="v2")
-    assert env.client.post("/saas/restores/validate", json={"backup_id": 7}).status_code == 409
+def test_known_legacy_schema_version_is_valid_restore_point(env):
+    add_backup(env.factory, env.storage, backup_id=7, version="v1")
+    response = env.client.post("/saas/restores/validate", json={"backup_id": 7})
+    assert response.status_code == 200
+    assert response.json()["version_schema"] == "v1"
+
+
+def test_unknown_schema_version_is_invalid_restore_point(env):
+    add_backup(env.factory, env.storage, backup_id=37, version="v99-unknown")
+
+    response = env.client.post(
+        "/saas/restores/validate",
+        json={"backup_id": 37},
+    )
+
+    assert response.status_code == 409
+    assert "unsupported" in response.text
 
 
 def test_storage_object_missing_rejected(env):
@@ -410,7 +561,10 @@ def test_validate_success_is_read_only_and_audited(env):
     assert response.status_code == 200, response.text
     body = response.json()
     assert body["valido"] is True and body["backup_id"] == 3 and body["empresa_id"] == 1
-    assert env.backend.calls == [("list", "target.dump")]
+    assert env.backend.calls == [
+        ("list", "target.dump"),
+        ("archive_contains_schema", "app_migrations"),
+    ]
     with env.factory() as db:
         assert db.query(RestoreTenant).count() == 0
     assert ("VALIDAR_RESTORE", "EXITO") in _audit(env.factory)
@@ -445,6 +599,130 @@ def test_create_success_in_place_full_flow(env):
         assert term not in response.text
 
 
+def test_same_version_legacy_archive_without_ledger_restores_in_place(env):
+    add_backup(env.factory, env.storage, backup_id=30, version="v1")
+    env.backend.target_has_ledger = False
+
+    response = env.client.post(
+        "/saas/restores", json={"backup_id": 30, "confirmacion": "ACME"},
+    )
+
+    assert response.status_code == 201, response.text
+    assert _tenant(env.factory).version_schema == "v1"
+    assert ("restore", "tenant_acme", True, TARGET_BYTES) in env.backend.calls
+
+
+def test_restore_updates_control_plane_to_backup_schema_version(env):
+    with env.factory() as db:
+        db.get(TenantDatabase, 11).version_schema = "v4-sprint3-cu32-cu33"
+        db.commit()
+    add_backup(
+        env.factory,
+        env.storage,
+        backup_id=31,
+        version="v3-sprint3-cu26-cu27-cu29",
+    )
+    env.backend.supports_swap = True
+    env.backend.target_has_ledger = True
+    env.monkeypatch.setenv("SAAS_RESTORE_ALLOW_DATABASE_SWAP", "1")
+    response = env.client.post(
+        "/saas/restores", json={"backup_id": 31, "confirmacion": "ACME"},
+    )
+    assert response.status_code == 201, response.text
+    tenant = _tenant(env.factory)
+    assert tenant.estado == "ACTIVA"
+    assert tenant.version_schema == "v3-sprint3-cu26-cu27-cu29"
+
+
+def test_cross_version_without_ledger_is_rejected_before_tenant_mutation(env):
+    with env.factory() as db:
+        db.get(TenantDatabase, 11).version_schema = "v4-sprint3-cu32-cu33"
+        db.commit()
+    add_backup(env.factory, env.storage, backup_id=32, version="v2-cu31")
+    env.backend.target_has_ledger = False
+    env.backend.supports_swap = True
+    env.monkeypatch.setenv("SAAS_RESTORE_ALLOW_DATABASE_SWAP", "1")
+
+    response = env.client.post(
+        "/saas/restores", json={"backup_id": 32, "confirmacion": "ACME"},
+    )
+
+    assert response.status_code == 503
+    assert "tenant unchanged" in response.text
+    tenant = _tenant(env.factory)
+    assert tenant.estado == "ACTIVA"
+    assert tenant.version_schema == "v4-sprint3-cu32-cu33"
+    assert env.disposed == []
+    assert not any(call[0] in {"restore", "restore_exact", "drop"} for call in env.backend.calls)
+
+
+def test_cross_version_with_invalid_ledger_never_swaps_active_database(env):
+    with env.factory() as db:
+        db.get(TenantDatabase, 11).version_schema = "v4-sprint3-cu32-cu33"
+        db.commit()
+    add_backup(env.factory, env.storage, backup_id=33, version="v2-cu31")
+    env.backend.supports_swap = True
+    env.backend.target_has_ledger = True
+    env.backend.ledger_valid = False
+    env.monkeypatch.setenv("SAAS_RESTORE_ALLOW_DATABASE_SWAP", "1")
+
+    response = env.client.post(
+        "/saas/restores", json={"backup_id": 33, "confirmacion": "ACME"},
+    )
+
+    assert response.status_code == 503
+    assert _tenant(env.factory).version_schema == "v4-sprint3-cu32-cu33"
+    assert ("drop", "tenant_acme") not in env.backend.calls
+    assert not any(call[0] == "rename" for call in env.backend.calls)
+
+
+def test_unknown_same_version_without_ledger_is_rejected_before_mutation(env):
+    with env.factory() as db:
+        db.get(TenantDatabase, 11).version_schema = "v99-unknown"
+        db.commit()
+    add_backup(env.factory, env.storage, backup_id=34, version="v99-unknown")
+
+    response = env.client.post(
+        "/saas/restores", json={"backup_id": 34, "confirmacion": "ACME"},
+    )
+
+    assert response.status_code == 503
+    assert "tenant unchanged" in response.text
+    assert env.disposed == []
+    assert not any(call[0] in {"restore", "restore_exact", "drop"} for call in env.backend.calls)
+
+
+def test_known_v2_same_version_without_ledger_is_allowed(env):
+    with env.factory() as db:
+        db.get(TenantDatabase, 11).version_schema = "v2-cu31"
+        db.commit()
+    add_backup(env.factory, env.storage, backup_id=35, version="v2-cu31")
+
+    response = env.client.post(
+        "/saas/restores", json={"backup_id": 35, "confirmacion": "ACME"},
+    )
+
+    assert response.status_code == 201, response.text
+    assert _tenant(env.factory).version_schema == "v2-cu31"
+    assert ("restore", "tenant_acme", True, TARGET_BYTES) in env.backend.calls
+
+
+def test_rollback_version_mismatch_never_reactivates_tenant(env):
+    add_backup(env.factory, env.storage, backup_id=36, version="v1")
+    env.backend.fail_target = True
+    env.backend.schema_validation_results = [True, False]
+
+    response = env.client.post(
+        "/saas/restores", json={"backup_id": 36, "confirmacion": "ACME"},
+    )
+
+    assert response.status_code == 503
+    row = _restore(env.factory, 1)
+    assert row.rollback_estado == "ERROR"
+    assert _tenant(env.factory).estado == "ERROR"
+    assert _tenant(env.factory).version_schema == "v1"
+
+
 def test_create_success_temporal_validation_and_cutover(env):
     add_backup(env.factory, env.storage, backup_id=4)
     env.backend.supports_swap = True
@@ -455,12 +733,273 @@ def test_create_success_temporal_validation_and_cutover(env):
     created = [call for call in calls if call[0] == "create"]
     assert len(created) == 1 and created[0][1].startswith("restore_")
     temporary = created[0][1]
-    assert ("restore", temporary, False, TARGET_BYTES) in calls
+    assert ("restore_exact", temporary, TARGET_BYTES) in calls
+    assert ("restore", temporary, True, TARGET_BYTES) in calls
     assert ("verify", temporary) in calls
     assert ("health", temporary) in calls
-    assert ("drop", "tenant_acme") in calls
+    backup = next(call[2] for call in calls
+                  if call[0] == "rename" and call[1] == "tenant_acme")
+    assert backup.startswith("restore_backup_")
     assert ("rename", temporary, "tenant_acme") in calls
+    assert ("drop", backup) in calls
+    assert temporary not in env.backend.databases
+    assert backup not in env.backend.databases
+    assert "tenant_acme" in env.backend.databases
     assert _tenant(env.factory).estado == "ACTIVA"
+
+
+def _enable_swap(env, backup_id=40):
+    add_backup(env.factory, env.storage, backup_id=backup_id)
+    env.backend.supports_swap = True
+    env.monkeypatch.setenv("SAAS_RESTORE_ALLOW_DATABASE_SWAP", "1")
+
+
+def _temporary_databases(backend):
+    return {name for name in backend.databases if name.startswith("restore_")}
+
+
+def test_swap_restore_failure_keeps_active_and_cleans_untrusted_temporary(env):
+    _enable_swap(env, 40)
+    env.backend.fail_target = True
+
+    response = env.client.post("/saas/restores", json={"backup_id": 40, "confirmacion": "ACME"})
+
+    assert response.status_code == 503
+    assert env.backend.databases >= {"tenant_acme", "tenant_beta"}
+    assert _temporary_databases(env.backend) == set()
+    assert _tenant(env.factory).estado == "ACTIVA"
+
+
+def test_swap_temporary_validation_failure_keeps_active_database(env):
+    _enable_swap(env, 41)
+    env.backend.verify_structure_results = [False]
+
+    response = env.client.post("/saas/restores", json={"backup_id": 41, "confirmacion": "ACME"})
+
+    assert response.status_code == 503
+    assert "tenant_acme" in env.backend.databases
+    assert _temporary_databases(env.backend) == set()
+    assert _tenant(env.factory).estado == "ACTIVA"
+
+
+def test_swap_active_to_backup_rename_failure_preserves_both_databases(env):
+    _enable_swap(env, 42)
+    env.backend.fail_rename_numbers = {1}
+
+    response = env.client.post("/saas/restores", json={"backup_id": 42, "confirmacion": "ACME"})
+
+    assert response.status_code == 503
+    assert "tenant_acme" in env.backend.databases
+    assert len(_temporary_databases(env.backend)) == 1
+    assert _tenant(env.factory).estado == "ACTIVA"
+
+
+def test_swap_temporary_rename_failure_recovers_original_and_preserves_temporary(env):
+    """Principal regression: a failed cutover never deletes old or validated DB."""
+    _enable_swap(env, 43)
+    env.backend.fail_rename_numbers = {2}
+
+    response = env.client.post("/saas/restores", json={"backup_id": 43, "confirmacion": "ACME"})
+
+    assert response.status_code == 503
+    assert "tenant_acme" in env.backend.databases
+    temporary = _temporary_databases(env.backend)
+    assert len(temporary) == 1
+    assert any(call[:2] == ("rename", "tenant_acme") for call in env.backend.calls)
+    assert not any(call[0] == "drop" and call[1] in temporary for call in env.backend.calls)
+    assert _tenant(env.factory).estado == "ACTIVA"
+    with env.factory() as db:
+        row = db.scalars(
+            select(RestoreTenant).order_by(RestoreTenant.id.desc())
+        ).first()
+    retained_temporary = next(iter(temporary))
+    assert row.etapa == "RENOMBRE_TEMPORAL"
+    assert f"base_temporal={retained_temporary}" in row.mensaje_error
+    assert "etapa=RENOMBRE_TEMPORAL" in row.mensaje_error
+    assert "motivo=" in row.mensaje_error
+
+
+def test_swap_name_recovery_failure_preserves_backup_and_temporary(env):
+    _enable_swap(env, 44)
+    env.backend.fail_rename_numbers = {2, 3}
+
+    response = env.client.post("/saas/restores", json={"backup_id": 44, "confirmacion": "ACME"})
+
+    assert response.status_code == 503
+    assert "tenant_acme" not in env.backend.databases
+    names = _temporary_databases(env.backend)
+    assert len(names) == 2
+    assert any(name.startswith("restore_backup_") for name in names)
+    assert _tenant(env.factory).estado == "ERROR"
+    assert not any(call[0] == "drop" for call in env.backend.calls)
+
+
+def test_swap_final_validation_failure_recovers_old_and_keeps_new(env):
+    _enable_swap(env, 45)
+    env.backend.verify_structure_results = [True, False]
+
+    response = env.client.post("/saas/restores", json={"backup_id": 45, "confirmacion": "ACME"})
+
+    assert response.status_code == 503
+    assert "tenant_acme" in env.backend.databases
+    assert len(_temporary_databases(env.backend)) == 1
+    assert _tenant(env.factory).estado == "ACTIVA"
+
+
+def test_swap_metadata_change_recovers_original_and_retains_new_database(env):
+    _enable_swap(env, 48)
+
+    def change_metadata_after_destination_health(database_name):
+        if database_name == "tenant_acme":
+            with env.factory() as db:
+                db.get(TenantDatabase, 11).estado = "ERROR"
+                db.commit()
+
+    env.backend.on_health = change_metadata_after_destination_health
+
+    response = env.client.post("/saas/restores", json={"backup_id": 48, "confirmacion": "ACME"})
+
+    assert response.status_code == 503
+    assert "tenant_acme" in env.backend.databases
+    assert len(_temporary_databases(env.backend)) == 1
+    assert _tenant(env.factory).estado == "ACTIVA"
+
+
+def test_swap_backup_drop_failure_keeps_healthy_destination_and_backup(env):
+    _enable_swap(env, 46)
+    env.backend.fail_drop_numbers = {1}
+
+    response = env.client.post("/saas/restores", json={"backup_id": 46, "confirmacion": "ACME"})
+
+    assert response.status_code == 201, response.text
+    assert "tenant_acme" in env.backend.databases
+    assert any(name.startswith("restore_backup_") for name in env.backend.databases)
+    row = _restore(env.factory, response.json()["id"])
+    assert row.estado == "COMPLETADO"
+    assert row.etapa == "COMPLETADO_RESPALDO_RETENIDO"
+    assert _tenant(env.factory).estado == "ACTIVA"
+    backup_name = next(
+        name for name in env.backend.databases if name.startswith("restore_backup_")
+    )
+    temporary_name = next(call[1] for call in env.backend.calls if call[0] == "create")
+    # R-2: retained physical names are persisted and correlated.
+    assert f"restore_id={row.id}" in row.mensaje_error
+    assert "tenant_database_id=11" in row.mensaje_error
+    assert "base_canonica=tenant_acme" in row.mensaje_error
+    assert f"base_temporal_promovida={temporary_name}" in row.mensaje_error
+    assert f"base_respaldo={backup_name}" in row.mensaje_error
+    assert "etapa=COMPLETADO_RESPALDO_RETENIDO" in row.mensaje_error
+    descriptions = _audit_descriptions(env.factory, "RETENER_RESPALDO_RESTORE")
+    assert descriptions and f"base_respaldo={backup_name}" in descriptions[-1]
+    assert f"restore_id={row.id}" in descriptions[-1]
+
+
+def test_swap_retry_after_recovered_rename_failure_is_safe(env):
+    _enable_swap(env, 49)
+    env.backend.fail_rename_numbers = {2}
+    first = env.client.post("/saas/restores", json={"backup_id": 49, "confirmacion": "ACME"})
+    retained_after_first = _temporary_databases(env.backend)
+
+    env.backend.fail_rename_numbers.clear()
+    second = env.client.post("/saas/restores", json={"backup_id": 49, "confirmacion": "ACME"})
+
+    assert first.status_code == 503
+    assert second.status_code == 201, second.text
+    assert "tenant_acme" in env.backend.databases
+    assert retained_after_first <= env.backend.databases
+    assert _tenant(env.factory).estado == "ACTIVA"
+
+
+def test_swap_temporary_creation_failure_does_not_touch_active_database(env):
+    _enable_swap(env, 47)
+    env.backend.fail_create = True
+
+    response = env.client.post("/saas/restores", json={"backup_id": 47, "confirmacion": "ACME"})
+
+    assert response.status_code == 503
+    assert env.backend.databases == {"tenant_acme", "tenant_beta"}
+    assert not any(call[0] in {"rename", "drop"} for call in env.backend.calls)
+    assert _tenant(env.factory).estado == "ACTIVA"
+
+
+def test_swap_capability_probe_failure_never_touches_canonical_database(env):
+    """R-1: a pre-cutover capability exception must not trigger in-place rollback."""
+    _enable_swap(env, 50)
+    env.backend.fail_capabilities = True
+
+    response = env.client.post("/saas/restores", json={"backup_id": 50, "confirmacion": "ACME"})
+
+    assert response.status_code == 503
+    # The canonical database is healthy and was never modified: no restore,
+    # rollback, create, rename or drop may run against it.
+    assert not any(
+        call[0] in {"restore", "create", "rename", "drop", "reset"}
+        for call in env.backend.calls
+    )
+    assert env.backend.databases == {"tenant_acme", "tenant_beta"}
+    assert _tenant(env.factory).estado == "ACTIVA"
+    with env.factory() as db:
+        row = db.scalars(select(RestoreTenant)).one()
+        assert row.estado == "ERROR" and row.etapa == "PREPARACION"
+    assert ("INICIAR_ROLLBACK_RESTORE", "EXITO") not in _audit(env.factory)
+    assert ("COMPLETAR_ROLLBACK_RESTORE", "EXITO") not in _audit(env.factory)
+
+
+def test_preparation_exception_closes_reservation_and_keeps_tenant_activa(env):
+    """M-1: a version verification exception must never leave an orphan PENDIENTE."""
+    add_backup(env.factory, env.storage, backup_id=60)
+    env.backend.fail_verify_schema_exception = True
+
+    response = env.client.post("/saas/restores", json={"backup_id": 60, "confirmacion": "ACME"})
+
+    assert response.status_code == 503
+    assert "secret" not in response.text
+    with env.factory() as db:
+        row = db.scalars(select(RestoreTenant)).one()
+        assert row.estado == "ERROR"
+        assert row.estado != "PENDIENTE"
+        assert row.etapa == "VALIDACION_VERSION"
+        assert "secret" not in (row.mensaje_error or "")
+        assert db.scalars(
+            select(RestoreTenant).where(RestoreTenant.estado == "PENDIENTE")
+        ).all() == []
+    # The canonical database was never touched and no rollback ran.
+    assert _tenant(env.factory).estado == "ACTIVA"
+    assert env.backend.databases == {"tenant_acme", "tenant_beta"}
+    assert [
+        call for call in env.backend.calls
+        if call[0] in {"restore", "restore_exact", "create", "rename", "drop", "reset"}
+    ] == []
+    assert env.disposed == []
+    assert ("INICIAR_ROLLBACK_RESTORE", "EXITO") not in _audit(env.factory)
+    assert ("COMPLETAR_ROLLBACK_RESTORE", "EXITO") not in _audit(env.factory)
+
+    # The orphan reservation no longer blocks backups or a new restore.
+    backup = env.client.post("/saas/backups", json={"empresa_id": 1})
+    assert backup.status_code == 201, backup.text
+
+    env.backend.fail_verify_schema_exception = False
+    retried = env.client.post("/saas/restores", json={"backup_id": 60, "confirmacion": "ACME"})
+    assert retried.status_code == 201, retried.text
+    assert _tenant(env.factory).estado == "ACTIVA"
+
+
+def test_unexpected_preparation_exception_closes_reservation(env):
+    """M-1: the last-resort net also releases the reservation as ERROR."""
+    add_backup(env.factory, env.storage, backup_id=61)
+    env.backend.fail_supports_archive_version = True
+
+    response = env.client.post("/saas/restores", json={"backup_id": 61, "confirmacion": "ACME"})
+
+    assert response.status_code == 503
+    with env.factory() as db:
+        row = db.scalars(select(RestoreTenant)).one()
+        assert row.estado == "ERROR" and row.etapa == "PREPARACION"
+        assert "secret" not in (row.mensaje_error or "")
+    assert _tenant(env.factory).estado == "ACTIVA"
+    assert env.backend.databases == {"tenant_acme", "tenant_beta"}
+    assert not any(call[0] in {"restore", "create", "rename", "drop"} for call in env.backend.calls)
+    assert ("INICIAR_ROLLBACK_RESTORE", "EXITO") not in _audit(env.factory)
 
 
 def test_swap_not_assumed_without_explicit_optin(env):
@@ -1346,6 +1885,8 @@ def test_restore_runner_exact_reset_sequence(tmp_path, monkeypatch):
         def run(self, argv, env, timeout):
             calls.append((argv, env, timeout))
             joined = " ".join(argv)
+            if "--list" in argv:
+                return "1; 0 0 SCHEMA - public admin\n2; 0 0 SCHEMA - app_migrations admin\n"
             if "pg_get_userbyid" in joined:
                 return "admin"
             if "array_to_string" in joined:
@@ -1358,6 +1899,10 @@ def test_restore_runner_exact_reset_sequence(tmp_path, monkeypatch):
                 return "0"
             if "pg_rewrite" in joined:
                 return "0"
+            if "to_regclass('app_migrations.schema_migration')" in joined:
+                return "1"
+            if "SELECT version ||" in joined:
+                return "20261007211200\t" + "0" * 64
             return ""
 
     runner = TenantRestoreRunner(PostgresConnection("private", 5432, "admin", "SECRET"),
@@ -1370,7 +1915,8 @@ def test_restore_runner_exact_reset_sequence(tmp_path, monkeypatch):
                       if "DROP SCHEMA IF EXISTS public CASCADE;" in text)
     restore_index = next(i for i, text in enumerate(joined) if "--dbname" in text)
     assert drop_index < restore_index
-    assert any("CREATE SCHEMA public;" in text for text in joined)
+    assert any("DROP SCHEMA IF EXISTS app_migrations CASCADE;" in text for text in joined)
+    assert not any("CREATE SCHEMA public;" in text for text in joined)
     restore_argv = calls[restore_index][0]
     assert "--clean" in restore_argv and "--if-exists" in restore_argv
     assert restore_argv[restore_argv.index("--dbname") + 1] == "tenant_acme"
@@ -1414,6 +1960,32 @@ def test_restore_runner_exact_refuses_unsafe_preflight(tmp_path, monkeypatch):
     joined = [" ".join(argv) for argv in calls]
     assert not any("DROP SCHEMA" in text for text in joined)
     assert not any("--dbname" in text for text in joined)
+
+
+@pytest.mark.parametrize("version", [
+    "v1",
+    "v2-cu31",
+    "v3-sprint3-cu26-cu27-cu29",
+    "v4-sprint3-cu32-cu33",
+])
+def test_restore_runner_accepts_only_evidenced_ledgerless_versions(version):
+    assert TenantRestoreRunner.is_known_schema_version(version) is True
+    assert TenantRestoreRunner.supports_archive_version(
+        version,
+        has_ledger=False,
+    ) is True
+
+
+def test_restore_runner_rejects_unknown_and_v1_with_invented_ledger():
+    assert TenantRestoreRunner.is_known_schema_version("v99-unknown") is False
+    assert TenantRestoreRunner.supports_archive_version(
+        "v99-unknown",
+        has_ledger=False,
+    ) is False
+    assert TenantRestoreRunner.supports_archive_version(
+        "v1",
+        has_ledger=True,
+    ) is False
 
 
 def test_prepared_probe_name_is_deterministic_and_valid():

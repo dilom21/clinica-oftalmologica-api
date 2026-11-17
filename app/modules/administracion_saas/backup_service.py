@@ -13,13 +13,14 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core import config
+from app.core.time import fecha_local_aplicacion
 from app.core.tenancy.resolver import TenantResolver
 from scripts.saas.provision_tenant import PostgresConnection
 
 from .backup_runner import TenantBackupRunner
 from .backup_storage import BackupStorage
 from .backup_storage_factory import build_backup_storage
-from .models import BackupTenant, Empresa, RestoreTenant, TenantDatabase
+from .models import BackupTenant, Empresa, RestoreTenant, Suscripcion, TenantDatabase
 from .repository import SaasRepository
 
 # Backup types that a safe restore must block while it owns the tenant.
@@ -62,6 +63,15 @@ def _mapping(db: Session, empresa_id: int):
         raise HTTPException(404, "Company not found")
     if empresa.estado != "ACTIVA":
         raise HTTPException(409, "Company is not active")
+    today = fecha_local_aplicacion()
+    subscriptions = list(db.scalars(select(Suscripcion).where(
+        Suscripcion.empresa_id == empresa_id,
+        Suscripcion.estado == "ACTIVA",
+        Suscripcion.fecha_inicio <= today,
+        Suscripcion.fecha_fin >= today,
+    )).all())
+    if len(subscriptions) != 1:
+        raise HTTPException(409, "Company subscription is not active or is inconsistent")
     tenant = db.scalars(select(TenantDatabase).where(TenantDatabase.empresa_id == empresa_id)).first()
     if tenant is None or tenant.estado != "ACTIVA":
         raise HTTPException(409, "Tenant database is not active")

@@ -241,3 +241,12 @@ def test_saving_policy_never_runs_scheduler_or_dump(setup_policies, monkeypatch)
     assert response.status_code == 200, response.text
     with factory() as db:
         assert db.query(BackupTenant).count() == 0
+
+
+def test_operator_can_read_but_cannot_modify_backup_policies(setup_policies):
+    client, factory = setup_policies
+    with factory() as db:
+        db.get(SaasUsuario, 1).rol = "OPERADOR"
+        db.commit()
+    assert client.get("/saas/backup-policies").status_code == 200
+    assert client.put("/saas/backup-policies/2", json=VALID).status_code == 403

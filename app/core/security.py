@@ -12,6 +12,23 @@ from app.core.config import (
 password_hash = PasswordHash.recommended()
 
 
+def decodificar_access_token(token: str) -> dict:
+    """Valida firma y vigencia; los tokens tenant siempre deben incluir exp."""
+    try:
+        payload = jwt.decode(
+            token,
+            JWT_SECRET_KEY,
+            algorithms=[JWT_ALGORITHM],
+            options={"verify_exp": True},
+        )
+    except (TypeError, OverflowError) as error:
+        raise jwt.InvalidTokenError("Token inválido o expirado") from error
+
+    if payload.get("token_type") == "tenant" and payload.get("exp") is None:
+        raise jwt.MissingRequiredClaimError("exp")
+    return payload
+
+
 def hash_password(password: str) -> str:
     return password_hash.hash(password)
 
@@ -43,11 +60,13 @@ def crear_tenant_access_token(
     tenant_id: int,
     empresa_id: int,
     empresa_codigo: str,
+    rol_nombre: str | None = None,
 ) -> str:
-    """Create a tenant token without embedding connection metadata.
+    """Emite un JWT de tenant con identidad firmada.
 
-    ``tenant_id`` is the immutable ``saas_control.tenant_database.id``.
-    Database names, URLs, credentials, and secrets never enter this payload.
+    Los claims solo contienen referencias lógicas (empresa, suscripción) nunca
+    credenciales ni nombres físicos de bases de datos, de forma que la
+    resolución de la conexión ocurra siempre en el servidor.
     """
     fecha_expiracion = datetime.now(timezone.utc) + timedelta(
         minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES
@@ -61,11 +80,21 @@ def crear_tenant_access_token(
         "token_type": "tenant",
         "exp": fecha_expiracion,
     }
-    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    if rol_nombre is not None:
+        nombre_limpio = rol_nombre.strip()
+        if not nombre_limpio:
+            raise ValueError("El nombre del rol tenant no puede estar vacio")
+        payload["rol_nombre"] = nombre_limpio
+
+    return jwt.encode(
+        payload,
+        JWT_SECRET_KEY,
+        algorithm=JWT_ALGORITHM,
+    )
 
 
 def crear_saas_access_token(usuario_id: int) -> str:
-    """Create a control-plane token without tenant or connection metadata."""
+    """JWT del plano de control SaaS, separado del JWT clínico o de tenant."""
     fecha_expiracion = datetime.now(timezone.utc) + timedelta(
         minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES
     )
@@ -75,4 +104,9 @@ def crear_saas_access_token(usuario_id: int) -> str:
         "token_type": "saas_admin",
         "exp": fecha_expiracion,
     }
-    return jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+
+    return jwt.encode(
+        payload,
+        JWT_SECRET_KEY,
+        algorithm=JWT_ALGORITHM,
+    )

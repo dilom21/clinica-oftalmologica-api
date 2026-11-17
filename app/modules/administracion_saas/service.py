@@ -1,22 +1,12 @@
 import re
 from datetime import datetime, timezone
 
-import jwt
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
-from app.core.config import JWT_ALGORITHM, JWT_SECRET_KEY
-from app.core.security import hash_password, verificar_password
+from app.core.security import crear_saas_access_token, hash_password, verificar_password
 
 from .repository import SaasRepository
-
-
-def crear_saas_access_token(usuario_id: int) -> str:
-    from datetime import timedelta
-    exp = datetime.now(timezone.utc) + timedelta(minutes=30)
-    return jwt.encode({"sub": str(usuario_id), "saas_usuario_id": usuario_id,
-                       "token_type": "saas_admin", "exp": exp},
-                      JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
 
 
 def autenticar(db: Session, correo: str, password: str, ip: str | None = None):
@@ -51,17 +41,22 @@ def sanitize_error(message: str | None) -> str | None:
 
 
 def cambiar_estado_empresa(db: Session, empresa_id: int, estado: str, user_id: int, ip=None):
-    empresa = SaasRepository(db).get_empresa(empresa_id)
+    repo = SaasRepository(db)
+    empresa = repo.get_empresa(empresa_id)
     if not empresa:
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
     estado = estado.upper()
     if estado not in {"ACTIVA", "SUSPENDIDA", "PENDIENTE"}:
         raise HTTPException(status_code=422, detail="Estado de empresa inválido")
-    empresa.estado = estado
-    SaasRepository(db).log(user_id, "CAMBIAR_ESTADO_EMPRESA", "empresa", empresa_id,
-                           f"Estado cambiado a {estado}", ip)
-    db.commit()
-    return empresa
+    try:
+        empresa.estado = estado
+        repo.log(user_id, "CAMBIAR_ESTADO_EMPRESA", "empresa", empresa_id,
+                 f"Estado cambiado a {estado}", ip)
+        db.commit()
+        return empresa
+    except Exception:
+        db.rollback()
+        raise
 
 
 def cambiar_estado_suscripcion(db: Session, suscripcion_id: int, estado: str, user_id: int, ip=None):
@@ -72,8 +67,12 @@ def cambiar_estado_suscripcion(db: Session, suscripcion_id: int, estado: str, us
     estado = estado.upper()
     if estado not in {"PENDIENTE", "ACTIVA", "SUSPENDIDA", "VENCIDA", "CANCELADA"}:
         raise HTTPException(status_code=422, detail="Estado de suscripción inválido")
-    suscripcion.estado = estado
-    repo.log(user_id, "CAMBIAR_ESTADO_SUSCRIPCION", "suscripcion", suscripcion_id,
-             f"Estado cambiado a {estado}", ip)
-    db.commit()
-    return suscripcion
+    try:
+        suscripcion.estado = estado
+        repo.log(user_id, "CAMBIAR_ESTADO_SUSCRIPCION", "suscripcion", suscripcion_id,
+                 f"Estado cambiado a {estado}", ip)
+        db.commit()
+        return suscripcion
+    except Exception:
+        db.rollback()
+        raise
