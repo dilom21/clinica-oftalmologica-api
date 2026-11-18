@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query, Response
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import (
@@ -34,6 +34,7 @@ from app.modules.gestion_agenda_citas.schemas.schemas import (
 from app.modules.gestion_agenda_citas.services import (
     citas,
     configuracion,
+    constancia,
     historial,
     service,
 )
@@ -377,6 +378,29 @@ def obtener_cita(
         db,
         cita_id,
         usuario=usuario,
+    )
+
+
+# =========================================================
+# CU37 - EMITIR CONSTANCIA DE CITA MÉDICA
+# Reutiliza la función "Gestionar citas médicas" (LECTURA).
+# =========================================================
+
+@router.get("/citas/{cita_id}/constancia")
+def emitir_constancia_cita(
+    cita_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    usuario=Depends(permiso_consultar_citas_web_movil),
+):
+    contenido, nombre = constancia.generar_constancia_cita(
+        db,
+        cita_id,
+        usuario=usuario,
+    )
+    return Response(
+        content=contenido,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
     )
 
 
