@@ -1,6 +1,9 @@
 -- CU28 - Gestionar proveedores: permisos RBAC por tenant.
--- PREPARADA, NO EJECUTADA. Aplicar primero en la base principal y luego, de
--- forma controlada, en cada base tenant. El script es aditivo e idempotente.
+-- ESTADO (verificado en solo lectura el 2026-11-18): el permiso ya existe en las
+-- 7 bases tenant activas (funcion "Gestionar proveedores" con 1 rol asignado).
+-- NO esta registrado en database/tenant_migrations/manifest.json, por lo que el
+-- migrador no lo aplica y una clinica nueva puede quedar sin el permiso.
+-- El script es aditivo e idempotente: puede volver a ejecutarse sin riesgo.
 --
 -- PRERREQUISITO: la tabla public.proveedores ya existe en cada tenant (la crea
 -- la migracion 20261024150000_cu26_cu27_cu29_inventario_compras, porque
