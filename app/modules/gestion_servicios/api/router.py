@@ -7,6 +7,7 @@ from app.core.dependencies import (
     obtener_administrador_actual,
     requerir_permiso,
 )
+from app.modules.gestion_servicios.api.catalogo import router as catalogo_router
 from app.modules.gestion_servicios.schemas.schemas import (
     ServicioActualizar,
     ServicioCrear,
@@ -19,6 +20,8 @@ router = APIRouter(
     prefix="/servicios-oftalmologicos",
     tags=["Gestion de Servicios Oftalmologicos"],
 )
+router.include_router(catalogo_router)
+
 permiso_lectura = requerir_permiso(
     "Registrar servicios realizados",
     ACCION_LECTURA,

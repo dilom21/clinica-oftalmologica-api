@@ -292,6 +292,8 @@ def test_integracion_no_duplica_modelos_rutas_ni_tablas():
         for metodo in definicion
     }
     assert operaciones == {
+        (f"{URL}catalogo/", "get"),
+        (f"{URL}catalogo/{{servicio_id}}", "get"),
         (URL, "get"),
         (URL, "post"),
         (f"{URL}{{servicio_id}}", "get"),
