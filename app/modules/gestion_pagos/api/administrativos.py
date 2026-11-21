@@ -8,6 +8,7 @@ from app.core.dependencies import (
     ACCION_ESCRITURA,
     ACCION_LECTURA,
     get_db,
+    get_tenant_claims,
     obtener_usuario_actual,
     requerir_permiso,
 )
@@ -21,6 +22,8 @@ from app.modules.gestion_pagos.schemas.administrativos import (
     ResumenServiciosPendientes,
 )
 from app.modules.gestion_pagos.services import administrativos as service
+from app.modules.gestion_pagos.services import estado_cuenta as estado_cuenta_service
+from app.modules.gestion_pagos.schemas.estado_cuenta import EstadoCuentaPaciente
 
 
 router = APIRouter(prefix="/administrativos", tags=["CU31 - Pagos administrativos"])
@@ -30,6 +33,21 @@ permiso_escritura = requerir_permiso("Gestionar pagos", ACCION_ESCRITURA)
 permiso_confirmacion = requerir_permiso(
     "Confirmar pagos bancarios", ACCION_ESCRITURA,
 )
+permiso_planes_lectura = requerir_permiso("Gestionar planes de pago", ACCION_LECTURA)
+permiso_cuotas_lectura = requerir_permiso("Gestionar cuotas", ACCION_LECTURA)
+
+
+@router.get("/estado-cuenta/{paciente_id}", response_model=EstadoCuentaPaciente)
+def consultar_estado_cuenta(
+    paciente_id: int = Path(gt=0, le=2**63 - 1),
+    db: Session = Depends(get_db),
+    usuario=Depends(obtener_usuario_actual),
+    _permiso_pagos=Depends(permiso_lectura),
+    _permiso_planes=Depends(permiso_planes_lectura),
+    _permiso_cuotas=Depends(permiso_cuotas_lectura),
+    _tenant=Depends(get_tenant_claims),
+):
+    return estado_cuenta_service.consultar_estado_cuenta(db, paciente_id, usuario)
 
 
 @router.get("/servicios-pendientes", response_model=ResumenServiciosPendientes)
