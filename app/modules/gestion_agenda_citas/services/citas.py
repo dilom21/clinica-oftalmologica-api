@@ -277,6 +277,9 @@ def listar_citas(
     oftalmologo_id: int | None = None,
     estado: str | None = None,
     usuario=None,
+    limite: int | None = None,
+    fecha_desde: date | None = None,
+    estados: tuple[str, ...] | None = None,
 ):
     """Consulta citas aplicando filtros opcionales de CU10.
 
@@ -309,6 +312,9 @@ def listar_citas(
         paciente_id=paciente_id,
         oftalmologo_id=oftalmologo_id,
         estado=estado_normalizado,
+        limite=limite,
+        fecha_desde=fecha_desde,
+        estados=tuple(_validar_estado_cita(e) for e in estados) if estados is not None else None,
     )
 
 

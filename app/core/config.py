@@ -6,6 +6,10 @@ from email_validator import EmailNotValidError, validate_email
 
 load_dotenv()
 
+from app.modules.notificaciones_interaccion_chatbot.settings import ChatbotSettings
+
+CHATBOT_CONFIG = ChatbotSettings.from_env()
+
 DATABASE_URL = os.getenv("DATABASE_URL")
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")

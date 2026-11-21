@@ -25,7 +25,7 @@ def obtener_oftalmologo_por_id(
     return db.get(Oftalmologo, oftalmologo_id)
 
 
-def listar_oftalmologos_activos(db: Session):
+def listar_oftalmologos_activos(db: Session, *, limite: int | None = None):
     stmt = (
         select(Oftalmologo)
         .where(Oftalmologo.estado.is_(True))
@@ -35,6 +35,10 @@ def listar_oftalmologos_activos(db: Session):
         )
     )
 
+    if limite is not None:
+        if not 1 <= limite <= 100:
+            raise ValueError("limite de profesionales fuera de rango")
+        stmt = stmt.limit(limite)
     return db.scalars(stmt).all()
 
 
@@ -397,8 +401,15 @@ def listar_citas(
     paciente_id: int | None = None,
     oftalmologo_id: int | None = None,
     estado: str | None = None,
+    limite: int | None = None,
+    fecha_desde: date | None = None,
+    estados: tuple[str, ...] | None = None,
 ):
     condiciones = []
+    if fecha_desde is not None:
+        condiciones.append(Cita.fecha >= fecha_desde)
+    if estados is not None:
+        condiciones.append(Cita.estado.in_(estados))
     if fecha is not None:
         condiciones.append(Cita.fecha == fecha)
     if paciente_id is not None:
@@ -416,6 +427,10 @@ def listar_citas(
         Cita.hora_inicio,
         Cita.id,
     )
+    if limite is not None:
+        if not 1 <= limite <= 100:
+            raise ValueError("limite de citas fuera de rango")
+        stmt = stmt.limit(limite)
 
     return db.scalars(stmt).all()
 
@@ -522,6 +537,3 @@ def verificar_disponibilidad_horario(
             return False
 
     return True
-
-
-
