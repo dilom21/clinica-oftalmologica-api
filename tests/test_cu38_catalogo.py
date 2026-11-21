@@ -367,3 +367,26 @@ def test_sin_token(cliente_catalogo):
     client,registry=cliente_catalogo
     assert client.get(URL).status_code in (401,403)
     assert registry.calls == []
+
+
+@pytest.mark.parametrize("usuario,estado", [(15, 403), (16, 404), (17, 401)])
+@pytest.mark.parametrize("ruta", [URL, URL + "1"])
+def test_perfil_y_usuario_activos(cliente_catalogo, usuario, estado, ruta):
+    client, _ = cliente_catalogo
+    assert client.get(ruta, headers=_auth(_tenant(usuario_id=usuario))).status_code == estado
+
+
+def test_catalogo_no_ejecuta_escrituras(cliente_catalogo):
+    client, registry = cliente_catalogo
+    sesion_original = registry.get_session
+
+    def sesion_solo_lectura(context):
+        db = sesion_original(context)
+        @event.listens_for(db.get_bind(), "before_cursor_execute", once=False)
+        def solo_lectura(conn, cursor, statement, parameters, context, executemany):
+            assert statement.lstrip().upper().startswith("SELECT"), statement
+        return db
+
+    registry.get_session = sesion_solo_lectura
+    for ruta in (URL, URL + "1", URL):
+        assert client.get(ruta, headers=_auth(_tenant())).status_code == 200

@@ -4,13 +4,19 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import get_db, get_tenant_claims, nombre_rol_actual, obtener_usuario_actual
 from app.modules.gestion_servicios.schemas.schemas import ServicioRespuesta
 from app.modules.gestion_servicios.services import catalogo as servicio
+from app.modules.gestion_pacientes.repositories.repository import obtener_paciente_por_usuario_id
 
 router = APIRouter(prefix="/catalogo", tags=["CU38 - Catalogo de servicios"])
 
-def paciente_catalogo(_claims=Depends(get_tenant_claims), usuario=Depends(obtener_usuario_actual)):
+def paciente_catalogo(_claims=Depends(get_tenant_claims), usuario=Depends(obtener_usuario_actual), db: Session = Depends(get_db)):
     rol = getattr(usuario, "rol", None)
     if rol is None or rol.estado is not True or nombre_rol_actual(usuario) != "paciente":
         raise HTTPException(403, "Solo pacientes con rol activo pueden consultar el catálogo")
+    paciente = obtener_paciente_por_usuario_id(db, usuario.id)
+    if paciente is None:
+        raise HTTPException(404, "El usuario no tiene un perfil de paciente")
+    if not paciente.estado:
+        raise HTTPException(403, "El perfil de paciente está inactivo")
     return usuario
 
 @router.get("/", response_model=list[ServicioRespuesta])
