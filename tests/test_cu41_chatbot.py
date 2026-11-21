@@ -32,7 +32,7 @@ class ModeloFalso:
         self.payloads = []
         self.inspeccionar = None
 
-    async def completar(self, mensajes, herramientas, cfg, timeout):
+    async def completar(self, mensajes, herramientas, cfg, timeout, **kwargs):
         if self.inspeccionar:
             self.inspeccionar()
         self.payloads.append(copy.deepcopy(mensajes))
@@ -96,7 +96,7 @@ def crear(chat, token=None):
     return r.json()["conversacion_id"]
 
 
-def enviar(chat, id, mensaje="Quiero consultar servicios", token=None, **kwargs):
+def enviar(chat, id, mensaje="Necesito orientación", token=None, **kwargs):
     return chat.client.post(f"{URL}/{id}/mensajes", json={"mensaje": mensaje, **kwargs},
                             headers=base._auth(token or chat.token))
 
@@ -213,7 +213,7 @@ def test_institucion_horario_no_inventado(chat):
     assert r.status_code == 200
     assert r.json()["tarjetas"][0]["nombre"] == "Clínica ficticia"
     assert r.json()["tarjetas"][0]["horario_general"] is None
-    assert "no está registrado" in r.json()["respuesta"]
+    assert "horario" not in r.json()["respuesta"]  # not asked; null remains in card
     assert "12345678" not in json.dumps(chat.model.payloads)
 
 
@@ -302,7 +302,11 @@ def test_consultas_solo_lectura_y_sin_transaccion_durante_modelo(chat):
 def test_repeticion_iteraciones_resultados_y_longitud(chat):
     id = crear(chat)
     chat.model.respuestas = [llamada("consultar_servicios"), llamada("consultar_servicios")]
-    assert enviar(chat,id).status_code == 429
+    r=enviar(chat,id)
+    assert r.status_code == 200
+    assert len(r.json()["tarjetas"]) == 1  # bounded repeated reads are cached, not duplicated
+    chat.model.respuestas = [llamada("consultar_servicios") for _ in range(6)]
+    assert enviar(chat,id).status_code == 429  # infinite/repetitive generation remains bounded
     assert enviar(chat,id,"x"*1001).status_code == 422
     app.dependency_overrides[api.configuracion] = lambda: chat.cfg.model_copy(update={"max_tool_iterations":1})
     chat.model.respuestas = [llamada("consultar_servicios")]
@@ -333,9 +337,11 @@ def test_contexto_publico_profesional_y_fecha(chat):
     id = crear(chat)
     chat.model.respuestas = [llamada("consultar_disponibilidad",{"oftalmologo_id":1,"fecha":chat.fecha.isoformat()}), {"content":"Opciones"}]
     assert enviar(chat,id,f"Consulta disponibilidad para {chat.fecha.isoformat()}").status_code == 200
-    assert enviar(chat,id,"Ese profesional por la tarde",modalidad="voz").status_code == 200
-    payload = json.dumps(chat.model.payloads[-1])
-    assert chat.fecha.isoformat() in payload and "oftalmologo_id" in payload
+    r=enviar(chat,id,"Ese profesional por la tarde",modalidad="voz")
+    assert r.status_code == 200
+    assert r.json()["tarjetas"][0]["fecha"]==chat.fecha.isoformat()
+    assert r.json()["tarjetas"][0]["oftalmologo_id"]==1
+    assert chat.store.sesiones[id].contexto.preferencia=="tarde"
 
 
 @pytest.mark.parametrize("hora",["10:00", "11:00", "17:45"])

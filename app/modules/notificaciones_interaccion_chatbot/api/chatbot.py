@@ -11,7 +11,7 @@ from app.core import config
 from app.core.dependencies import get_db, get_tenant_claims, obtener_usuario_actual, nombre_rol_actual
 from app.modules.gestion_pacientes.repositories.repository import obtener_paciente_por_usuario_id
 from app.modules.notificaciones_interaccion_chatbot.schemas.chatbot import (
-    Entrada, MensajeEntrada, ConversacionRespuesta, MensajeRespuesta,
+    Entrada, MensajeEntrada, ConversacionRespuesta, MensajeRespuesta, ErrorChatbot,
 )
 from app.modules.notificaciones_interaccion_chatbot.services.memoria import MemoriaConversaciones
 from app.modules.notificaciones_interaccion_chatbot.services.proveedor import ProveedorConversacional
@@ -33,7 +33,21 @@ class RutaAcotada(APIRoute):
         return acotada
 
 
-router = APIRouter(prefix="/conversaciones", tags=["CU41 - Chatbot de pacientes"], route_class=RutaAcotada)
+RESPUESTAS = {code:{"model":ErrorChatbot,"description":desc} for code,desc in {
+    401:"JWT inválido, expirado o usuario inactivo",403:"Rol o perfil no autorizado",
+    404:"Conversación o perfil no disponible",409:"Conversación ocupada",413:"Cuerpo excesivo",
+    429:"Límite temporal de recursos o consumo",502:"Respuesta del proveedor inválida",
+    503:"Chatbot deshabilitado o proveedor indisponible",504:"Presupuesto de tiempo agotado"}.items()}
+for code,detalle in {
+    401:"Token inválido o expirado",403:"Perfil de paciente inactivo",404:"Conversación no disponible",
+    409:"Conversación ocupada; vuelve a intentarlo",413:"Solicitud del chatbot demasiado extensa",
+    429:"Límite de consumo del chatbot",502:"Respuesta del chatbot no disponible",
+    503:"El chatbot no está habilitado",504:"Se agotó el tiempo de la consulta al chatbot",
+}.items():
+    RESPUESTAS[code]["content"]={"application/json":{"example":{"detail":detalle}}}
+RESPUESTAS[422]={"description":"Validación de entrada o herramienta: detail puede ser texto o lista de errores",
+                 "content":{"application/json":{"schema":{"type":"object","properties":{"detail":{"anyOf":[{"type":"string"},{"type":"array","items":{"type":"object"}}]}}},"example":{"detail":"Argumentos de herramienta inválidos"}}}}
+router = APIRouter(prefix="/conversaciones", tags=["CU41 - Chatbot de pacientes"], route_class=RutaAcotada, responses=RESPUESTAS)
 _memoria = MemoriaConversaciones()
 
 

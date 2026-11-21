@@ -280,6 +280,7 @@ def listar_citas(
     limite: int | None = None,
     fecha_desde: date | None = None,
     estados: tuple[str, ...] | None = None,
+    desde: datetime | None = None,
 ):
     """Consulta citas aplicando filtros opcionales de CU10.
 
@@ -315,6 +316,7 @@ def listar_citas(
         limite=limite,
         fecha_desde=fecha_desde,
         estados=tuple(_validar_estado_cita(e) for e in estados) if estados is not None else None,
+        desde=desde,
     )
 
 

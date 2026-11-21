@@ -17,7 +17,9 @@ SECRETOS = re.compile(
     r"mi telefono|mi correo|mi cuenta bancaria|mi tarjeta)\b", re.I,
 )
 MEDICO = re.compile(
-    r"\b(?:tengo(?! (?:una? )?cita)|siento|me duele|me arde|veo borroso|dolor|gotas|dosis|medicar|mi diagnostico|mi examen|"
+    # Scope the administrative verb phrase, never bypass the independent scans
+    # of the rest of the message (symptoms, secrets, identity, diagnoses).
+    r"\b(?:tengo(?!\s+(?:(?:(?:un|una|alguna|algunas|ninguna|varias|dos|tres)\s+)?(?:citas?|turnos?|consultas?)\b|(?:una\s+)?(?:duda|pregunta)\s+(?:sobre|acerca de)\s+(?:citas|servicios|agenda|registro)\b))|padezco|sufro|siento|me duele|me arde|veo borroso|dolor|gotas|dosis|medicar|mi diagnostico|mi examen|"
     r"receta|diagnostico|resultados? (?:de|del)|historia clinica|mis resultados|mi historial|anamnesis|prescrib|medicamento|"
     r"tratamiento personalizado|interpretar.*examen)\b", re.I,
 )

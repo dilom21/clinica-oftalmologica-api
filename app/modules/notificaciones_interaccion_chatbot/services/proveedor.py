@@ -40,7 +40,7 @@ def validar_turno(value):
 
 
 class ProveedorConversacional:
-    async def completar(self, mensajes, herramientas, cfg, timeout):
+    async def completar(self, mensajes, herramientas, cfg, timeout, *, tool_choice="auto"):
         try:
             async with AsyncOpenAI(
                 api_key=cfg.deepseek_api_key.get_secret_value(),
@@ -48,7 +48,7 @@ class ProveedorConversacional:
                 timeout=min(timeout, cfg.deepseek_timeout_seconds),
             ) as client:
                 resultado = await client.chat.completions.create(
-                    model=cfg.deepseek_model, messages=mensajes, tools=herramientas,
+                    model=cfg.deepseek_model, messages=mensajes, tools=herramientas, tool_choice=tool_choice,
                     max_tokens=cfg.max_output_tokens, stream=False,
                     extra_body={"thinking": {"type": "disabled"}},
                 )

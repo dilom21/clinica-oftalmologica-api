@@ -97,14 +97,15 @@ def listar_oftalmologos_activos(
     usuario=None,
     *,
     limite: int | None = None,
+    offset: int = 0,
 ):
     """Lista oftalmólogos activos.
 
     Para el rol Oftalmólogo devuelve únicamente su propio registro, de modo
     que la UI no permita seleccionar agendas ajenas.
     """
-    oftalmologos = (repo.listar_oftalmologos_activos(db) if limite is None
-                   else repo.listar_oftalmologos_activos(db, limite=limite))
+    oftalmologos = (repo.listar_oftalmologos_activos(db) if limite is None and offset==0
+                   else repo.listar_oftalmologos_activos(db, limite=limite, offset=offset))
 
     if usuario is not None and _es_rol_oftalmologo(usuario):
         oftalmologos = [
@@ -242,4 +243,3 @@ def consultar_agenda(
         horarios_base=horarios_base,
         citas=citas_agenda,
     )
-

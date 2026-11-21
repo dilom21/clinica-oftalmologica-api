@@ -37,11 +37,13 @@ class Detalle(Entrada):
 
 class Profesionales(Entrada):
     limite: int = Field(default=5, ge=1, le=10, strict=True)
+    offset: int = Field(default=0,ge=0,le=1000,strict=True)
 
 
 class Disponibilidad(Entrada):
     oftalmologo_id: int = Field(gt=0, le=2**63 - 1, strict=True)
     fecha: date = Field(strict=True)
+    franja: Literal["manana", "tarde"] | None = None
 
     @field_validator("fecha")
     @classmethod
@@ -73,11 +75,11 @@ class Navegacion(Entrada):
 
 
 REGISTRO = {
-    "consultar_clinica": (Vacio, "Información institucional validada. Horario general no registrado."),
+    "consultar_clinica": (Vacio, "Fuente institucional para nombre, ubicación, dirección, domicilio, teléfono y correo de la clínica autenticada. Horario general no registrado; no deducirlo de horarios médicos."),
     "consultar_servicios": (Buscar, "Buscar servicios activos de la clínica actual; preguntar si hay ambigüedad."),
     "consultar_detalle_servicio": (Detalle, "Consultar un servicio activo; nunca inventar precios."),
-    "consultar_profesionales": (Profesionales, "Listar alternativas de profesionales activos."),
-    "consultar_disponibilidad": (Disponibilidad, "Consultar intervalos libres reales de un profesional y una fecha; solicitar los datos faltantes."),
+    "consultar_profesionales": (Profesionales, "Fuente obligatoria para saber quién atiende: oftalmólogos, médicos, especialistas o profesionales activos de esta clínica. No responder de memoria."),
+    "consultar_disponibilidad": (Disponibilidad, "Consultar horarios, turnos o huecos libres reales. Reutiliza profesional/fecha del contexto público; permite filtrar mañana o tarde. Si solo conoces el nombre, primero consulta profesionales; pregunta por los datos que falten."),
     "preparar_solicitud_cita": (Propuesta, "Validar horario y preparar formulario. NO reserva ni registra una cita."),
     "consultar_mis_citas": (MisCitas, "Próximas citas propias mediante tarjeta privada local, sin datos al modelo."),
     "orientar_navegacion": (Navegacion, "Abrir una pantalla autorizada. Nunca ejecutar cambios; ID solo de cita propia."),
@@ -96,6 +98,10 @@ def _servicio(row):
                           precio=row.precio, duracion_minutos=row.duracion)
 
 
+def ahora_local():
+    return datetime.now(ZoneInfo(APP_TIMEZONE))
+
+
 def ejecutar(nombre, args, db, actor):
     """Only call after REGISTRO validation. Returns typed cards, never ORM objects."""
     if nombre == "consultar_clinica":
@@ -106,24 +112,31 @@ def ejecutar(nombre, args, db, actor):
             return ClinicaTarjeta(nombre=empresa.nombre_comercial, telefono=empresa.telefono,
                                   correo=empresa.correo, direccion=empresa.direccion)
     if nombre in {"consultar_servicios", "consultar_detalle_servicio"}:
-        rows = (catalogo.listar(db, **args.model_dump()) if nombre == "consultar_servicios"
+        rows = (catalogo.listar(db, busqueda=args.busqueda, offset=args.offset, limite=args.limite+1) if nombre == "consultar_servicios"
                 else [catalogo.detalle(db, args.servicio_id)])
+        if nombre == "consultar_servicios":
+            return ServiciosTarjeta(servicios=[_servicio(r) for r in rows[:args.limite]],
+                                    busqueda=args.busqueda, offset=args.offset, hay_mas=len(rows)>args.limite)
         return ServiciosTarjeta(servicios=[_servicio(r) for r in rows])
     if nombre == "consultar_profesionales":
-        rows = agenda.listar_oftalmologos_activos(db, usuario=actor.usuario, limite=args.limite)
+        rows = agenda.listar_oftalmologos_activos(db, usuario=actor.usuario, limite=args.limite+1, offset=args.offset)
         return ProfesionalesTarjeta(profesionales=[ProfesionalPublico(
             id=r.id, nombre=f"{r.nombres} {r.apellidos}", especialidad=r.especialidad)
-            for r in rows[:args.limite]])
+            for r in rows[:args.limite]], hay_mas=len(rows)>args.limite, offset=args.offset)
     if nombre in {"consultar_disponibilidad", "preparar_solicitud_cita"}:
         result = agenda.consultar_disponibilidad(db, args.oftalmologo_id, args.fecha)
-        ahora = datetime.now(ZoneInfo(APP_TIMEZONE))
+        ahora = ahora_local()
+        profesional = ProfesionalPublico(id=result.oftalmologo.id,
+            nombre=f"{result.oftalmologo.nombres} {result.oftalmologo.apellidos}", especialidad=result.oftalmologo.especialidad)
         disponibles = [i for i in result.intervalos_disponibles
-                       if args.fecha > ahora.date() or i.hora_fin > ahora.time()]
+                       if (args.fecha > ahora.date() or i.hora_inicio >= ahora.time())
+                       and (args.franja is None or
+                            (args.franja=="manana" and i.hora_fin<=time(12)) or
+                            (args.franja=="tarde" and i.hora_inicio>=time(12)))]
         if nombre == "consultar_disponibilidad":
             return DisponibilidadTarjeta(oftalmologo_id=args.oftalmologo_id, fecha=args.fecha,
-                intervalos=[Intervalo(hora_inicio=max(i.hora_inicio, ahora.time().replace(second=0, microsecond=0))
-                                     if args.fecha == ahora.date() else i.hora_inicio, hora_fin=i.hora_fin)
-                            for i in disponibles[:48]])
+                intervalos=[Intervalo(hora_inicio=i.hora_inicio, hora_fin=i.hora_fin)
+                            for i in disponibles[:48]], profesional=profesional, franja=args.franja)
         inicio = datetime.combine(args.fecha, args.hora_inicio)
         fin = inicio + timedelta(minutes=DURACION_CITA_MINUTOS)
         if (args.fecha == ahora.date() and args.hora_inicio <= ahora.time()) or fin.date() != args.fecha or not any(
@@ -132,13 +145,14 @@ def ejecutar(nombre, args, db, actor):
         ):
             raise HTTPException(409, "Horario no disponible")
         return PropuestaTarjeta(oftalmologo_id=args.oftalmologo_id, fecha=args.fecha,
-                               hora_inicio=args.hora_inicio, hora_fin=fin.time())
+                               hora_inicio=args.hora_inicio, hora_fin=fin.time(), profesional=profesional)
     if nombre == "consultar_mis_citas":
-        rows = citas.listar_citas(db, usuario=actor.usuario, limite=args.limite,
+        rows = citas.listar_citas(db, usuario=actor.usuario, limite=args.limite+1,
                                   fecha_desde=fecha_local_aplicacion(),
+                                  desde=ahora_local().replace(tzinfo=None),
                                   estados=("PROGRAMADA", "CONFIRMADA", "EN_ESPERA"))
         return CitasTarjeta(citas=[CitaPropia(id=r.id, oftalmologo_id=r.oftalmologo_id,
-            fecha=r.fecha, hora_inicio=r.hora_inicio, hora_fin=r.hora_fin, estado=r.estado) for r in rows])
+            fecha=r.fecha, hora_inicio=r.hora_inicio, hora_fin=r.hora_fin, estado=r.estado) for r in rows[:args.limite]], hay_mas=len(rows)>args.limite)
     if nombre == "orientar_navegacion":
         if args.destino in {"detalle_cita", "reprogramar_cita", "cancelar_cita"} and args.cita_id is None:
             raise HTTPException(422, "Indica una cita propia")

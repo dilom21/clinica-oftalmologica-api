@@ -8,6 +8,7 @@ import time
 from uuid import uuid4
 
 from fastapi import HTTPException
+from .contexto import ContextoPublico
 
 
 def tamano(value):
@@ -20,6 +21,7 @@ class Conversacion:
     propietario: tuple
     tocada: float
     historial: list = field(default_factory=list)
+    contexto: ContextoPublico = field(default_factory=ContextoPublico)
     lock: Lock = field(default_factory=Lock)
 
 
@@ -44,7 +46,7 @@ class MemoriaConversaciones:
 
     def _bytes(self):
         # Conservative per-entry overhead in addition to serialized history.
-        return sum(4096 + tamano(c.historial) for c in self.sesiones.values())
+        return sum(4096 + tamano(c.historial) + len(c.contexto.model_dump_json().encode()) for c in self.sesiones.values())
 
     def consumir(self, owner, cfg, *, proveedor=False):
         with self.lock:
@@ -70,6 +72,9 @@ class MemoriaConversaciones:
                 raise HTTPException(429, "Capacidad temporal del chatbot alcanzada")
             c = Conversacion(str(uuid4()), owner, self.reloj())
             self.sesiones[c.id] = c
+            if self._bytes() > cfg.max_memory_bytes:
+                del self.sesiones[c.id]
+                raise HTTPException(429, "Capacidad temporal del chatbot alcanzada")
             return c
 
     @contextmanager
@@ -90,7 +95,7 @@ class MemoriaConversaciones:
                 self.activas -= 1
                 c.lock.release()
 
-    def guardar(self, c, turno, cfg):
+    def guardar(self, c, turno, cfg, *, contexto=None):
         with self.lock:
             historial = c.historial + turno
             # Whole user/assistant pairs; never persist tools, raw cards or reasoning.
@@ -98,9 +103,15 @@ class MemoriaConversaciones:
                                  or tamano(historial) > cfg.max_context_bytes // 2):
                 historial = historial[2:]
             viejo = c.historial
+            anterior_contexto = c.contexto
+            if contexto is not None:
+                if len(contexto.model_dump_json().encode()) > cfg.max_context_bytes // 4:
+                    raise HTTPException(429, "Límite de contexto del chatbot")
+                c.contexto = contexto
             c.historial = historial
             if self._bytes() > cfg.max_memory_bytes:
                 c.historial = viejo
+                c.contexto = anterior_contexto
                 raise HTTPException(429, "Capacidad temporal del chatbot alcanzada")
 
     def borrar(self, c):

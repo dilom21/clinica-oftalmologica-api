@@ -11,6 +11,7 @@ class Entrada(BaseModel):
 
 
 class MensajeEntrada(Entrada):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True, json_schema_extra={"examples":[{"mensaje":"¿Qué especialistas atienden aquí?","modalidad":"voz"}]})
     mensaje: str = Field(min_length=1, max_length=4000)
     modalidad: Literal["texto", "voz"] = "texto"
 
@@ -59,12 +60,17 @@ class ServiciosTarjeta(BaseModel):
     tipo: Literal["servicios"] = "servicios"
     privacidad: Literal["publica"] = "publica"
     servicios: list[ServicioPublico] = Field(max_length=10)
+    busqueda: str | None = None
+    offset: int | None = None
+    hay_mas: bool | None = None
 
 
 class ProfesionalesTarjeta(BaseModel):
     tipo: Literal["profesionales"] = "profesionales"
     privacidad: Literal["publica"] = "publica"
     profesionales: list[ProfesionalPublico] = Field(max_length=10)
+    hay_mas: bool | None = None
+    offset: int | None = None
 
 
 class DisponibilidadTarjeta(BaseModel):
@@ -73,6 +79,8 @@ class DisponibilidadTarjeta(BaseModel):
     oftalmologo_id: int
     fecha: date
     intervalos: list[Intervalo] = Field(max_length=48)
+    profesional: ProfesionalPublico | None = None
+    franja: Literal["manana", "tarde"] | None = None
 
 
 class PropuestaTarjeta(BaseModel):
@@ -84,6 +92,7 @@ class PropuestaTarjeta(BaseModel):
     hora_fin: time
     reservada: Literal[False] = False
     requiere_confirmacion: Literal[True] = True
+    profesional: ProfesionalPublico | None = None
 
 
 class CitaPropia(BaseModel):
@@ -99,6 +108,12 @@ class CitasTarjeta(BaseModel):
     tipo: Literal["citas_propias"] = "citas_propias"
     privacidad: Literal["privada"] = "privada"
     citas: list[CitaPropia] = Field(max_length=10)
+    hay_mas: bool | None = None
+
+
+class ErrorChatbot(BaseModel):
+    detail: str
+    model_config = ConfigDict(json_schema_extra={"examples":[{"detail":"Conversación no disponible"}]})
 
 
 class AccionTarjeta(BaseModel):
@@ -119,6 +134,12 @@ class ConversacionRespuesta(BaseModel):
 
 
 class MensajeRespuesta(BaseModel):
+    model_config = ConfigDict(json_schema_extra={"examples":[{
+        "conversacion_id":"123e4567-e89b-42d3-a456-426614174000",
+        "respuesta":"Encontré a Profesional Ficticio, especialista en Oftalmología General.",
+        "texto_voz":"Encontré a Profesional Ficticio, especialista en Oftalmología General.",
+        "tipo":"datos","tarjetas":[{"tipo":"profesionales","privacidad":"publica","profesionales":[{"id":1,"nombre":"Profesional Ficticio","especialidad":"Oftalmología General"}],"hay_mas":False,"offset":0}]
+    }]})
     conversacion_id: UUID
     respuesta: str
     texto_voz: str

@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, or_, and_
 from sqlalchemy.orm import Session
 
 from app.modules.gestion_agenda_citas.models.models import (
@@ -25,7 +25,7 @@ def obtener_oftalmologo_por_id(
     return db.get(Oftalmologo, oftalmologo_id)
 
 
-def listar_oftalmologos_activos(db: Session, *, limite: int | None = None):
+def listar_oftalmologos_activos(db: Session, *, limite: int | None = None, offset: int = 0):
     stmt = (
         select(Oftalmologo)
         .where(Oftalmologo.estado.is_(True))
@@ -39,6 +39,9 @@ def listar_oftalmologos_activos(db: Session, *, limite: int | None = None):
         if not 1 <= limite <= 100:
             raise ValueError("limite de profesionales fuera de rango")
         stmt = stmt.limit(limite)
+    if not 0<=offset<=1000:
+        raise ValueError("offset de profesionales fuera de rango")
+    if offset: stmt=stmt.offset(offset)
     return db.scalars(stmt).all()
 
 
@@ -404,12 +407,15 @@ def listar_citas(
     limite: int | None = None,
     fecha_desde: date | None = None,
     estados: tuple[str, ...] | None = None,
+    desde: datetime | None = None,
 ):
     condiciones = []
     if fecha_desde is not None:
         condiciones.append(Cita.fecha >= fecha_desde)
     if estados is not None:
         condiciones.append(Cita.estado.in_(estados))
+    if desde is not None:
+        condiciones.append(or_(Cita.fecha > desde.date(), and_(Cita.fecha == desde.date(), Cita.hora_inicio >= desde.time())))
     if fecha is not None:
         condiciones.append(Cita.fecha == fecha)
     if paciente_id is not None:
