@@ -148,8 +148,8 @@ def _require_valid_backup(backup: BackupTenant, tenant: TenantDatabase) -> None:
         raise HTTPException(409, "Backup type is not restorable")
     if not backup.storage_key or not backup.sha256 or not backup.size_bytes or backup.size_bytes <= 0:
         raise HTTPException(409, "Backup metadata is incomplete")
-    if backup.version_schema != tenant.version_schema:
-        raise HTTPException(409, "Backup schema version is incompatible")
+    if not backup.version_schema or not backup.version_schema.strip():
+        raise HTTPException(409, "Backup schema version is unavailable")
 
 
 # ------------------------------------------------------------------ archive I/O
@@ -206,12 +206,29 @@ def validate_restore(session_factory: sessionmaker, backup_id: int, user_id: int
             "estado": backup.estado, "tipo": backup.tipo, "size_bytes": backup.size_bytes,
             "sha256": backup.sha256, "version_schema": backup.version_schema, "valido": True,
         }
+        current_version = tenant.version_schema
         storage_key, size_bytes, sha256 = backup.storage_key, backup.size_bytes, backup.sha256
         db.rollback()
     with tempfile.TemporaryDirectory(prefix="saas-restore-validate-") as temporary:
         try:
             archive = _read_storage_archive(storage, storage_key, size_bytes, sha256, Path(temporary))
             backend.list_archive(archive)
+            archive_has_ledger = backend.archive_contains_schema(
+                archive,
+                "app_migrations",
+            )
+            if (
+                not backend.is_known_schema_version(current_version)
+                or not backend.supports_archive_version(
+                    payload["version_schema"],
+                    has_ledger=archive_has_ledger,
+                )
+                or (
+                    payload["version_schema"] != current_version
+                    and not archive_has_ledger
+                )
+            ):
+                raise RuntimeError("Backup schema version is unsupported")
         except Exception as exc:
             _audit_new(session_factory, user_id, payload["empresa_id"], None,
                        "VALIDAR_RESTORE", "ERROR", ip)
@@ -248,14 +265,28 @@ def _swap_selected(backend, allow_swap: bool) -> bool:
     return allow_swap and backend.capabilities().supports_validation_database
 
 
-def _perform_restore(backend, database_name: str, archive: Path, allow_swap: bool) -> None:
+def _perform_restore(
+    backend,
+    database_name: str,
+    archive: Path,
+    allow_swap: bool,
+    *,
+    expected_schema_version: str,
+) -> None:
     """Prefer validation-database + cutover when the runtime proves the capability."""
     capabilities = backend.capabilities()
     if allow_swap and capabilities.supports_validation_database:
         temporary_name = "restore_" + uuid.uuid4().hex
         backend.create_database(temporary_name)
         try:
-            backend.restore_into(temporary_name, archive)
+            # A new PostgreSQL database already owns an empty ``public``
+            # schema.  Use the same exact restore path as in-place recovery so
+            # the archive can create both ``public`` and ``app_migrations``.
+            backend.restore_exact(
+                temporary_name,
+                archive,
+                expected_schema_version=expected_schema_version,
+            )
             if not backend.verify_structure(temporary_name) or not backend.health_check(temporary_name):
                 raise RuntimeError("Validation database verification failed")
             backend.terminate_sessions(database_name)
@@ -268,7 +299,11 @@ def _perform_restore(backend, database_name: str, archive: Path, allow_swap: boo
                 pass
             raise
     else:
-        backend.restore_exact(database_name, archive)
+        backend.restore_exact(
+            database_name,
+            archive,
+            expected_schema_version=expected_schema_version,
+        )
 
 
 def _rollback(session_factory, restore_id, empresa_id, tenant_id, database_name, pre_restore_backup_id,
@@ -289,14 +324,21 @@ def _rollback(session_factory, restore_id, empresa_id, tenant_id, database_name,
             if pre is None or pre.estado != "COMPLETADO" or not pre.storage_key:
                 raise RuntimeError("Pre-restore backup is unavailable")
             pre_key, pre_size, pre_sha = pre.storage_key, pre.size_bytes, pre.sha256
+            pre_version = pre.version_schema
             db.rollback()
         pre_archive = _read_storage_archive(storage, pre_key, pre_size, pre_sha, workdir,
                                             name="pre_restore.dump")
         engine_disposer(tenant_id)
         backend.terminate_sessions(database_name)
-        backend.restore_exact(database_name, pre_archive)
+        backend.restore_exact(
+            database_name,
+            pre_archive,
+            expected_schema_version=pre_version,
+        )
         if not backend.verify_structure(database_name) or not backend.health_check(database_name):
             raise RuntimeError("Rollback verification failed")
+        if not backend.verify_database_schema_version(database_name, pre_version):
+            raise RuntimeError("Rollback schema version verification failed")
     except Exception as exc:  # noqa: BLE001 - the failure must be recorded, never hidden
         failure = exc
 
@@ -319,6 +361,8 @@ def _rollback(session_factory, restore_id, empresa_id, tenant_id, database_name,
             row.rollback_estado = "COMPLETADO"
             if tenant is not None:
                 tenant.estado = "ACTIVA"
+                if pre_version:
+                    tenant.version_schema = pre_version
                 tenant.ultima_verificacion = _now()
         _audit(db, user_id, empresa_id, restore_id, "ERROR_RESTORE", "ERROR", ip)
         if failure is None:
@@ -339,6 +383,8 @@ def create_restore(session_factory: sessionmaker, backup_id: int, confirmacion: 
         empresa_id = empresa.id
         tenant_id = tenant.id
         database_name = tenant.database_name
+        current_version = tenant.version_schema
+        restored_version = backup.version_schema
         storage_key, size_bytes, sha256 = backup.storage_key, backup.size_bytes, backup.sha256
         db.rollback()
 
@@ -361,11 +407,65 @@ def create_restore(session_factory: sessionmaker, backup_id: int, confirmacion: 
         try:
             target_archive = _read_storage_archive(storage, storage_key, size_bytes, sha256, workdir)
             backend.list_archive(target_archive)
+            archive_has_ledger = backend.archive_contains_schema(
+                target_archive,
+                "app_migrations",
+            )
         except Exception as exc:
             _finalize_error(session_factory, restore_id, "VALIDACION", user_id, empresa_id, ip,
                             str(exc))
             reason = sanitize_error(str(exc)) or "Backup validation failed"
             raise RestoreExecutionError(f"Backup validation failed; tenant unchanged ({reason})") from None
+
+        allow_swap = _allow_database_swap()
+        cross_version = restored_version != current_version
+        if (
+            not backend.is_known_schema_version(current_version)
+            or not backend.supports_archive_version(
+                restored_version,
+                has_ledger=archive_has_ledger,
+            )
+        ):
+            _finalize_error(
+                session_factory,
+                restore_id,
+                "VALIDACION_VERSION",
+                user_id,
+                empresa_id,
+                ip,
+                "Restore schema version is unknown or unsupported by the archive",
+            )
+            raise RestoreExecutionError(
+                "Restore schema version refused; tenant unchanged"
+            )
+        if not backend.verify_database_schema_version(database_name, current_version):
+            _finalize_error(
+                session_factory,
+                restore_id,
+                "VALIDACION_VERSION",
+                user_id,
+                empresa_id,
+                ip,
+                "Current tenant schema version does not match its migration ledger",
+            )
+            raise RestoreExecutionError(
+                "Current tenant schema version is inconsistent; tenant unchanged"
+            )
+        if cross_version and (
+            not archive_has_ledger or not _swap_selected(backend, allow_swap)
+        ):
+            _finalize_error(
+                session_factory,
+                restore_id,
+                "VALIDACION_VERSION",
+                user_id,
+                empresa_id,
+                ip,
+                "Cross-version restore requires a complete ledger and validation database",
+            )
+            raise RestoreExecutionError(
+                "Cross-version restore refused; tenant unchanged"
+            )
 
         _audit_new(session_factory, user_id, empresa_id, restore_id, "VALIDAR_RESTORE", "EXITO", ip)
 
@@ -385,7 +485,6 @@ def create_restore(session_factory: sessionmaker, backup_id: int, confirmacion: 
         # 4b. Read-only preflight for the in-place strategy: the public schema
         # must be resettable without destroying shared objects. The tenant is
         # still ACTIVA and no session has been terminated yet.
-        allow_swap = _allow_database_swap()
         if not _swap_selected(backend, allow_swap):
             try:
                 state = backend.inspect_public_schema(database_name)
@@ -427,9 +526,20 @@ def create_restore(session_factory: sessionmaker, backup_id: int, confirmacion: 
 
         # 7. Restore + verify. Any failure from here needs an automatic rollback.
         try:
-            _perform_restore(backend, database_name, target_archive, allow_swap)
+            _perform_restore(
+                backend,
+                database_name,
+                target_archive,
+                allow_swap,
+                expected_schema_version=restored_version,
+            )
             if not backend.verify_structure(database_name) or not backend.health_check(database_name):
                 raise RuntimeError("Final tenant verification failed")
+            if not backend.verify_database_schema_version(
+                database_name,
+                restored_version,
+            ):
+                raise RuntimeError("Final schema version verification failed")
         except Exception as exc:
             row = _rollback(session_factory, restore_id, empresa_id, tenant_id, database_name,
                             pre_restore_backup_id, user_id, ip, backend, storage,
@@ -444,6 +554,9 @@ def create_restore(session_factory: sessionmaker, backup_id: int, confirmacion: 
         with session_factory() as db:
             tenant_row = db.get(TenantDatabase, tenant_id)
             tenant_row.estado = "ACTIVA"
+            # The physical schema and its ledger were restored from the same
+            # backup snapshot; the Control Plane must describe that state.
+            tenant_row.version_schema = restored_version
             tenant_row.ultima_verificacion = _now()
             restore_row = db.get(RestoreTenant, restore_id)
             restore_row.estado = "COMPLETADO"

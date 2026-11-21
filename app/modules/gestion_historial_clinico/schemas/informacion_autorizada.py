@@ -1,8 +1,4 @@
-"""CU25 - Consultar información clínica autorizada.
-
-Contrato de solo lectura para el paciente autenticado. No incluye datos de
-otros pacientes, registros inactivos ni referencias internas de archivos.
-"""
+"""Contrato de solo lectura para la información clínica autorizada de CU25."""
 
 from datetime import date, datetime
 

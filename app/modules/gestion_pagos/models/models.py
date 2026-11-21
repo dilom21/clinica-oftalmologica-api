@@ -1,13 +1,16 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Identity,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
@@ -52,6 +55,10 @@ class Pago(Base):
     detalles: Mapped[list["PagoDetalle"]] = relationship(
         back_populates="pago",
         order_by=lambda: PagoDetalle.id.asc(),
+    )
+    intento_cuota: Mapped["IntentoPagoCuota | None"] = relationship(
+        back_populates="pago",
+        uselist=False,
     )
 
     __table_args__ = (
@@ -171,4 +178,164 @@ class NotificacionPago(Base):
             postgresql_where=text("proveedor_mensaje_id IS NOT NULL"),
             sqlite_where=text("proveedor_mensaje_id IS NOT NULL"),
         ),
+    )
+
+
+class PlanPago(Base):
+    __tablename__ = "plan_pago"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), primary_key=True,
+    )
+    paciente_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("paciente.id", ondelete="RESTRICT"), nullable=False,
+    )
+    consulta_clinica_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("consulta_clinica.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    monto_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    moneda: Mapped[str] = mapped_column(
+        String(3), nullable=False, server_default=text("'BOB'"),
+    )
+    cantidad_cuotas: Mapped[int] = mapped_column(Integer, nullable=False)
+    fecha_creacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"),
+    )
+    estado: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'ACTIVO'"),
+    )
+    observaciones: Mapped[str | None] = mapped_column(Text)
+    creado_por: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("usuario.id", ondelete="RESTRICT"), nullable=False,
+    )
+    clave_idempotencia: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    servicios: Mapped[list["PlanPagoServicio"]] = relationship(
+        back_populates="plan", order_by=lambda: PlanPagoServicio.servicio_realizado_id.asc(),
+    )
+    cuotas: Mapped[list["Cuota"]] = relationship(
+        back_populates="plan", order_by=lambda: Cuota.numero_cuota.asc(),
+    )
+
+    __table_args__ = (
+        CheckConstraint("monto_total > 0", name="ck_plan_pago_monto"),
+        CheckConstraint("moneda = 'BOB'", name="ck_plan_pago_moneda"),
+        CheckConstraint("cantidad_cuotas > 0", name="ck_plan_pago_cantidad"),
+        CheckConstraint(
+            "estado IN ('ACTIVO','COMPLETADO','CANCELADO')",
+            name="ck_plan_pago_estado",
+        ),
+        UniqueConstraint("clave_idempotencia", name="uq_plan_pago_clave_idempotencia"),
+        Index("ix_plan_pago_paciente_estado", "paciente_id", "estado", "fecha_creacion"),
+        Index("ix_plan_pago_consulta", "consulta_clinica_id"),
+        Index("ix_plan_pago_creado_por", "creado_por"),
+    )
+
+
+class PlanPagoServicio(Base):
+    __tablename__ = "plan_pago_servicio"
+
+    plan_pago_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("plan_pago.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    servicio_realizado_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("servicio_realizado.id", ondelete="RESTRICT"),
+        primary_key=True,
+    )
+    monto_financiado: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    activo: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("true"),
+    )
+
+    plan: Mapped[PlanPago] = relationship(back_populates="servicios")
+    servicio_realizado: Mapped[ServicioRealizado] = relationship()
+
+    __table_args__ = (
+        CheckConstraint("monto_financiado > 0", name="ck_pps_monto"),
+        Index(
+            "uq_pps_servicio_comprometido",
+            "servicio_realizado_id",
+            unique=True,
+            postgresql_where=text("activo IS TRUE"),
+            sqlite_where=text("activo IS 1"),
+        ),
+        Index("ix_pps_servicio_historial", "servicio_realizado_id"),
+    )
+
+
+class Cuota(Base):
+    __tablename__ = "cuota"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), primary_key=True,
+    )
+    plan_pago_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("plan_pago.id", ondelete="RESTRICT"), nullable=False,
+    )
+    numero_cuota: Mapped[int] = mapped_column(Integer, nullable=False)
+    monto_programado: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    fecha_vencimiento: Mapped[date] = mapped_column(Date, nullable=False)
+    estado: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'PENDIENTE'"),
+    )
+
+    plan: Mapped[PlanPago] = relationship(back_populates="cuotas")
+    intentos: Mapped[list["IntentoPagoCuota"]] = relationship(
+        back_populates="cuota", order_by=lambda: IntentoPagoCuota.fecha_creacion.desc(),
+    )
+
+    __table_args__ = (
+        UniqueConstraint("plan_pago_id", "numero_cuota", name="uq_cuota_plan_numero"),
+        CheckConstraint("numero_cuota > 0", name="ck_cuota_numero"),
+        CheckConstraint("monto_programado > 0", name="ck_cuota_monto"),
+        CheckConstraint(
+            "estado IN ('PENDIENTE','PAGADA','CANCELADA')",
+            name="ck_cuota_estado",
+        ),
+        Index(
+            "ix_cuota_plan_estado_vencimiento",
+            "plan_pago_id", "estado", "fecha_vencimiento",
+        ),
+    )
+
+
+class IntentoPagoCuota(Base):
+    __tablename__ = "intento_pago_cuota"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), primary_key=True,
+    )
+    cuota_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("cuota.id", ondelete="RESTRICT"), nullable=False,
+    )
+    pago_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("pago.id", ondelete="RESTRICT"),
+        nullable=False,
+        unique=True,
+    )
+    fecha_creacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=text("CURRENT_TIMESTAMP"),
+    )
+    aplicado_a_cuota: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"),
+    )
+
+    cuota: Mapped[Cuota] = relationship(back_populates="intentos")
+    pago: Mapped[Pago] = relationship(back_populates="intento_cuota")
+
+    __table_args__ = (
+        Index(
+            "uq_intento_cuota_aplicada",
+            "cuota_id",
+            unique=True,
+            postgresql_where=text("aplicado_a_cuota IS TRUE"),
+            sqlite_where=text("aplicado_a_cuota IS 1"),
+        ),
+        Index("ix_intento_cuota_historial", "cuota_id", "fecha_creacion"),
     )

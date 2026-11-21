@@ -4,10 +4,11 @@ from sqlalchemy.orm import Session
 from app.core.dependencies import (
     ACCION_ESCRITURA,
     ACCION_LECTURA,
+    get_db,
+    get_tenant_claims,
     obtener_usuario_actual,
     requerir_permiso,
 )
-from app.core.dependencies import get_db
 from app.modules.gestion_historial_clinico.api.controles import router as controles_router
 from app.modules.gestion_historial_clinico.api.servicios_realizados import (
     router as servicios_realizados_router,
@@ -52,12 +53,13 @@ def obtener_modulo():
     return {"mensaje": "Módulo de historial clínico funcionando"}
 
 
-# CU25. Ruta estática: debe declararse antes de /{paciente_id}.
+# CU25. La ruta estática debe registrarse antes de /{paciente_id}.
 @router.get(
     "/mi-informacion",
     response_model=InformacionClinicaAutorizadaRespuesta,
 )
 def consultar_mi_informacion_clinica(
+    _claims=Depends(get_tenant_claims),
     db: Session = Depends(get_db),
     usuario=Depends(obtener_usuario_actual),
 ):

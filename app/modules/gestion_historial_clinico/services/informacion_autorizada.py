@@ -1,4 +1,4 @@
-"""CU25 - El paciente consulta únicamente su información clínica vigente."""
+"""CU25: el paciente consulta únicamente su información clínica vigente."""
 
 from collections import defaultdict
 
@@ -31,18 +31,16 @@ def consultar_informacion_clinica_autorizada(
     db: Session,
     usuario: Usuario,
 ) -> InformacionClinicaAutorizadaRespuesta:
-    """Arma la información clínica que este paciente está autorizado a ver.
-
-    El paciente se deduce del token. No se acepta un `paciente_id` del cliente,
-    así que un paciente no puede pedir el historial de otro.
-    """
-    if nombre_rol_actual(usuario) != "paciente":
+    """Resuelve el paciente desde el usuario autenticado, nunca desde el cliente."""
+    rol = getattr(usuario, "rol", None)
+    if (
+        rol is None
+        or rol.estado is not True
+        or nombre_rol_actual(usuario) != "paciente"
+    ):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail=(
-                "Solo un paciente puede consultar su información clínica "
-                "autorizada"
-            ),
+            detail="Solo un paciente puede consultar su información clínica autorizada",
         )
 
     paciente = obtener_paciente_por_usuario_id(db, usuario.id)
@@ -72,9 +70,7 @@ def consultar_informacion_clinica_autorizada(
 
     diagnosticos_por_consulta: dict[int, list] = defaultdict(list)
     for diagnostico in diagnosticos:
-        diagnosticos_por_consulta[diagnostico.consulta_clinica_id].append(
-            diagnostico
-        )
+        diagnosticos_por_consulta[diagnostico.consulta_clinica_id].append(diagnostico)
 
     consultas_respuesta = []
     for consulta in consultas:

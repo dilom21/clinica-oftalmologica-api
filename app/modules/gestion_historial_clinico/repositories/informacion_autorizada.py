@@ -18,16 +18,12 @@ from app.modules.gestion_historial_clinico.repositories.repository import (
     obtener_paciente_con_historial,
 )
 
-# Un control cancelado ya no forma parte de la información autorizada.
+
 _ESTADOS_CONTROL_VISIBLES = ("PROGRAMADO", "REALIZADO")
 
 
 def obtener_informacion_clinica_autorizada(db: Session, paciente_id: int):
-    """Devuelve el historial activo del paciente y sus registros vigentes.
-
-    Las consultas inactivas, los diagnósticos, tratamientos, recetas, exámenes
-    y resultados inactivos, y los controles cancelados no se incluyen.
-    """
+    """Devuelve solo el historial activo y los registros clínicos vigentes."""
     _paciente, historial = obtener_paciente_con_historial(db, paciente_id)
     if historial is None:
         return None, [], [], []
@@ -44,23 +40,16 @@ def obtener_informacion_clinica_autorizada(db: Session, paciente_id: int):
                 ConsultaClinica.recetas.and_(Receta.estado.is_(True))
             ).selectinload(Receta.detalles),
             selectinload(
-                ConsultaClinica.examenes.and_(
-                    ExamenOftalmologico.estado.is_(True)
-                )
+                ConsultaClinica.examenes.and_(ExamenOftalmologico.estado.is_(True))
             ).selectinload(
-                ExamenOftalmologico.resultados.and_(
-                    ResultadoExamen.estado.is_(True)
-                )
+                ExamenOftalmologico.resultados.and_(ResultadoExamen.estado.is_(True))
             ),
         )
         .where(
             ConsultaClinica.historial_clinico_id == historial.id,
             ConsultaClinica.estado.is_(True),
         )
-        .order_by(
-            ConsultaClinica.fecha_consulta.desc(),
-            ConsultaClinica.id.desc(),
-        )
+        .order_by(ConsultaClinica.fecha_consulta.desc(), ConsultaClinica.id.desc())
         .execution_options(populate_existing=True)
     ).all()
 
@@ -73,10 +62,7 @@ def obtener_informacion_clinica_autorizada(db: Session, paciente_id: int):
                 Diagnostico.consulta_clinica_id.in_(consulta_ids),
                 Diagnostico.estado.is_(True),
             )
-            .order_by(
-                Diagnostico.fecha_diagnostico.desc(),
-                Diagnostico.id.desc(),
-            )
+            .order_by(Diagnostico.fecha_diagnostico.desc(), Diagnostico.id.desc())
         ).all()
 
     controles = db.execute(
@@ -89,17 +75,14 @@ def obtener_informacion_clinica_autorizada(db: Session, paciente_id: int):
                 ControlMedico.estado.in_(_ESTADOS_CONTROL_VISIBLES),
             ),
         )
-        .order_by(
-            ControlMedico.fecha_programada.desc(),
-            ControlMedico.id.desc(),
-        )
+        .order_by(ControlMedico.fecha_programada.desc(), ControlMedico.id.desc())
     ).all()
 
     return historial, consultas, diagnosticos, controles
 
 
 def antecedentes_autorizados(historial: HistorialClinico):
-    """Antecedentes ya filtrados por el historial activo."""
+    """Devuelve únicamente los antecedentes activos del historial autorizado."""
     return [
         antecedente
         for antecedente in historial.antecedentes

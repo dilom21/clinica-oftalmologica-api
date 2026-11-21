@@ -1,4 +1,10 @@
-"""Full tenant custom-format dump and read-only archive verification."""
+"""Full tenant custom-format dump and read-only archive verification.
+
+Tenant recovery needs both the clinical schema and the immutable migration
+ledger.  Keeping both schemas in the same ``pg_dump`` gives them one MVCC
+snapshot and prevents restoring ``public`` with a ledger from another schema
+version.
+"""
 
 import os
 import shutil
@@ -62,7 +68,7 @@ class TenantBackupRunner:
         validate_database_identifier(database_name)
         self.runner.run([
             str(self.pg_dump), "--format=custom", "--no-owner", "--no-privileges",
-            "--schema=public",
+            "--schema=public", "--schema=app_migrations",
             "-h", self.connection.host, "-p", str(self.connection.port),
             "-U", self.connection.user, "-d", database_name, "-f", str(destination),
         ], self._env(), self.timeout_seconds)

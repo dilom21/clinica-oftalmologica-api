@@ -1,6 +1,6 @@
 from collections.abc import Iterable
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.gestion_historial_clinico.models.models import (
@@ -8,7 +8,11 @@ from app.modules.gestion_historial_clinico.models.models import (
     HistorialClinico,
     ServicioRealizado,
 )
-from app.modules.gestion_pagos.models.models import Pago, PagoDetalle
+from app.modules.gestion_pagos.models.models import (
+    Pago,
+    PagoDetalle,
+    PlanPagoServicio,
+)
 
 
 def _carga_servicio():
@@ -106,11 +110,22 @@ def obtener_ids_servicios_cubiertos_por_pago_aprobado(
     stmt = (
         select(PagoDetalle.servicio_realizado_id)
         .join(Pago, Pago.id == PagoDetalle.pago_id)
+        .join(
+            ServicioRealizado,
+            ServicioRealizado.id == PagoDetalle.servicio_realizado_id,
+        )
         .where(
             PagoDetalle.servicio_realizado_id.in_(ids),
             Pago.estado == "APROBADO",
         )
-        .distinct()
+        .group_by(
+            PagoDetalle.servicio_realizado_id,
+            ServicioRealizado.precio_aplicado,
+        )
+        .having(
+            func.sum(PagoDetalle.monto_aplicado)
+            >= ServicioRealizado.precio_aplicado
+        )
     )
     return set(db.scalars(stmt).all())
 
@@ -119,14 +134,9 @@ def servicio_cubierto_por_pago_aprobado(
     db: Session,
     servicio_realizado_id: int,
 ) -> bool:
-    stmt = select(
-        exists().where(
-            PagoDetalle.servicio_realizado_id == servicio_realizado_id,
-            PagoDetalle.pago_id == Pago.id,
-            Pago.estado == "APROBADO",
-        )
+    return servicio_realizado_id in obtener_ids_servicios_cubiertos_por_pago_aprobado(
+        db, [servicio_realizado_id],
     )
-    return bool(db.scalar(stmt))
 
 
 def listar_servicios_pendientes_pago(
@@ -135,12 +145,21 @@ def listar_servicios_pendientes_pago(
     paciente_id: int | None = None,
     consulta_clinica_id: int | None = None,
 ):
-    pago_aprobado = (
-        select(PagoDetalle.id)
+    monto_aprobado = (
+        select(func.coalesce(func.sum(PagoDetalle.monto_aplicado), 0))
         .join(Pago, Pago.id == PagoDetalle.pago_id)
         .where(
             PagoDetalle.servicio_realizado_id == ServicioRealizado.id,
             Pago.estado == "APROBADO",
+        )
+        .correlate(ServicioRealizado)
+        .scalar_subquery()
+    )
+    reserva_plan = (
+        select(PlanPagoServicio.plan_pago_id)
+        .where(
+            PlanPagoServicio.servicio_realizado_id == ServicioRealizado.id,
+            PlanPagoServicio.activo.is_(True),
         )
         .correlate(ServicioRealizado)
     )
@@ -152,7 +171,8 @@ def listar_servicios_pendientes_pago(
             ServicioRealizado.consulta_clinica_id.is_not(None),
             ServicioRealizado.precio_aplicado.is_not(None),
             ServicioRealizado.precio_aplicado > 0,
-            ~exists(pago_aprobado),
+            monto_aprobado < ServicioRealizado.precio_aplicado,
+            ~exists(reserva_plan),
         )
     )
     if paciente_id is not None:
@@ -361,6 +381,8 @@ def consulta_pertenece_a_paciente(
             ConsultaClinica.id == consulta_clinica_id,
             ConsultaClinica.historial_clinico_id == HistorialClinico.id,
             HistorialClinico.paciente_id == paciente_id,
+            HistorialClinico.estado.is_(True),
+            ConsultaClinica.estado.is_(True),
         )
     )
     return bool(db.scalar(stmt))
