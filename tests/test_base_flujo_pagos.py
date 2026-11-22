@@ -140,6 +140,39 @@ def db_pagos():
         )""",
         """CREATE UNIQUE INDEX uq_intento_cuota_aplicada
             ON intento_pago_cuota(cuota_id) WHERE aplicado_a_cuota IS 1""",
+        """CREATE TABLE pago_ajuste (
+            id INTEGER PRIMARY KEY, pago_id INTEGER NOT NULL,
+            tipo TEXT NOT NULL, naturaleza TEXT NOT NULL,
+            efecto_caja TEXT NOT NULL, estado TEXT NOT NULL DEFAULT 'CONFIRMADO',
+            importe NUMERIC(12,2) NOT NULL, moneda TEXT NOT NULL DEFAULT 'BOB',
+            motivo TEXT NOT NULL, evidencia TEXT, referencia_externa TEXT,
+            clave_idempotencia TEXT NOT NULL UNIQUE,
+            revertir_aplicacion_cuota BOOLEAN NOT NULL DEFAULT 0,
+            creado_por INTEGER, confirmado_por INTEGER,
+            conciliado_por INTEGER,
+            fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            fecha_confirmacion TIMESTAMP, fecha_conciliacion TIMESTAMP,
+            observaciones TEXT
+        )""",
+        """CREATE TABLE pago_ajuste_detalle (
+            id INTEGER PRIMARY KEY, ajuste_id INTEGER NOT NULL,
+            servicio_realizado_id INTEGER NOT NULL,
+            monto NUMERIC(12,2) NOT NULL,
+            UNIQUE(ajuste_id, servicio_realizado_id)
+        )""",
+        """CREATE TABLE stripe_webhook_huerfano (
+            id INTEGER PRIMARY KEY,
+            stripe_event_id TEXT NOT NULL UNIQUE,
+            event_type TEXT NOT NULL, refund_id TEXT NOT NULL,
+            payment_intent_id TEXT, amount INTEGER NOT NULL,
+            currency TEXT NOT NULL, status TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            estado TEXT NOT NULL DEFAULT 'PENDIENTE',
+            ajuste_id INTEGER, motivo TEXT,
+            creado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            actualizado_en TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )""",
     ]
     ahora = "2026-10-01 12:00:00"
     with engine.begin() as conn:

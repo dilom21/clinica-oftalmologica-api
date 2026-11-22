@@ -23,8 +23,13 @@ router = APIRouter(
 )
 
 FUNCION_CU26 = "Gestionar productos, categorías y lotes"
-permiso_cu26_lectura = requerir_permiso(FUNCION_CU26, ACCION_LECTURA)
-permiso_cu26_escritura = requerir_permiso(FUNCION_CU26, ACCION_ESCRITURA)
+MODULO_CU26 = "Inventario y Proveedores"
+permiso_cu26_lectura = requerir_permiso(
+    FUNCION_CU26, ACCION_LECTURA, modulo=MODULO_CU26,
+)
+permiso_cu26_escritura = requerir_permiso(
+    FUNCION_CU26, ACCION_ESCRITURA, modulo=MODULO_CU26,
+)
 
 
 @router.get("/categorias", response_model=list[CategoriaRespuesta])

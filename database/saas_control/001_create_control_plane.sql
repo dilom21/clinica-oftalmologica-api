@@ -66,7 +66,7 @@ CREATE TABLE IF NOT EXISTS saas_control.tenant_database (
     database_name VARCHAR(63) NOT NULL UNIQUE,
     host_alias VARCHAR(100),
     estado VARCHAR(20) NOT NULL DEFAULT 'PENDIENTE',
-    version_schema VARCHAR(30),
+    version_schema VARCHAR(64),
     fecha_provisionamiento TIMESTAMPTZ,
     ultima_verificacion TIMESTAMPTZ,
     fecha_creacion TIMESTAMPTZ NOT NULL DEFAULT now(),

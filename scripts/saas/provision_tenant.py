@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import os
 import re
 import shutil
@@ -34,7 +35,36 @@ EXCLUDED_SCHEMAS = (
     "vault", "graphql", "graphql_public", "supabase_functions",
 )
 REQUIRED_TOOLS = ("pg_dump", "pg_restore", "psql")
-SCHEMA_VERSION = "v4-sprint3-cu32-cu33"
+MANIFEST_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "database" / "tenant_migrations" / "manifest.json"
+)
+
+
+def manifest_schema_version() -> str:
+    """Return the schema version declared by the immutable migration manifest.
+
+    It is never hard-coded: a provisioner that labels tenants with a stale
+    version silently mislabels the Control Plane (audit I-4).
+    """
+    try:
+        payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProvisioningError("Migration manifest cannot be loaded") from exc
+    version = payload.get("schema_version")
+    if not isinstance(version, str) or not version.strip():
+        raise ProvisioningError("Migration manifest has no schema_version")
+    return version.strip()
+
+
+# Physical objects that prove a migration was really applied. A cloned schema
+# is only stamped with the current version after these exist and the bundle
+# verification SQL passes; without them the tenant must not claim v6.
+CU36_SCHEMA_MARKERS = {
+    "20261116000000": ("public.pago_ajuste", "public.pago_ajuste_detalle"),
+    "20261117000000": ("public.stripe_webhook_huerfano",),
+}
+
 RECONCILE_COUNT_TABLES = ("usuario", "paciente", "cita")
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 900
 EXPECTED_SOURCE_TABLE_COUNT = 41
@@ -126,6 +156,9 @@ def _fecha_local_aplicacion() -> date:
 
 class ProvisioningError(RuntimeError):
     """Controlled failure whose message must not contain credentials."""
+
+
+SCHEMA_VERSION = manifest_schema_version()
 
 
 @dataclass(frozen=True)
@@ -438,7 +471,7 @@ END $$;
         self._run([str(self.tools.psql), *self._common(target_database), "-v", "ON_ERROR_STOP=1", "-f", "-"], sql)
 
     def record_schema_baseline(self, target_database: str) -> None:
-        """Create the immutable ledger baseline for a newly cloned v4 schema."""
+        """Create the immutable ledger baseline for a newly cloned schema."""
         from app.modules.administracion_saas.tenant_migrator import load_bundle
 
         migration_root = Path(__file__).resolve().parents[2] / "database" / "tenant_migrations"
@@ -493,6 +526,90 @@ COMMIT;
              "-v", "ON_ERROR_STOP=1", "-f", "-"],
             sql,
         )
+
+    def _missing_tables(self, target_database: str, tables: tuple[str, ...]) -> list[str]:
+        validate_database_identifier(target_database)
+        if not tables:
+            return []
+        values = ", ".join(f"({_sql_literal(table)})" for table in tables)
+        output = self._psql(
+            target_database,
+            "SELECT string_agg(x, ',' ORDER BY x) FROM (VALUES " + values
+            + ") v(x) WHERE to_regclass(x) IS NULL;",
+        ).strip()
+        return [item for item in output.split(",") if item]
+
+    def prepare_schema_baseline(self, target_database: str) -> str:
+        """Apply missing CU36 migrations, stamp the exact ledger and verify it.
+
+        A freshly cloned schema may still be v4/v5 if the template database was
+        not migrated. The tenant is only labelled with the manifest version
+        after the physical CU36 objects exist, the complete ledger is recorded
+        and the bundle verification SQL passes (audit I-4).
+        """
+        from app.modules.administracion_saas.tenant_migrator import load_bundle
+
+        migration_root = Path(__file__).resolve().parents[2] / "database" / "tenant_migrations"
+        bundle = load_bundle(migration_root)
+        for migration in bundle.migrations:
+            markers = CU36_SCHEMA_MARKERS.get(migration.version)
+            if markers is None:
+                continue
+            missing = self._missing_tables(target_database, markers)
+            if not missing:
+                continue
+            present = [marker for marker in markers if marker not in missing]
+            if present:
+                raise ProvisioningError(
+                    "Cloned schema has a partial " + migration.version
+                    + " installation; reconcile the template database"
+                )
+            argv = [
+                str(self.tools.psql), *self._common(target_database),
+                "-v", "ON_ERROR_STOP=1",
+            ]
+            if migration.transaction == "runner":
+                argv.append("-1")
+            argv += ["-f", "-"]
+            self._run(argv, migration.sql)
+
+        self.record_schema_baseline(target_database)
+        self._run(
+            [str(self.tools.psql), *self._common(target_database),
+             "-v", "ON_ERROR_STOP=1", "-f", "-"],
+            bundle.verification_sql,
+        )
+        return bundle.schema_version
+
+    def verify_current_schema(self, target_database: str) -> bool:
+        """Read-only proof that the tenant physically has the current schema.
+
+        Used before the Control Plane is allowed to keep/label the current
+        version during reconciliation; it never writes anything.
+        """
+        from app.modules.administracion_saas.tenant_migrator import load_bundle
+
+        migration_root = Path(__file__).resolve().parents[2] / "database" / "tenant_migrations"
+        bundle = load_bundle(migration_root)
+        for markers in CU36_SCHEMA_MARKERS.values():
+            if self._missing_tables(target_database, markers):
+                return False
+        expected = sorted(
+            [item.version for item in bundle.migrations]
+            + [item.version for item in bundle.external_migrations]
+        )
+        if not expected:
+            return False
+        versions = ", ".join(_sql_literal(version) for version in expected)
+        recorded = self._psql(
+            target_database,
+            "SELECT count(*) FROM app_migrations.schema_migration "
+            "WHERE version IN (" + versions + ");",
+        ).strip()
+        try:
+            return int(recorded or "0") == len(expected)
+        except ValueError:
+            return False
 
     def verify_clean(self, target_database: str, source_structure: SchemaSnapshot,
                      admin_email: str) -> CleanVerification:
@@ -1175,7 +1292,9 @@ def execute_provision(
             if not verification.counts_ok:
                 raise ProvisioningError("Tenant count verification failed")
             progress(9, "Registrando baseline de migraciones")
-            backend.record_schema_baseline(mapping.database_name)
+            baseline_version = _prepare_schema_baseline(
+                backend, mapping.database_name,
+            )
             progress(10, "Health check")
             if not backend.health_check(mapping):
                 raise ProvisioningError("Tenant health check failed")
@@ -1183,7 +1302,7 @@ def execute_provision(
         finally:
             if dump_path is not None:
                 backend.cleanup_dump(dump_path)
-        writer.complete(mapping, version=SCHEMA_VERSION)
+        writer.complete(mapping, version=baseline_version)
         return "Provisioning completed: tenant_vision_clara is ACTIVA/COMPLETADO."
     except Exception as exc:
         writer.fail(mapping, _sanitized_error(str(exc)))
@@ -1300,7 +1419,9 @@ def _execute_provision_clean_mapping(
             if not verification.ok:
                 raise ProvisioningError("Clean tenant verification failed")
             progress(9, "Registrando baseline de migraciones")
-            backend.record_schema_baseline(mapping.database_name)
+            baseline_version = _prepare_schema_baseline(
+                backend, mapping.database_name,
+            )
             progress(10, "Health check")
             if not backend.health_check(mapping):
                 raise ProvisioningError("Tenant health check failed")
@@ -1311,7 +1432,7 @@ def _execute_provision_clean_mapping(
                     backend.cleanup_dump(dump_path)
                 finally:
                     dump_path = None
-        writer.complete(mapping, version=SCHEMA_VERSION)
+        writer.complete(mapping, version=baseline_version)
         return f"Clean provisioning completed: {mapping.code} is ACTIVA/COMPLETADO."
     except Exception as exc:
         writer.fail(mapping, _sanitized_error(str(exc)))
@@ -1466,6 +1587,11 @@ def reconcile_existing(
             raise ProvisioningError("Tenant reconciliation health check failed")
 
         progress(6, "Control Plane activation")
+        verify_current = getattr(backend, "verify_current_schema", None)
+        if verify_current is not None and not verify_current(mapping.database_name):
+            raise ProvisioningError(
+                "Tenant schema is not at the current version; refusing to label it"
+            )
         writer.complete(mapping, version=SCHEMA_VERSION)
         return "Reconciliation completed: OFTALMO-NORTE is ACTIVA/COMPLETADO."
     except Exception as exc:
@@ -1481,6 +1607,17 @@ def _progress_callback(reporter):
     if hasattr(reporter, "report"):
         return lambda step, label: reporter.report(step, label)
     return reporter
+
+
+def _prepare_schema_baseline(backend, database_name: str) -> str:
+    """Stamp only the schema version the tenant really has physically."""
+    prepare = getattr(backend, "prepare_schema_baseline", None)
+    if prepare is not None:
+        return prepare(database_name)
+    record = getattr(backend, "record_schema_baseline", None)
+    if record is not None:
+        record(database_name)
+    return SCHEMA_VERSION
 
 
 def execute_recovery(

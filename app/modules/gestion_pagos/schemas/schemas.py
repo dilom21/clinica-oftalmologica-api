@@ -105,4 +105,7 @@ class PagoHistorialItem(BaseModel):
         "REEMBOLSADO",
     ]
     pasarela: str | None = None
+    # CU36: importes de solo lectura en el historial del paciente.
+    importe_vigente: Decimal | None = None
+    importe_reembolsado: Decimal | None = None
     servicios: list[ServicioPagoHistorial]

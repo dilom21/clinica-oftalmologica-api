@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.tenancy.dependencies import get_control_db
+from app.core.tenancy.registry_provider import get_tenant_engine_registry
 from app.modules.administracion_saas import policy_service, restore_service
 from app.modules.administracion_saas.backup_service import create_manual_backup, list_backups
 from app.modules.administracion_saas.dependencies import get_saas_admin, get_saas_superadmin
@@ -36,6 +37,11 @@ from app.modules.administracion_saas.service import (
     cambiar_estado_suscripcion,
     sanitize_error,
 )
+from app.modules.gestion_pagos.schemas.ajustes import (
+    AtribuirHuerfanoCentral,
+    WebhookHuerfanoCentralRespuesta,
+)
+from app.modules.gestion_pagos.services import huerfanos as huerfanos_service
 
 
 router = APIRouter(prefix="/saas", tags=["Administracion SaaS"])
@@ -392,3 +398,36 @@ def restore_detail(
     if row is None:
         raise HTTPException(404, "Restore not found")
     return _restore_response(row, ver_nombres=puede_ver_nombres_fisicos(usuario))
+
+
+# --------------------------------------------------------------------------
+# CU36 I-2: refunds Stripe sin tenant resoluble. La cuarentena vive en el
+# Control Plane y solo SUPERADMIN puede atribuirla a una empresa.
+# --------------------------------------------------------------------------
+@router.get(
+    "/stripe/reembolsos-huerfanos",
+    response_model=list[WebhookHuerfanoCentralRespuesta],
+)
+def listar_reembolsos_huerfanos_central(
+    db: Session = Depends(get_control_db),
+    _usuario: SaasUsuario = Depends(get_saas_superadmin),
+):
+    return huerfanos_service.listar_huerfanos_central(db)
+
+
+@router.post(
+    "/stripe/reembolsos-huerfanos/{huerfano_id}/atribuir",
+    response_model=WebhookHuerfanoCentralRespuesta,
+)
+def atribuir_reembolso_huerfano_central(
+    huerfano_id: int,
+    datos: AtribuirHuerfanoCentral,
+    db: Session = Depends(get_control_db),
+    usuario: SaasUsuario = Depends(get_saas_superadmin),
+    registry=Depends(get_tenant_engine_registry),
+):
+    if huerfano_id <= 0:
+        raise HTTPException(404, "Reembolso huerfano central no encontrado")
+    return huerfanos_service.atribuir_huerfano_central(
+        db, huerfano_id, datos, usuario, registry,
+    )

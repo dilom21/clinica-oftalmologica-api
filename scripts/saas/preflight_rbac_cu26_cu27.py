@@ -9,7 +9,37 @@ from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
 EXPECTED_TENANTS = 7
-EXPECTED_SCHEMA = "v4-sprint3-cu32-cu33"
+MANIFEST_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "database" / "tenant_migrations" / "manifest.json"
+)
+
+
+def _load_schema_versions() -> tuple[str, frozenset[str]]:
+    """Read the supported schema versions from the immutable manifest.
+
+    A tenant is rejected only when its version is not one the current
+    migration bundle supports (v3, v4, v5 or the current v6). Hard-coding v4
+    rejected already-migrated v5/v6 tenants.
+    """
+    payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    current = payload.get("schema_version")
+    allowed = payload.get("allowed_source_schema_versions") or []
+    if not isinstance(current, str) or not current.strip():
+        raise PreflightError("migration manifest has no schema_version")
+    if not isinstance(allowed, list):
+        raise PreflightError("migration manifest has an invalid allowed list")
+    supported = {
+        current.strip(),
+        *(
+            item.strip() for item in allowed
+            if isinstance(item, str) and item.strip()
+        ),
+    }
+    return current.strip(), frozenset(supported)
+
+
+EXPECTED_SCHEMA, SUPPORTED_SCHEMAS = _load_schema_versions()
 URL_ENV = "RBAC_PREFLIGHT_DATABASE_URL"
 TARGET_MODULE = "Inventario y Proveedores"
 TARGET_FUNCTIONS = ("Gestionar productos, categorías y lotes", "Gestionar movimientos de inventario")
@@ -59,8 +89,11 @@ def validate_control_rows(rows, expected_count: int = EXPECTED_TENANTS) -> dict:
             raise PreflightError(f"missing tenant id or database name: {item['code']}")
         if not str(item["version"] or "").strip():
             raise PreflightError(f"missing schema version for {item['code']}")
-        if str(item["version"]).strip() != EXPECTED_SCHEMA:
-            raise PreflightError(f"unsupported schema version for {item['code']}")
+        if str(item["version"]).strip() not in SUPPORTED_SCHEMAS:
+            raise PreflightError(
+                f"unsupported schema version for {item['code']}: "
+                f"{item['version']} (supported: {', '.join(sorted(SUPPORTED_SCHEMAS))})"
+            )
     for label, values in (("company code", [x["code"] for x in items]),
                           ("company", [x["company"] for x in items]),
                           ("database name", [x["database"] for x in items])):

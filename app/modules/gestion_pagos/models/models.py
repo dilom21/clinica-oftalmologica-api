@@ -60,6 +60,10 @@ class Pago(Base):
         back_populates="pago",
         uselist=False,
     )
+    ajustes: Mapped[list["PagoAjuste"]] = relationship(
+        back_populates="pago",
+        order_by=lambda: PagoAjuste.id.asc(),
+    )
 
     __table_args__ = (
         CheckConstraint("monto > 0", name="ck_pago_monto_positivo"),
@@ -338,4 +342,260 @@ class IntentoPagoCuota(Base):
             sqlite_where=text("aplicado_a_cuota IS 1"),
         ),
         Index("ix_intento_cuota_historial", "cuota_id", "fecha_creacion"),
+    )
+
+
+# =========================================================
+# CU36 - Libro estructurado de ajustes financieros
+# `Pago.monto` y `PagoDetalle.monto_aplicado` son inmutables: toda
+# anulacion, correccion, devolucion o reembolso se registra aqui.
+# =========================================================
+
+TIPOS_AJUSTE = (
+    "ANULACION",
+    "CORRECCION",
+    "DEVOLUCION",
+    "REEMBOLSO",
+    "RECONCILIACION",
+)
+NATURALEZAS_AJUSTE = (
+    "ERROR_DE_REGISTRO",
+    "PAGO_DUPLICADO",
+    "SERVICIO_CANCELADO",
+    "SOBREPAGO",
+    "PAGO_INSUFICIENTE",
+    "REVERSION_FINANCIACION",
+    "OTRO",
+)
+EFECTOS_CAJA_AJUSTE = (
+    "SIN_EFECTO",
+    "DEVOLUCION_MANUAL",
+    "DEVOLUCION_STRIPE",
+)
+ESTADOS_AJUSTE = (
+    "PENDIENTE_PROVEEDOR",
+    "CONFIRMADO",
+    "FALLIDO",
+    "CANCELADO",
+    "DESCONOCIDO",
+)
+ESTADOS_AJUSTE_ABIERTOS = ("PENDIENTE_PROVEEDOR", "DESCONOCIDO")
+ESTADOS_PAGO_CAPTURADO = ("APROBADO", "REEMBOLSADO")
+
+
+class PagoAjuste(Base):
+    """Cabecera de una operacion financiera sobre un pago (CU36)."""
+
+    __tablename__ = "pago_ajuste"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), primary_key=True,
+    )
+    pago_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("pago.id", ondelete="RESTRICT"), nullable=False,
+    )
+    tipo: Mapped[str] = mapped_column(String(20), nullable=False)
+    naturaleza: Mapped[str] = mapped_column(String(40), nullable=False)
+    efecto_caja: Mapped[str] = mapped_column(String(20), nullable=False)
+    estado: Mapped[str] = mapped_column(
+        String(25), nullable=False, server_default=text("'CONFIRMADO'"),
+    )
+    # Importe firmado del ajuste. Positivo aumenta la cobertura vigente
+    # (solo correcciones de registro); negativo la reduce. Vale cero solo
+    # para anulaciones y conciliaciones, que no mueven importes.
+    importe: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+    moneda: Mapped[str] = mapped_column(
+        String(3), nullable=False, server_default=text("'BOB'"),
+    )
+    motivo: Mapped[str] = mapped_column(Text, nullable=False)
+    evidencia: Mapped[str | None] = mapped_column(Text)
+    referencia_externa: Mapped[str | None] = mapped_column(String(255))
+    clave_idempotencia: Mapped[str] = mapped_column(String(100), nullable=False)
+    revertir_aplicacion_cuota: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false"),
+    )
+    creado_por: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("usuario.id", ondelete="RESTRICT"),
+    )
+    confirmado_por: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("usuario.id", ondelete="RESTRICT"),
+    )
+    conciliado_por: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("usuario.id", ondelete="RESTRICT"),
+    )
+    fecha_creacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    fecha_actualizacion: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    fecha_confirmacion: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
+    fecha_conciliacion: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+    )
+    observaciones: Mapped[str | None] = mapped_column(Text)
+
+    pago: Mapped[Pago] = relationship(back_populates="ajustes")
+    detalles: Mapped[list["PagoAjusteDetalle"]] = relationship(
+        back_populates="ajuste",
+        order_by=lambda: PagoAjusteDetalle.id.asc(),
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "tipo IN ('ANULACION','CORRECCION','DEVOLUCION','REEMBOLSO',"
+            "'RECONCILIACION')",
+            name="ck_pago_ajuste_tipo",
+        ),
+        CheckConstraint(
+            "naturaleza IN ('ERROR_DE_REGISTRO','PAGO_DUPLICADO',"
+            "'SERVICIO_CANCELADO','SOBREPAGO','PAGO_INSUFICIENTE',"
+            "'REVERSION_FINANCIACION','OTRO')",
+            name="ck_pago_ajuste_naturaleza",
+        ),
+        CheckConstraint(
+            "efecto_caja IN ('SIN_EFECTO','DEVOLUCION_MANUAL',"
+            "'DEVOLUCION_STRIPE')",
+            name="ck_pago_ajuste_efecto_caja",
+        ),
+        CheckConstraint(
+            "estado IN ('PENDIENTE_PROVEEDOR','CONFIRMADO','FALLIDO',"
+            "'CANCELADO','DESCONOCIDO')",
+            name="ck_pago_ajuste_estado",
+        ),
+        CheckConstraint(
+            "(tipo IN ('ANULACION','RECONCILIACION') AND importe = 0)"
+            " OR (tipo = 'CORRECCION' AND importe <> 0)"
+            " OR (tipo IN ('DEVOLUCION','REEMBOLSO') AND importe < 0)",
+            name="ck_pago_ajuste_importe",
+        ),
+        CheckConstraint(
+            "importe <= 0 OR naturaleza = 'ERROR_DE_REGISTRO'",
+            name="ck_pago_ajuste_correccion_positiva",
+        ),
+        CheckConstraint(
+            "(tipo = 'REEMBOLSO' AND efecto_caja = 'DEVOLUCION_STRIPE')"
+            " OR (tipo = 'DEVOLUCION' AND efecto_caja = 'DEVOLUCION_MANUAL')"
+            " OR (tipo IN ('ANULACION','CORRECCION','RECONCILIACION')"
+            " AND efecto_caja = 'SIN_EFECTO')",
+            name="ck_pago_ajuste_efecto_por_tipo",
+        ),
+        CheckConstraint(
+            "length(moneda) = 3 AND moneda = upper(moneda)",
+            name="ck_pago_ajuste_moneda",
+        ),
+        UniqueConstraint(
+            "clave_idempotencia", name="uq_pago_ajuste_clave_idempotencia",
+        ),
+        Index(
+            "uq_pago_ajuste_referencia_externa",
+            "referencia_externa",
+            unique=True,
+            postgresql_where=text("referencia_externa IS NOT NULL"),
+            sqlite_where=text("referencia_externa IS NOT NULL"),
+        ),
+        Index("ix_pago_ajuste_pago_fecha", "pago_id", "fecha_creacion"),
+        Index("ix_pago_ajuste_estado", "estado"),
+    )
+
+
+class PagoAjusteDetalle(Base):
+    """Distribucion del importe del ajuste por servicio realizado."""
+
+    __tablename__ = "pago_ajuste_detalle"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), primary_key=True,
+    )
+    ajuste_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("pago_ajuste.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    servicio_realizado_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("servicio_realizado.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    monto: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
+
+    ajuste: Mapped[PagoAjuste] = relationship(back_populates="detalles")
+    servicio_realizado: Mapped[ServicioRealizado] = relationship()
+
+    __table_args__ = (
+        CheckConstraint("monto <> 0", name="ck_pago_ajuste_detalle_monto"),
+        UniqueConstraint(
+            "ajuste_id", "servicio_realizado_id",
+            name="uq_pago_ajuste_detalle_ajuste_servicio",
+        ),
+        Index(
+            "ix_pago_ajuste_detalle_servicio", "servicio_realizado_id",
+        ),
+    )
+
+
+ESTADOS_WEBHOOK_HUERFANO = ("PENDIENTE", "ATRIBUIDO", "DESCARTADO")
+
+
+class StripeWebhookHuerfano(Base):
+    """Evento Stripe verificado que no pudo atribuirse a un tenant/ajuste.
+
+    Se persiste antes de responder a Stripe para que un refund creado fuera
+    del flujo (por ejemplo, en el dashboard) quede disponible para
+    conciliacion manual auditada. Un evento huerfano nunca se contabiliza
+    automaticamente ni se atribuye sin refund_id explicito de un administrador.
+    """
+
+    __tablename__ = "stripe_webhook_huerfano"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, Identity(always=True), primary_key=True,
+    )
+    stripe_event_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    refund_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    payment_intent_id: Mapped[str | None] = mapped_column(String(255))
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    estado: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'PENDIENTE'"),
+    )
+    ajuste_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("pago_ajuste.id", ondelete="RESTRICT"),
+    )
+    motivo: Mapped[str | None] = mapped_column(Text)
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+    actualizado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False,
+        server_default=text("CURRENT_TIMESTAMP"),
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "stripe_event_id", name="uq_stripe_webhook_huerfano_evento",
+        ),
+        CheckConstraint("amount > 0", name="ck_stripe_webhook_huerfano_amount"),
+        CheckConstraint(
+            "length(currency) = 3 AND currency = upper(currency)",
+            name="ck_stripe_webhook_huerfano_moneda",
+        ),
+        CheckConstraint(
+            "estado IN ('PENDIENTE','ATRIBUIDO','DESCARTADO')",
+            name="ck_stripe_webhook_huerfano_estado",
+        ),
+        Index(
+            "ix_stripe_webhook_huerfano_refund", "refund_id", "estado",
+        ),
+        Index(
+            "ix_stripe_webhook_huerfano_pi", "payment_intent_id",
+        ),
     )

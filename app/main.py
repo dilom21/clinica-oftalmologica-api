@@ -23,6 +23,10 @@ from app.modules.integracion_ia.api.router import router as ia_router
 from app.modules.administracion_saas.api.router import router as saas_router
 from app.modules.gestion_servicios.api.router import router as servicios_router
 from app.modules.gestion_inventario_proveedores.api.router import router as inventario_router
+from app.modules.ia_predictiva.api.router import router as ia_predictiva_router
+from app.modules.notificaciones_push.api.router import (
+    router as notificaciones_push_router,
+)
 
 app = FastAPI(
     title="API Clínica Oftalmológica",
@@ -56,6 +60,8 @@ app.include_router(ia_router)
 app.include_router(saas_router)
 app.include_router(servicios_router)
 app.include_router(inventario_router)
+app.include_router(ia_predictiva_router)
+app.include_router(notificaciones_push_router)
 
 @app.get("/")
 def root():

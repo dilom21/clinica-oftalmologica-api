@@ -19,6 +19,9 @@ from app.modules.gestion_pacientes.repositories.repository import (
 from app.modules.gestion_usuarios_seguridad.repositories.repository import (
     registrar_bitacora,
 )
+from app.modules.notificaciones_push.services import (
+    eventos_cita as eventos_cita_notificaciones,
+)
 
 
 # =========================================================
@@ -259,6 +262,14 @@ def registrar_cita(
             descripcion="Cita registrada",
         )
 
+        # Fase 3C.4: evidencia estructurada + bandeja in-app, en la misma
+        # transaccion tenant. Si falla, el except hace rollback de la cita.
+        eventos_cita_notificaciones.registrar_evento_cita_creada(
+            db,
+            cita,
+            usuario,
+        )
+
         db.commit()
         db.refresh(cita)
 
@@ -401,6 +412,13 @@ def reprogramar_cita(
     else:
         nueva_hora_fin = cita.hora_fin
 
+    fecha_anterior = cita.fecha
+    hora_anterior = cita.hora_inicio
+    hubo_cambio_agenda = (
+        fecha_anterior != nueva_fecha
+        or hora_anterior != nueva_hora_inicio
+    )
+
     try:
         cita = repo.actualizar_cita(
             db,
@@ -420,6 +438,20 @@ def reprogramar_cita(
             id_registro_afectado=cita.id,
             descripcion="Cita reprogramada",
         )
+
+        # Fase 3C.4: solo un cambio efectivo de fecha/hora genera el evento;
+        # cambiar motivo u observaciones no es una reprogramacion. El estado
+        # nunca cambia aqui, por lo que no se emite un evento de estado.
+        if hubo_cambio_agenda:
+            eventos_cita_notificaciones.registrar_evento_cita_reprogramada(
+                db,
+                cita,
+                fecha_anterior=fecha_anterior,
+                hora_anterior=hora_anterior,
+                fecha_nueva=nueva_fecha,
+                hora_nueva=nueva_hora_inicio,
+                usuario=usuario,
+            )
 
         db.commit()
         db.refresh(cita)
@@ -461,6 +493,8 @@ def cambiar_estado_cita(
     if cita.estado == estado_normalizado:
         return cita
 
+    estado_anterior = cita.estado
+
     try:
         cita = repo.actualizar_estado_cita(
             db,
@@ -477,6 +511,15 @@ def cambiar_estado_cita(
             descripcion=(
                 f"Estado de cita cambiado a {estado_normalizado}"
             ),
+        )
+
+        # Fase 3C.4: cambio efectivo de estado (no-op ya retorno arriba).
+        eventos_cita_notificaciones.registrar_evento_cita_estado(
+            db,
+            cita,
+            estado_anterior=estado_anterior,
+            estado_nuevo=estado_normalizado,
+            usuario=usuario,
         )
 
         db.commit()
@@ -511,6 +554,8 @@ def cancelar_cita(
     if cita.estado == ESTADO_CITA_CANCELADA:
         return cita
 
+    estado_anterior = cita.estado
+
     try:
         cita = repo.actualizar_estado_cita(
             db,
@@ -525,6 +570,16 @@ def cancelar_cita(
             entidad_afectada=ENTIDAD_CITA,
             id_registro_afectado=cita.id,
             descripcion="Cita cancelada",
+        )
+
+        # Fase 3C.4: la cancelacion es un cambio de estado efectivo y no debe
+        # quedar como camino de escritura sin evento.
+        eventos_cita_notificaciones.registrar_evento_cita_estado(
+            db,
+            cita,
+            estado_anterior=estado_anterior,
+            estado_nuevo=ESTADO_CITA_CANCELADA,
+            usuario=usuario,
         )
 
         db.commit()

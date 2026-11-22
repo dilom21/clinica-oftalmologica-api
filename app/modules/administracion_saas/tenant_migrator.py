@@ -22,7 +22,61 @@ EXPECTED_VERSIONS = (
     "20261007211247",
     "20261019000000",
     "20261031000000",
+    "20261116000000",
+    "20261117000000",
+    "20261121000000",
+    "20261122000000",
+    "20261123000000",
 )
+# Baseline ledger required per supported source schema version. A tenant may
+# only be migrated from a version whose complete ledger baseline is present.
+BASELINE_LEDGER_VERSIONS = {
+    "v3-sprint3-cu26-cu27-cu29": (
+        "20261007211200",
+        "20261007211247",
+        "20261019000000",
+    ),
+    "v4-sprint3-cu32-cu33": (
+        "20261007211200",
+        "20261007211247",
+        "20261019000000",
+        "20261031000000",
+    ),
+    "v5-sprint4-cu36": (
+        "20261007211200",
+        "20261007211247",
+        "20261019000000",
+        "20261031000000",
+        "20261116000000",
+    ),
+    "v6-sprint4-cu36": (
+        "20261007211200",
+        "20261007211247",
+        "20261019000000",
+        "20261031000000",
+        "20261116000000",
+        "20261117000000",
+    ),
+    "v7-sprint5-notificaciones-push": (
+        "20261007211200",
+        "20261007211247",
+        "20261019000000",
+        "20261031000000",
+        "20261116000000",
+        "20261117000000",
+        "20261121000000",
+    ),
+    "v8-sprint5-worker-fcm-push": (
+        "20261007211200",
+        "20261007211247",
+        "20261019000000",
+        "20261031000000",
+        "20261116000000",
+        "20261117000000",
+        "20261121000000",
+        "20261122000000",
+    ),
+}
 EXPECTED_EXTERNAL_MIGRATIONS = (
     (
         "20261024150000",
@@ -429,11 +483,15 @@ def _validate_schema_ledger_prerequisites(
             + ", ".join(missing_external)
         )
     if target.version_schema in bundle.allowed_source_schema_versions:
-        # A v3 tenant is an already established baseline. Replaying CU31 here
-        # would hide an incomplete or incorrectly labelled tenant.
+        # A v3/v4 tenant is an already established baseline. Replaying its
+        # applied baseline here would hide an incomplete or mislabelled tenant.
+        requeridas = BASELINE_LEDGER_VERSIONS.get(target.version_schema)
+        if requeridas is None:
+            raise MigrationError(
+                f"No hay una linea base definida para {target.version_schema}"
+            )
         missing_baseline = [
-            item.version for item in bundle.migrations[:-1]
-            if item.version not in entries
+            version for version in requeridas if version not in entries
         ]
         if missing_baseline:
             raise MigrationError(

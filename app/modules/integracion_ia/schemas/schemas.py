@@ -46,7 +46,14 @@ class AnalisisConsultaIARespuesta(BaseModel):
         default=ADVERTENCIA_ANALISIS, min_length=1, max_length=1000,
     )
 
-    model_config = ConfigDict(str_strip_whitespace=True, extra="ignore")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
+
+    @field_validator("hallazgos_relevantes", "aspectos_a_evaluar", "hipotesis_orientativas")
+    @classmethod
+    def limitar_items(cls, valores):
+        if any(not isinstance(item, str) or not item.strip() or len(item) > 1000 for item in valores):
+            raise ValueError("Cada elemento debe ser texto válido de hasta 1000 caracteres")
+        return valores
 
 
 class MejorarRedaccionDiagnosticoIARequest(BaseModel):
@@ -77,7 +84,7 @@ class MejorarRedaccionDiagnosticoIAContenido(BaseModel):
 
     descripcion_mejorada: str = Field(min_length=1, max_length=MAX_TEXTO)
 
-    model_config = ConfigDict(str_strip_whitespace=True, extra="ignore")
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
 
 class MejorarRedaccionDiagnosticoIARespuesta(BaseModel):

@@ -3,7 +3,7 @@ import unicodedata
 import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.security import decodificar_access_token
@@ -12,6 +12,8 @@ from app.database import session as _session
 from app.modules.gestion_usuarios_seguridad.models.models import (
     Accion,
     Funcion,
+    Modulo,
+    Rol,
     RolFuncion,
     Usuario,
 )
@@ -202,6 +204,8 @@ def obtener_administrador_actual(
 def requerir_permiso(
     nombre_funcion: str,
     nombre_accion: str | None = None,
+    *,
+    modulo: str | None = None,
 ):
     """Exige que el rol del usuario tenga asignada la función en `rol_funcion`.
 
@@ -209,32 +213,67 @@ def requerir_permiso(
     anteriores: basta con que exista `rol_funcion` con función y acción
     activas. Si se indica una acción mínima, la acción otorgada debe
     satisfacerla (LECTURA/ESCRITURA se satisfacen también con AMBAS).
+
+    La función se resuelve siempre dentro de su módulo y solo si el rol y el
+    módulo están activos:
+
+    * ``modulo=`` solo debe usarse con nombres verificados en el catálogo. La
+      resolución queda acotada a ese módulo y exige que exista exactamente una
+      función con ese nombre.
+    * Sin ``modulo=`` se aplica una guarda de unicidad global: si el nombre de
+      la función existe en más de un registro del catálogo (aunque pertenezcan
+      a módulos distintos) la petición se deniega con 403. Nunca se elige una
+      fila arbitraria mediante ``LIMIT 1``.
     """
     acciones_suficientes = (
         _acciones_suficientes_para(nombre_accion)
         if nombre_accion is not None
         else None
     )
+    modulo_esperado = (modulo or "").strip() or None
+    if modulo is not None and modulo_esperado is None:
+        raise ValueError("Módulo vacío")
 
     def validar_permiso(
         usuario: Usuario = Depends(obtener_usuario_actual),
         db: Session = Depends(get_db),
     ) -> Usuario:
-        fila = db.execute(
+        # Guarda de unicidad: el nombre debe resolver a una sola función del
+        # catálogo. Con módulo explícito se acota a ese módulo; sin él se
+        # exige unicidad global. Cualquier homónimo (incluido uno inactivo) es
+        # una ambigüedad y se deniega.
+        candidatos = (
+            select(func.count(Funcion.id))
+            .select_from(Funcion)
+            .join(Modulo, Modulo.id == Funcion.modulo_id)
+            .where(Funcion.nombre == nombre_funcion)
+        )
+        if modulo_esperado is not None:
+            candidatos = candidatos.where(Modulo.nombre == modulo_esperado)
+
+        consulta = (
             select(
                 RolFuncion.id,
                 Accion.nombre.label("accion_nombre"),
             )
             .join(Funcion, Funcion.id == RolFuncion.funcion_id)
+            .join(Modulo, Modulo.id == Funcion.modulo_id)
             .join(Accion, Accion.id == RolFuncion.accion_id)
+            .join(Rol, Rol.id == RolFuncion.rol_id)
             .where(
                 RolFuncion.rol_id == usuario.rol_id,
                 Funcion.nombre == nombre_funcion,
                 Funcion.estado.is_(True),
+                Modulo.estado.is_(True),
+                Rol.estado.is_(True),
                 Accion.estado.is_(True),
+                candidatos.scalar_subquery() == 1,
             )
-            .limit(1)
-        ).first()
+        )
+        if modulo_esperado is not None:
+            consulta = consulta.where(Modulo.nombre == modulo_esperado)
+
+        fila = db.execute(consulta.limit(1)).first()
 
         if fila is None:
             raise HTTPException(

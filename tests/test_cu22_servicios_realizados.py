@@ -39,13 +39,18 @@ def db_cu22(db_cu15):
             precio_aplicado NUMERIC(10,2) CHECK (precio_aplicado >= 0)
         )""",
         """CREATE TABLE pago (
-            id INTEGER PRIMARY KEY, estado VARCHAR(20) NOT NULL
+            id INTEGER PRIMARY KEY, estado VARCHAR(20) NOT NULL,
+            pasarela VARCHAR(50)
         )""",
         """CREATE TABLE pago_detalle (
             id INTEGER PRIMARY KEY, pago_id INTEGER NOT NULL REFERENCES pago(id),
             servicio_realizado_id INTEGER NOT NULL REFERENCES servicio_realizado(id),
             monto_aplicado NUMERIC(12,2) NOT NULL,
             UNIQUE(pago_id, servicio_realizado_id)
+        )""",
+        """CREATE TABLE pago_ajuste (
+            id INTEGER PRIMARY KEY, pago_id INTEGER NOT NULL REFERENCES pago(id),
+            estado VARCHAR(25) NOT NULL
         )""",
         """INSERT INTO servicio_oftalmologico VALUES
             (1, 'Fondo de ojo', 'Examen', 150.50, 20, 1),
@@ -55,7 +60,7 @@ def db_cu22(db_cu15):
             (5, 'Servicio alternativo', NULL, 12.50, 10, 1)""",
         """INSERT INTO consulta_clinica (id,historial_clinico_id,oftalmologo_id,fecha_consulta,estado)
             VALUES (501,20,1,'2026-09-03 08:00:00',1)""",
-        "INSERT INTO funcion VALUES (30, 'Registrar servicios realizados', 1)",
+        "INSERT INTO funcion VALUES (30, 1, 'Registrar servicios realizados', 1)",
         """INSERT INTO rol_funcion VALUES
             (30, 1, 30, 3), (31, 2, 30, 1), (32, 3, 30, 2)""",
     ):
@@ -203,10 +208,7 @@ def test_actualiza_conservando_fecha_y_anula_sin_borrar(cliente_cu22, db_cu22):
     assert cantidad(db_cu22, Bitacora) == 3  # anulación repetida no duplica bitácora
 
 
-@pytest.mark.parametrize(
-    "estado_pago",
-    ["PENDIENTE", "APROBADO", "RECHAZADO", "ANULADO", "REEMBOLSADO"],
-)
+@pytest.mark.parametrize("estado_pago", ["PENDIENTE", "APROBADO"])
 @pytest.mark.parametrize("metodo", ["put", "delete"])
 def test_pago_asociado_bloquea_actualizacion_y_anulacion(
     cliente_cu22, db_cu22, estado_pago, metodo,
@@ -240,6 +242,39 @@ def test_pago_asociado_bloquea_actualizacion_y_anulacion(
     assert guardado.observaciones == "Fondo de ojo"
     assert float(guardado.precio_aplicado) == 150.50
     assert cantidad(db_cu22, Bitacora) == 1
+
+
+@pytest.mark.parametrize("estado_pago", ["RECHAZADO", "ANULADO", "REEMBOLSADO"])
+@pytest.mark.parametrize("metodo", ["put", "delete"])
+def test_pago_no_capturado_ni_reembolsado_no_bloquea_el_servicio(
+    cliente_cu22, db_cu22, estado_pago, metodo,
+):
+    """CU36: un pago anulado/reembolsado libera el servicio para un nuevo cobro."""
+    original = registrar(cliente_cu22).json()
+    registro_id = original["id"]
+    db_cu22.execute(
+        text("INSERT INTO pago (id, estado) VALUES (901, :estado)"),
+        {"estado": estado_pago},
+    )
+    db_cu22.execute(text("""
+        INSERT INTO pago_detalle
+            (id, pago_id, servicio_realizado_id, monto_aplicado)
+        VALUES (902, 901, :registro_id, 150.50)
+    """), {"registro_id": registro_id})
+    db_cu22.commit()
+
+    respuesta = (
+        cliente_cu22.put(
+            f"{URL}/{registro_id}",
+            json={**DATOS, "observaciones": "Correccion permitida"},
+        )
+        if metodo == "put"
+        else cliente_cu22.delete(f"{URL}/{registro_id}")
+    )
+
+    assert respuesta.status_code == 200, respuesta.text
+    guardado = db_cu22.get(ServicioRealizado, registro_id)
+    assert guardado.estado is (metodo == "put")
 
 
 @pytest.mark.parametrize("metodo", ["put", "delete"])

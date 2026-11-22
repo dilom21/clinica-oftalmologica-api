@@ -197,3 +197,49 @@ class BackupPolicy(Base):
     proximo_backup: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     fecha_creacion: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=fecha_hora_utc)
     fecha_actualizacion: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class StripeWebhookHuerfanoCentral(Base):
+    """CU36 I-2: cuarentena central de refunds Stripe sin tenant resoluble.
+
+    El evento se persiste aqui antes de responder 2xx a Stripe. Nunca se envia
+    automaticamente a la base legacy. Un SUPERADMIN debe atribuirlo a una
+    empresa concreta; la contabilizacion del reembolso sigue ocurriendo en el
+    tenant con el flujo CU36 auditado.
+    """
+
+    __tablename__ = "stripe_webhook_huerfano"
+    __table_args__ = (
+        Index(
+            "idx_stripe_huerfano_central_refund", "refund_id", "estado",
+        ),
+        Index("idx_stripe_huerfano_central_pi", "payment_intent_id"),
+        {"schema": "saas_control"},
+    )
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), Identity(), primary_key=True
+    )
+    stripe_event_id: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    event_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    refund_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    payment_intent_id: Mapped[str | None] = mapped_column(String(255))
+    amount: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    currency: Mapped[str] = mapped_column(String(3), nullable=False)
+    status: Mapped[str] = mapped_column(String(30), nullable=False)
+    payload: Mapped[str] = mapped_column(Text, nullable=False)
+    estado: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDIENTE")
+    empresa_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("saas_control.empresa.id", ondelete="RESTRICT")
+    )
+    tenant_database_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("saas_control.tenant_database.id", ondelete="RESTRICT")
+    )
+    ajuste_id: Mapped[int | None] = mapped_column(BigInteger)
+    motivo: Mapped[str | None] = mapped_column(Text)
+    atribuido_por: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("saas_control.saas_usuario.id", ondelete="SET NULL")
+    )
+    creado_en: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=fecha_hora_utc
+    )
+    actualizado_en: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

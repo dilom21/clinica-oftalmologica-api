@@ -42,7 +42,7 @@ def _respuesta(**overrides):
 
 @pytest.fixture
 def voz_client(db_historial):
-    db_historial.execute(text("INSERT INTO funcion VALUES (30, 'Generar reportes', 1)"))
+    db_historial.execute(text("INSERT INTO funcion VALUES (30, 1, 'Generar reportes', 1)"))
     db_historial.execute(text("INSERT INTO rol_funcion VALUES (4, 1, 30, 1)"))
     db_historial.commit()
 

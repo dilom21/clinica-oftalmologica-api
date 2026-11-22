@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from io import BytesIO
 
+from .cell_security import safe_spreadsheet_value
+
 def export_xlsx(title, columns, rows):
     from openpyxl import Workbook
     from openpyxl.utils import get_column_letter
@@ -12,7 +14,9 @@ def export_xlsx(title, columns, rows):
     sheet.append([datetime.now(timezone.utc).isoformat()])
     sheet.append([column["label"] for column in columns])
     for row in rows:
-        sheet.append([row.get(column["key"]) for column in columns])
+        sheet.append([
+            safe_spreadsheet_value(row.get(column["key"])) for column in columns
+        ])
     for index, column in enumerate(columns, 1):
         sheet.column_dimensions[get_column_letter(index)].width = min(max(len(column["label"]) + 2, 14), 36)
     output = BytesIO()

@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS saas_control.backup_tenant (
     formato VARCHAR(20),
     size_bytes BIGINT,
     sha256 VARCHAR(64),
-    version_schema VARCHAR(30),
+    version_schema VARCHAR(64),
     fecha_inicio TIMESTAMPTZ NOT NULL DEFAULT now(),
     fecha_fin TIMESTAMPTZ,
     creado_por_saas_usuario_id BIGINT REFERENCES saas_control.saas_usuario(id) ON DELETE SET NULL,

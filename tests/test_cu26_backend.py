@@ -29,7 +29,9 @@ RBAC_DDL = [
     """CREATE TABLE usuario (id INTEGER PRIMARY KEY, correo TEXT NOT NULL,
        password_hash TEXT NOT NULL, estado BOOLEAN NOT NULL,
        fecha_creacion TIMESTAMP NOT NULL, rol_id INTEGER NOT NULL REFERENCES rol(id))""",
-    """CREATE TABLE funcion (id INTEGER PRIMARY KEY, modulo_id INTEGER,
+    """CREATE TABLE modulo (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL,
+       descripcion TEXT, estado BOOLEAN NOT NULL)""",
+    """CREATE TABLE funcion (id INTEGER PRIMARY KEY, modulo_id INTEGER NOT NULL REFERENCES modulo(id),
        nombre TEXT NOT NULL, descripcion TEXT, estado BOOLEAN NOT NULL)""",
     """CREATE TABLE accion (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL,
        descripcion TEXT, estado BOOLEAN NOT NULL)""",
@@ -45,6 +47,7 @@ RBAC_SEED = [
     "INSERT INTO usuario VALUES (7,'admin@example.test','x',1,'2026-01-01',1),"
     "(8,'lectura@example.test','x',1,'2026-01-01',2),"
     "(9,'profesional@example.test','x',1,'2026-01-01',3)",
+    "INSERT INTO modulo VALUES (11,'Inventario y Proveedores',NULL,1)",
     f"INSERT INTO funcion VALUES (13,11,'{CU26_FUNCION}',NULL,1)",
     "INSERT INTO accion VALUES (1,'LECTURA',NULL,1),(2,'ESCRITURA',NULL,1),(3,'AMBAS',NULL,1)",
     # Administrador: AMBAS (lectura + escritura); SoloLectura: LECTURA;

@@ -33,7 +33,9 @@ def entorno_cu27():
         """CREATE TABLE usuario (id INTEGER PRIMARY KEY, correo TEXT NOT NULL,
            password_hash TEXT NOT NULL, estado BOOLEAN NOT NULL,
            fecha_creacion TIMESTAMP NOT NULL, rol_id INTEGER NOT NULL REFERENCES rol(id))""",
-        """CREATE TABLE funcion (id INTEGER PRIMARY KEY, modulo_id INTEGER,
+        """CREATE TABLE modulo (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL,
+           descripcion TEXT, estado BOOLEAN NOT NULL)""",
+        """CREATE TABLE funcion (id INTEGER PRIMARY KEY, modulo_id INTEGER NOT NULL REFERENCES modulo(id),
            nombre TEXT NOT NULL, descripcion TEXT, estado BOOLEAN NOT NULL)""",
         """CREATE TABLE accion (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL,
            descripcion TEXT, estado BOOLEAN NOT NULL)""",
@@ -76,6 +78,9 @@ def entorno_cu27():
             "INSERT INTO usuario VALUES (7,'admin@example.test','x',1,'2026-01-01',1),"
             "(8,'lectura@example.test','x',1,'2026-01-01',2),"
             "(9,'profesional@example.test','x',1,'2026-01-01',3)"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO modulo VALUES (11,'Inventario y Proveedores',NULL,1)"
         )
         conn.exec_driver_sql(
             "INSERT INTO funcion VALUES (14,11,?,NULL,1)", (CU27_FUNCION,)

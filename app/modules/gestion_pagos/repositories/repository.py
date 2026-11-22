@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+from decimal import Decimal
 
 from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session, selectinload
@@ -9,10 +10,12 @@ from app.modules.gestion_historial_clinico.models.models import (
     ServicioRealizado,
 )
 from app.modules.gestion_pagos.models.models import (
+    ESTADOS_PAGO_CAPTURADO,
     Pago,
     PagoDetalle,
     PlanPagoServicio,
 )
+from app.modules.gestion_pagos.repositories import saldos
 
 
 def _carga_servicio():
@@ -104,30 +107,27 @@ def obtener_ids_servicios_cubiertos_por_pago_aprobado(
     db: Session,
     servicio_realizado_ids: Iterable[int],
 ) -> set[int]:
-    ids = list(servicio_realizado_ids)
+    """Servicios cuyo importe vigente (CU36) cubre su precio aplicado."""
+    ids = [int(item) for item in servicio_realizado_ids]
     if not ids:
         return set()
-    stmt = (
-        select(PagoDetalle.servicio_realizado_id)
-        .join(Pago, Pago.id == PagoDetalle.pago_id)
-        .join(
-            ServicioRealizado,
-            ServicioRealizado.id == PagoDetalle.servicio_realizado_id,
+    montos = saldos.montos_vigentes_por_servicio(db, ids)
+    precios = dict(db.execute(
+        select(ServicioRealizado.id, ServicioRealizado.precio_aplicado).where(
+            ServicioRealizado.id.in_(ids),
         )
-        .where(
-            PagoDetalle.servicio_realizado_id.in_(ids),
-            Pago.estado == "APROBADO",
+    ).all())
+    cubiertos: set[int] = set()
+    for servicio_id, precio in precios.items():
+        if precio is None:
+            continue
+        precio_decimal = (
+            precio if isinstance(precio, Decimal) else Decimal(str(precio))
         )
-        .group_by(
-            PagoDetalle.servicio_realizado_id,
-            ServicioRealizado.precio_aplicado,
-        )
-        .having(
-            func.sum(PagoDetalle.monto_aplicado)
-            >= ServicioRealizado.precio_aplicado
-        )
-    )
-    return set(db.scalars(stmt).all())
+        monto = montos.get(servicio_id, Decimal("0.00"))
+        if monto > 0 and monto >= precio_decimal:
+            cubiertos.add(servicio_id)
+    return cubiertos
 
 
 def servicio_cubierto_por_pago_aprobado(
@@ -145,16 +145,9 @@ def listar_servicios_pendientes_pago(
     paciente_id: int | None = None,
     consulta_clinica_id: int | None = None,
 ):
-    monto_aprobado = (
-        select(func.coalesce(func.sum(PagoDetalle.monto_aplicado), 0))
-        .join(Pago, Pago.id == PagoDetalle.pago_id)
-        .where(
-            PagoDetalle.servicio_realizado_id == ServicioRealizado.id,
-            Pago.estado == "APROBADO",
-        )
-        .correlate(ServicioRealizado)
-        .scalar_subquery()
-    )
+    # CU36: el saldo aprobado de un servicio es su importe vigente
+    # (base capturada + ajustes CONFIRMADO), no la suma bruta de detalles.
+    monto_vigente = saldos.expresion_vigente_por_servicio(ServicioRealizado.id)
     reserva_plan = (
         select(PlanPagoServicio.plan_pago_id)
         .where(
@@ -171,7 +164,7 @@ def listar_servicios_pendientes_pago(
             ServicioRealizado.consulta_clinica_id.is_not(None),
             ServicioRealizado.precio_aplicado.is_not(None),
             ServicioRealizado.precio_aplicado > 0,
-            monto_aprobado < ServicioRealizado.precio_aplicado,
+            monto_vigente < ServicioRealizado.precio_aplicado,
             ~exists(reserva_plan),
         )
     )
@@ -258,20 +251,36 @@ def obtener_pagos_aprobados_para_servicios_excluyendo(
     *,
     pago_id_excluido: int,
 ) -> set[int]:
+    """Pagos con cobertura vigente (CU36) en alguno de los servicios."""
     ids = list(servicio_realizado_ids)
     if not ids:
         return set()
-    stmt = (
+    candidatos = set(db.scalars(
         select(PagoDetalle.pago_id)
         .join(Pago, Pago.id == PagoDetalle.pago_id)
         .where(
             PagoDetalle.servicio_realizado_id.in_(ids),
-            Pago.estado == "APROBADO",
+            Pago.estado.in_(ESTADOS_PAGO_CAPTURADO),
             Pago.id != pago_id_excluido,
         )
         .distinct()
-    )
-    return set(db.scalars(stmt).all())
+    ).all())
+    if not candidatos:
+        return set()
+    pagos = db.scalars(
+        select(Pago)
+        .options(selectinload(Pago.detalles))
+        .where(Pago.id.in_(candidatos))
+    ).all()
+    con_cobertura: set[int] = set()
+    for pago in pagos:
+        desglose = saldos.desglose_vigente_pago(db, pago)
+        if any(
+            desglose.get(servicio_id, Decimal("0.00")) > 0
+            for servicio_id in ids
+        ):
+            con_cobertura.add(pago.id)
+    return con_cobertura
 
 
 def crear_pago_stripe_pendiente(

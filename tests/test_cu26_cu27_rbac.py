@@ -181,14 +181,16 @@ def test_dynamic_menu_contract_is_not_static_in_seed():
     assert "rol_funcion" in sql
 
 
-def test_requerir_permiso_currently_resolves_function_by_global_name():
+def test_requerir_permiso_resolves_function_within_its_module():
     db = MagicMock()
     db.execute.return_value.first.return_value = SimpleNamespace(accion_nombre=ACCION_AMBAS)
     user = SimpleNamespace(rol_id=7)
     assert requerir_permiso("Gestionar movimientos de inventario")(usuario=user, db=db) is user
     sql = str(db.execute.call_args.args[0])
     assert "funcion.nombre" in sql
-    assert "modulo.nombre" not in sql
+    assert "JOIN modulo ON modulo.id = funcion.modulo_id" in sql
+    assert "modulo.estado" in sql
+    assert "rol.estado" in sql
 
 
 @pytest.mark.parametrize("dependency", [
@@ -219,13 +221,25 @@ def test_cu26_cu27_write_dependencies_reject_read_only_assignment(dependency):
     assert denied.value.status_code == 403
 
 
-def test_compatible_proposal_is_module_qualified_without_editing_dependency():
-    dependency = (ROOT / "app" / "core" / "dependencies.py").read_text(encoding="utf-8")
-    assert "Funcion.nombre == nombre_funcion" in dependency
-    assert "modulo_id" not in dependency.split("def requerir_permiso", 1)[1]
-    # The seed remains safe because it resolves functions by module_id + name.
-    sql = SEED.read_text(encoding="utf-8")
-    assert "modulo_id = v_modulo_id" in sql
+@pytest.mark.parametrize("dependency", [
+    catalogo.permiso_cu26_lectura,
+    catalogo.permiso_cu26_escritura,
+    movimientos.permiso_cu27_lectura,
+    movimientos.permiso_cu27_escritura,
+])
+def test_verified_call_sites_bind_functions_to_their_module(dependency):
+    db = MagicMock()
+    db.execute.return_value.first.return_value = SimpleNamespace(
+        accion_nombre=ACCION_AMBAS,
+    )
+
+    dependency(usuario=SimpleNamespace(rol_id=7), db=db)
+
+    sql = str(db.execute.call_args.args[0].compile(
+        compile_kwargs={"literal_binds": True},
+    ))
+    assert "modulo.nombre" in sql
+    assert "'Inventario y Proveedores'" in sql
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +261,9 @@ RBAC_DDL = [
     """CREATE TABLE usuario (id INTEGER PRIMARY KEY, correo TEXT NOT NULL,
        password_hash TEXT NOT NULL, estado BOOLEAN NOT NULL,
        fecha_creacion TIMESTAMP NOT NULL, rol_id INTEGER NOT NULL REFERENCES rol(id))""",
-    """CREATE TABLE funcion (id INTEGER PRIMARY KEY, modulo_id INTEGER,
+    """CREATE TABLE modulo (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL,
+       descripcion TEXT, estado BOOLEAN NOT NULL)""",
+    """CREATE TABLE funcion (id INTEGER PRIMARY KEY, modulo_id INTEGER NOT NULL REFERENCES modulo(id),
        nombre TEXT NOT NULL, descripcion TEXT, estado BOOLEAN NOT NULL)""",
     """CREATE TABLE accion (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL,
        descripcion TEXT, estado BOOLEAN NOT NULL)""",
@@ -312,6 +328,9 @@ def build_tenant_database(grants) -> object:
             "(9,'profesional@example.test','x',1,'2026-01-01',3)"
         )
         connection.exec_driver_sql(
+            "INSERT INTO modulo VALUES (11,'Inventario y Proveedores',NULL,1)"
+        )
+        connection.exec_driver_sql(
             "INSERT INTO funcion VALUES (13,11,?,NULL,1),(14,11,?,NULL,1)",
             (CU26_FUNCION, CU27_FUNCION),
         )
@@ -336,6 +355,49 @@ def build_tenant_database(grants) -> object:
             "VALUES (1,1,'LOTE-1',1,'2099-01-01')"
         )
     return engine
+
+
+def test_requerir_permiso_denies_global_function_homonym_but_accepts_scoped_module():
+    engine = build_tenant_database(TENANT_A_GRANTS)
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "INSERT INTO modulo VALUES (12,'Otro modulo',NULL,1)"
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO funcion VALUES (99,12,?,NULL,1)", (CU27_FUNCION,)
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO rol_funcion VALUES (90,1,99,3,NULL)"
+            )
+        with Session(engine, autoflush=False) as db:
+            user = SimpleNamespace(rol_id=1)
+
+            with pytest.raises(HTTPException) as denied:
+                requerir_permiso(CU27_FUNCION)(usuario=user, db=db)
+            assert denied.value.status_code == 403
+
+            assert requerir_permiso(
+                CU27_FUNCION, modulo="Inventario y Proveedores",
+            )(usuario=user, db=db) is user
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("tabla", ["rol", "modulo"])
+def test_requerir_permiso_denies_inactive_rol_or_modulo(tabla):
+    engine = build_tenant_database(TENANT_A_GRANTS)
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(f"UPDATE {tabla} SET estado = 0")
+        with Session(engine, autoflush=False) as db:
+            with pytest.raises(HTTPException) as denied:
+                requerir_permiso(
+                    CU26_FUNCION, modulo="Inventario y Proveedores",
+                )(usuario=SimpleNamespace(rol_id=1), db=db)
+            assert denied.value.status_code == 403
+    finally:
+        engine.dispose()
 
 
 @pytest.fixture

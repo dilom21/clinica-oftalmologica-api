@@ -31,10 +31,19 @@ router = APIRouter(
     tags=["CU32/CU33 - Planes y cuotas"],
     dependencies=[Depends(get_tenant_claims)],
 )
-planes_lectura = requerir_permiso("Gestionar planes de pago", ACCION_LECTURA)
-planes_escritura = requerir_permiso("Gestionar planes de pago", ACCION_ESCRITURA)
-cuotas_lectura = requerir_permiso("Gestionar cuotas", ACCION_LECTURA)
-cuotas_escritura = requerir_permiso("Gestionar cuotas", ACCION_ESCRITURA)
+MODULO_PAGOS = "Pagos"
+planes_lectura = requerir_permiso(
+    "Gestionar planes de pago", ACCION_LECTURA, modulo=MODULO_PAGOS,
+)
+planes_escritura = requerir_permiso(
+    "Gestionar planes de pago", ACCION_ESCRITURA, modulo=MODULO_PAGOS,
+)
+cuotas_lectura = requerir_permiso(
+    "Gestionar cuotas", ACCION_LECTURA, modulo=MODULO_PAGOS,
+)
+cuotas_escritura = requerir_permiso(
+    "Gestionar cuotas", ACCION_ESCRITURA, modulo=MODULO_PAGOS,
+)
 
 
 @router.get(

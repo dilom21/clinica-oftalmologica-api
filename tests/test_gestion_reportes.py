@@ -18,8 +18,9 @@ from app.modules.gestion_reportes.services.service import validate
 
 @pytest.fixture
 def report_client(db_historial):
-    db_historial.execute(text("INSERT INTO funcion VALUES (30, 'Generar reportes', 1)"))
+    db_historial.execute(text("INSERT INTO funcion VALUES (30, 1, 'Generar reportes', 1)"))
     db_historial.execute(text("INSERT INTO rol_funcion VALUES (4, 1, 30, 1)"))
+    db_historial.execute(text("UPDATE usuario SET correo = 'admin@example.com' WHERE id = 7"))
     db_historial.commit()
 
     def local_db():
@@ -365,3 +366,21 @@ def test_email_endpoint_uses_inherited_router_authorization(report_client):
     report_client.headers.pop("Authorization")
     response = report_client.post("/reportes/dinamicos/enviar-email", json={})
     assert response.status_code == 401
+
+
+def test_email_rejects_arbitrary_recipient_before_export_or_smtp(report_client, monkeypatch):
+    from app.shared.services import email_service
+
+    monkeypatch.setattr(
+        email_service,
+        "enviar_reporte_por_smtp",
+        lambda *args: pytest.fail("SMTP must not be called"),
+    )
+    response = report_client.post("/reportes/dinamicos/enviar-email", json={
+        "destinatario": "externo@example.com",
+        "formato": "csv",
+        "asunto": "Reporte",
+        "dataset": "pacientes",
+        "columnas": ["nombres"],
+    })
+    assert response.status_code == 403

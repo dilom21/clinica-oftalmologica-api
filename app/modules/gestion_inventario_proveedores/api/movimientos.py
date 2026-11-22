@@ -15,8 +15,13 @@ from app.modules.gestion_inventario_proveedores.schemas.movimientos import (
 from app.modules.gestion_inventario_proveedores.services import movimientos
 
 FUNCION_CU27 = "Gestionar movimientos de inventario"
-permiso_cu27_lectura = requerir_permiso(FUNCION_CU27, ACCION_LECTURA)
-permiso_cu27_escritura = requerir_permiso(FUNCION_CU27, ACCION_ESCRITURA)
+MODULO_CU27 = "Inventario y Proveedores"
+permiso_cu27_lectura = requerir_permiso(
+    FUNCION_CU27, ACCION_LECTURA, modulo=MODULO_CU27,
+)
+permiso_cu27_escritura = requerir_permiso(
+    FUNCION_CU27, ACCION_ESCRITURA, modulo=MODULO_CU27,
+)
 
 
 router = APIRouter(

@@ -10,6 +10,7 @@ from app.core.dependencies import nombre_rol_actual
 from app.modules.gestion_pacientes.repositories import repository as paciente_repo
 from app.modules.gestion_pagos.repositories import administrativos as repo
 from app.modules.gestion_pagos.repositories import repository as pago_repo
+from app.modules.gestion_pagos.repositories import saldos
 from app.modules.gestion_pagos.schemas.administrativos import (
     NotificacionPagoRespuesta,
     PagoAdministrativoCrear,
@@ -53,6 +54,7 @@ def _contexto_pago(pago):
 def _respuesta(db: Session, pago) -> PagoAdministrativoRespuesta:
     paciente_id, consulta_id = _contexto_pago(pago)
     notificacion = repo.obtener_notificacion_por_pago(db, pago.id)
+    resumen = saldos.resumen_pago(db, pago)
     return PagoAdministrativoRespuesta(
         id=pago.id,
         paciente_id=paciente_id,
@@ -70,6 +72,9 @@ def _respuesta(db: Session, pago) -> PagoAdministrativoRespuesta:
         ),
         observaciones=pago.observaciones,
         servicio_realizado_ids=[d.servicio_realizado_id for d in pago.detalles],
+        importe_vigente=resumen.vigente,
+        importe_reembolsado=resumen.reembolsado,
+        ajustes_pendientes=resumen.ajuste_abierto,
         notificacion=(
             NotificacionPagoRespuesta.model_validate(notificacion)
             if notificacion is not None else None
@@ -219,6 +224,12 @@ def confirmar_pago(db: Session, pago_id: int, usuario, ip: str | None = None):
             return _respuesta(db, pago)
         if pago.estado != "PENDIENTE":
             raise HTTPException(409, f"No se puede confirmar un pago {pago.estado}")
+        if saldos.pago_tiene_ajuste_abierto(db, pago.id):
+            raise HTTPException(
+                409,
+                "El pago tiene un ajuste pendiente de conciliacion; "
+                "resuelvalo antes de confirmarlo",
+            )
         ids = [detalle.servicio_realizado_id for detalle in pago.detalles]
         bloqueados = pago_repo.obtener_servicios_realizados_por_ids_para_actualizacion(db, ids)
         seleccion = pagos_service.validar_seleccion_servicios(

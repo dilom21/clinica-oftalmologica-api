@@ -55,8 +55,13 @@ def _crear_esquema(engine):
             estado BOOLEAN NOT NULL, fecha_creacion TIMESTAMP NOT NULL,
             rol_id INTEGER NOT NULL REFERENCES rol(id)
         )""",
+        """CREATE TABLE modulo (
+            id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, descripcion TEXT,
+            estado BOOLEAN NOT NULL
+        )""",
         """CREATE TABLE funcion (
-            id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
+            id INTEGER PRIMARY KEY, modulo_id INTEGER NOT NULL REFERENCES modulo(id),
+            nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
         )""",
         """CREATE TABLE accion (
             id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
@@ -118,6 +123,37 @@ def _crear_esquema(engine):
             fecha_consulta TIMESTAMP NOT NULL, motivo_consulta VARCHAR(255),
             anamnesis TEXT, observaciones TEXT, estado BOOLEAN NOT NULL
         )""",
+        # Fase 3C.4: registrar una consulta marca la cita como ATENDIDA y emite
+        # el evento/notificacion tenant dentro de la misma transaccion.
+        """CREATE TABLE cita_evento (
+            id INTEGER PRIMARY KEY,
+            cita_id INTEGER NOT NULL REFERENCES cita(id),
+            tipo VARCHAR(30) NOT NULL,
+            estado_anterior VARCHAR(20),
+            estado_nuevo VARCHAR(20),
+            fecha_anterior DATE, hora_anterior TIME,
+            fecha_nueva DATE, hora_nueva TIME,
+            fecha_evento TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            actor_usuario_id INTEGER REFERENCES usuario(id),
+            clave_idempotencia VARCHAR(150) NOT NULL,
+            CONSTRAINT uq_cita_evento_clave_idempotencia UNIQUE (clave_idempotencia)
+        )""",
+        """CREATE TABLE notificacion (
+            id INTEGER PRIMARY KEY,
+            usuario_id INTEGER NOT NULL REFERENCES usuario(id),
+            tipo VARCHAR(30) NOT NULL,
+            evento_clave VARCHAR(150) NOT NULL,
+            titulo VARCHAR(150) NOT NULL,
+            cuerpo TEXT NOT NULL,
+            datos JSON,
+            cita_id INTEGER REFERENCES cita(id),
+            leida BOOLEAN NOT NULL DEFAULT 0,
+            fecha_lectura TIMESTAMP,
+            cancelada_en TIMESTAMP,
+            fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT uq_notificacion_evento_clave UNIQUE (evento_clave)
+        )""",
     ]
     with engine.begin() as conn:
         conn.exec_driver_sql("PRAGMA foreign_keys=ON")
@@ -146,7 +182,10 @@ def _crear_esquema(engine):
             "INSERT INTO accion VALUES (1, 'LECTURA', 1), (2, 'ESCRITURA', 1), (3, 'AMBAS', 1)"
         )
         conn.exec_driver_sql(
-            "INSERT INTO funcion VALUES (15, 'Consultar historial clínico', 1), (17, 'Registrar consulta clínica', 1)"
+            "INSERT INTO modulo VALUES (1, 'Clinico', NULL, 1)"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO funcion VALUES (15, 1, 'Consultar historial clínico', 1), (17, 1, 'Registrar consulta clínica', 1)"
         )
         conn.exec_driver_sql(
             """INSERT INTO rol_funcion VALUES
