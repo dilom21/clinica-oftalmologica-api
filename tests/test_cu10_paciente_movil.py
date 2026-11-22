@@ -68,13 +68,17 @@ DDL = [
         fecha_hora TIMESTAMP NOT NULL, ip TEXT, accion TEXT NOT NULL,
         entidad_afectada TEXT, id_registro_afectado INTEGER,
         descripcion TEXT)""",
-    """CREATE TABLE notificacion_paciente (
-        id INTEGER PRIMARY KEY, paciente_id INTEGER NOT NULL REFERENCES paciente(id),
-        titulo TEXT NOT NULL, mensaje TEXT NOT NULL, tipo TEXT NOT NULL,
+    """CREATE TABLE notificacion (
+        id INTEGER PRIMARY KEY, usuario_id INTEGER NOT NULL REFERENCES usuario(id),
+        tipo VARCHAR(30) NOT NULL, evento_clave VARCHAR(150) NOT NULL UNIQUE,
+        titulo VARCHAR(150) NOT NULL, cuerpo TEXT NOT NULL, datos JSON,
+        cita_id INTEGER REFERENCES cita(id), leida BOOLEAN NOT NULL DEFAULT 0,
+        fecha_lectura TIMESTAMP, cancelada_en TIMESTAMP,
         fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        fecha_envio TIMESTAMP, leida BOOLEAN NOT NULL DEFAULT 0,
-        fecha_lectura TIMESTAMP, clave_evento TEXT,
-        UNIQUE (paciente_id, clave_evento)
+        fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CHECK ((leida = 1 AND fecha_lectura IS NOT NULL) OR (leida = 0 AND fecha_lectura IS NULL)),
+        CHECK (tipo IN ('CITA_CREADA','CITA_CONFIRMADA','CITA_REPROGRAMADA',
+            'CITA_CANCELADA','RECORDATORIO_CITA','ACTUALIZACION_OPERATIVA'))
     )""",
 ]
 

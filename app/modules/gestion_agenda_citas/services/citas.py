@@ -52,7 +52,7 @@ def _avisar_cita(db: Session, cita, evento: str):
         clave += f":{cita.fecha_actualizacion.isoformat()}"
     crear_desde_evento(db, paciente_id=cita.paciente_id, titulo=titulo,
         mensaje=mensaje, tipo=f"CITA_{evento}", clave_evento=clave,
-        fecha_envio=datetime.now(timezone.utc))
+        fecha_envio=datetime.now(timezone.utc), cita_id=cita.id)
 
 
 def _es_paciente(usuario) -> bool:

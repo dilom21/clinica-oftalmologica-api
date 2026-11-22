@@ -4,18 +4,17 @@ import argparse
 import logging
 import os
 from datetime import datetime, time
-from pathlib import Path
 
 from app.core.tenancy.registry_provider import tenant_engine_registry
 from app.core.tenancy.repository import TenantControlPlaneRepository
 from app.core.tenancy.resolver import TenantResolver
 from app.database.session import open_control_session
-from app.modules.administracion_saas.tenant_migrator import load_bundle
 from app.modules.notificaciones_interaccion_chatbot.services.recordatorios import (
     ConfiguracionRecordatorios, ZONA_CLINICA, procesar_tenant,
 )
 
 logger = logging.getLogger(__name__)
+VERSION_CU39_V9 = "v9-sprint5-revocacion-global-push"
 
 
 def ejecutar_una_vez(
@@ -23,7 +22,7 @@ def ejecutar_una_vez(
     registry=tenant_engine_registry,
     ahora: datetime | None = None,
     configuracion: ConfiguracionRecordatorios = ConfiguracionRecordatorios(),
-    version_requerida: str = "v5-sprint4-cu39",
+    version_requerida: str = VERSION_CU39_V9,
 ) -> dict[str, int]:
     """Aísla cada clínica y continúa si una falla o aún no tiene CU39."""
     instante = ahora or datetime.now(ZONA_CLINICA)
@@ -70,9 +69,7 @@ def main(argv: list[str] | None = None) -> int:
         horas = int(os.getenv("CU39_CITA_ANTELACION_HORAS", "24"))
         hora = time.fromisoformat(os.getenv("CU39_CONTROL_HORA", "09:00"))
         configuracion = ConfiguracionRecordatorios(horas_cita=horas, hora_control=hora)
-        raiz = Path(__file__).resolve().parents[3] / "database" / "tenant_migrations"
-        version = load_bundle(raiz).schema_version
-        resultado = ejecutar_una_vez(configuracion=configuracion, version_requerida=version)
+        resultado = ejecutar_una_vez(configuracion=configuracion)
     except Exception:
         logger.exception("No se pudo iniciar el proceso CU39")
         return 2

@@ -53,7 +53,7 @@ def procesar_tenant(
             db, paciente_id=cita.paciente_id, titulo="Recordatorio de cita",
             mensaje=f"Tienes una cita el {cita.fecha.isoformat()} a las {cita.hora_inicio.strftime('%H:%M')}.",
             tipo="RECORDATORIO_CITA", clave_evento=clave,
-            fecha_envio=ahora, con_estado=True,
+            fecha_envio=ahora, con_estado=True, cita_id=cita.id,
         )
         creadas += int(creada)
 

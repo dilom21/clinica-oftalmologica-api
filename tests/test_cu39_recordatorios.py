@@ -9,7 +9,7 @@ from sqlalchemy.pool import StaticPool
 from app.modules.gestion_agenda_citas.models.models import Cita
 from app.modules.gestion_historial_clinico.models.controles import ControlMedico
 from app.modules.gestion_pacientes.models.models import Paciente
-from app.modules.notificaciones_interaccion_chatbot.models.notificacion import NotificacionPaciente
+from app.modules.notificaciones_interaccion_chatbot.models.notificacion import Notificacion
 from app.modules.notificaciones_interaccion_chatbot.services.recordatorios import (
     ConfiguracionRecordatorios, ZONA_CLINICA, procesar_tenant,
 )
@@ -19,7 +19,7 @@ from app.modules.notificaciones_interaccion_chatbot import recordatorios_runner 
 @pytest.fixture
 def base():
     engine = create_engine("sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    for tabla in (Paciente, Cita, ControlMedico, NotificacionPaciente):
+    for tabla in (Paciente, Cita, ControlMedico, Notificacion):
         tabla.__table__.create(engine)
     with Session(engine) as db:
         db.add_all([
@@ -46,7 +46,7 @@ def control(db, id, paciente, fecha, estado="PROGRAMADO"):
 
 
 def avisos(db):
-    return db.scalars(select(NotificacionPaciente).order_by(NotificacionPaciente.id)).all()
+    return db.scalars(select(Notificacion).order_by(Notificacion.id)).all()
 
 
 def test_ventanas_estados_destinatarios_y_repeticion(base):
@@ -63,8 +63,9 @@ def test_ventanas_estados_destinatarios_y_repeticion(base):
         db.commit()
         assert procesar_tenant(db, ahora=ahora) == 0
         db.commit()
-        assert [(n.paciente_id, n.tipo) for n in avisos(db)] == [
-            (1, "RECORDATORIO_CITA"), (2, "RECORDATORIO_CONTROL")]
+        assert [(n.usuario_id, n.tipo, n.datos) for n in avisos(db)] == [
+            (11, "RECORDATORIO_CITA", None),
+            (22, "ACTUALIZACION_OPERATIVA", {"subtipo": "RECORDATORIO_CONTROL"})]
 
 
 def test_control_no_antes_de_umbral_y_cambio_de_cita(base):
@@ -82,7 +83,7 @@ def test_control_no_antes_de_umbral_y_cambio_de_cita(base):
         db.commit()
         assert procesar_tenant(db, ahora=datetime(2026, 11, 22, 10, tzinfo=ZONA_CLINICA)) == 1
         db.commit()
-        assert len({n.clave_evento for n in avisos(db)}) == 3
+        assert len({n.evento_clave for n in avisos(db)}) == 3
 
 
 def test_rollback_y_fallo_de_tenant_no_contaminan_otro(base, monkeypatch):
@@ -106,7 +107,7 @@ def test_rollback_y_fallo_de_tenant_no_contaminan_otro(base, monkeypatch):
     class Resolver:
         def __init__(self, _repo): pass
         def resolver_por_codigo_empresa(self, codigo):
-            version = "v4-sprint3-cu32-cu33" if codigo == "SIN_MIGRAR" else "v5-sprint4-cu39"
+            version = "v4-sprint3-cu32-cu33" if codigo == "SIN_MIGRAR" else "v9-sprint5-revocacion-global-push"
             return SimpleNamespace(empresa_codigo=codigo, version_schema=version)
         def require_active_database(self, _contexto): pass
     class Registro:
