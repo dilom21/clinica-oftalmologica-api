@@ -1,9 +1,10 @@
-from datetime import date, datetime, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 
 from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import nombre_rol_actual
+from app.modules.notificaciones_interaccion_chatbot.services.notificaciones import crear_desde_evento
 from app.modules.gestion_agenda_citas.repositories import repository as repo
 from app.modules.gestion_agenda_citas.services import service as service_cu09
 from app.modules.gestion_agenda_citas.schemas.schemas import (
@@ -35,6 +36,23 @@ ENTIDAD_CITA = "cita"
 
 CANAL_MOVIL = "MOVIL"
 CANAL_WEB = "WEB"
+
+
+def _avisar_cita(db: Session, cita, evento: str):
+    fecha = cita.fecha.isoformat()
+    hora = cita.hora_inicio.strftime("%H:%M")
+    textos = {
+        "CONFIRMADA": ("Cita confirmada", f"Tu cita del {fecha} a las {hora} fue confirmada."),
+        "REPROGRAMADA": ("Cita reprogramada", f"Tu cita fue reprogramada para el {fecha} a las {hora}."),
+        "CANCELADA": ("Cita cancelada", f"Tu cita del {fecha} a las {hora} fue cancelada."),
+    }
+    titulo, mensaje = textos[evento]
+    clave = f"cita:{cita.id}:{evento}"
+    if evento == "REPROGRAMADA":
+        clave += f":{cita.fecha_actualizacion.isoformat()}"
+    crear_desde_evento(db, paciente_id=cita.paciente_id, titulo=titulo,
+        mensaje=mensaje, tipo=f"CITA_{evento}", clave_evento=clave,
+        fecha_envio=datetime.now(timezone.utc))
 
 
 def _es_paciente(usuario) -> bool:
@@ -401,6 +419,7 @@ def reprogramar_cita(
     else:
         nueva_hora_fin = cita.hora_fin
 
+    cambio_horario = cita.fecha != nueva_fecha or cita.hora_inicio != nueva_hora_inicio
     try:
         cita = repo.actualizar_cita(
             db,
@@ -420,6 +439,9 @@ def reprogramar_cita(
             id_registro_afectado=cita.id,
             descripcion="Cita reprogramada",
         )
+
+        if cambio_horario:
+            _avisar_cita(db, cita, "REPROGRAMADA")
 
         db.commit()
         db.refresh(cita)
@@ -479,6 +501,9 @@ def cambiar_estado_cita(
             ),
         )
 
+        if estado_normalizado in {"CONFIRMADA", ESTADO_CITA_CANCELADA}:
+            _avisar_cita(db, cita, estado_normalizado)
+
         db.commit()
         db.refresh(cita)
 
@@ -526,6 +551,8 @@ def cancelar_cita(
             id_registro_afectado=cita.id,
             descripcion="Cita cancelada",
         )
+
+        _avisar_cita(db, cita, "CANCELADA")
 
         db.commit()
         db.refresh(cita)

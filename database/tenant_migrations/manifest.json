@@ -1,8 +1,9 @@
 {
-  "schema_version": "v4-sprint3-cu32-cu33",
+  "schema_version": "v5-sprint4-cu39",
   "runner_version": "tenant-migrator-v2",
   "allowed_source_schema_versions": [
-    "v3-sprint3-cu26-cu27-cu29"
+    "v3-sprint3-cu26-cu27-cu29",
+    "v4-sprint3-cu32-cu33"
   ],
   "external_migrations": [
     {
@@ -50,6 +51,13 @@
       "name": "cu32_cu33_planes_cuotas",
       "path": "versions/20261031000000_cu32_cu33_planes_cuotas.sql",
       "sha256": "625fd5caef7f39bea228e7019145826839891ebfec00c8c07b91c6742e01e312",
+      "transaction": "runner"
+    },
+    {
+      "version": "20261121000000",
+      "name": "cu39_notificaciones_paciente",
+      "path": "versions/20261121000000_cu39_notificaciones_paciente.sql",
+      "sha256": "24283cb7ef095439333f6f5e1ff9a3853fd1db54723c0e8e8c40fde0b88057af",
       "transaction": "runner"
     }
   ]

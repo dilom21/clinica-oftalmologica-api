@@ -6,6 +6,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import nombre_rol_actual
+from app.modules.notificaciones_interaccion_chatbot.services.notificaciones import crear_desde_evento
 from app.modules.gestion_historial_clinico.repositories import controles as repo
 from app.modules.gestion_historial_clinico.repositories import repository as clinico_repo
 from app.modules.gestion_historial_clinico.schemas.controles import (
@@ -131,6 +132,13 @@ def programar_control(
             entidad_afectada="control_medico",
             id_registro_afectado=control.id,
             descripcion="Control médico programado desde una consulta clínica",
+        )
+        crear_desde_evento(
+            db, paciente_id=control.paciente_id,
+            titulo="Control médico programado",
+            mensaje=f"Tu control médico fue programado para el {control.fecha_programada.isoformat()}.",
+            tipo="CONTROL_PROGRAMADO", clave_evento=f"control:{control.id}:programado",
+            fecha_envio=datetime.now(timezone.utc),
         )
         # Preparar la respuesta antes del commit evita lecturas luego de confirmar.
         respuesta = ControlMedicoRespuesta.model_validate(control)

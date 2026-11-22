@@ -22,6 +22,7 @@ EXPECTED_VERSIONS = (
     "20261007211247",
     "20261019000000",
     "20261031000000",
+    "20261121000000",
 )
 EXPECTED_EXTERNAL_MIGRATIONS = (
     (
@@ -289,12 +290,14 @@ def load_bundle(root: Path) -> MigrationBundle:
 
         path = _resolve_artifact(root, relative)
         raw_bytes = path.read_bytes()
-        actual = _sha256(raw_bytes)
+        # Git puede materializar CRLF en Windows; el ledger usa bytes LF.
+        canonical_bytes = raw_bytes.replace(b"\r\n", b"\n")
+        actual = _sha256(canonical_bytes)
         if actual != checksum:
             raise ChecksumMismatchError(
                 f"Local checksum mismatch for migration {version}"
             )
-        sql = raw_bytes.decode("utf-8")
+        sql = canonical_bytes.decode("utf-8")
         controls = re.findall(r"(?im)^\s*(BEGIN|COMMIT|ROLLBACK)\s*;", sql)
         if transaction == TRANSACTION_RUNNER and controls:
             raise ManifestError(
@@ -431,8 +434,9 @@ def _validate_schema_ledger_prerequisites(
     if target.version_schema in bundle.allowed_source_schema_versions:
         # A v3 tenant is an already established baseline. Replaying CU31 here
         # would hide an incomplete or incorrectly labelled tenant.
+        baseline_count = 3 if target.version_schema == "v3-sprint3-cu26-cu27-cu29" else 4
         missing_baseline = [
-            item.version for item in bundle.migrations[:-1]
+            item.version for item in bundle.migrations[:baseline_count]
             if item.version not in entries
         ]
         if missing_baseline:

@@ -310,10 +310,10 @@ class TenantRestoreRunner:
         if schema_version == bundle.schema_version:
             return regular | external
         if schema_version in bundle.allowed_source_schema_versions:
+            baseline_count = 3 if schema_version == "v3-sprint3-cu26-cu27-cu29" else 4
             return {
                 version: checksum
-                for version, checksum in regular.items()
-                if version != bundle.migrations[-1].version
+                for version, checksum in list(regular.items())[:baseline_count]
             } | external
         if schema_version == "v2-cu31":
             return {

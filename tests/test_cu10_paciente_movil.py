@@ -68,6 +68,14 @@ DDL = [
         fecha_hora TIMESTAMP NOT NULL, ip TEXT, accion TEXT NOT NULL,
         entidad_afectada TEXT, id_registro_afectado INTEGER,
         descripcion TEXT)""",
+    """CREATE TABLE notificacion_paciente (
+        id INTEGER PRIMARY KEY, paciente_id INTEGER NOT NULL REFERENCES paciente(id),
+        titulo TEXT NOT NULL, mensaje TEXT NOT NULL, tipo TEXT NOT NULL,
+        fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fecha_envio TIMESTAMP, leida BOOLEAN NOT NULL DEFAULT 0,
+        fecha_lectura TIMESTAMP, clave_evento TEXT,
+        UNIQUE (paciente_id, clave_evento)
+    )""",
 ]
 
 

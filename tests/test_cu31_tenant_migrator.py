@@ -154,11 +154,12 @@ def v3_entries(bundle):
 def test_manifest_has_exact_approved_order_and_valid_checksums(bundle):
     assert [item.version for item in bundle.migrations] == [
         "20261007211200", "20261007211247", "20261019000000",
-        "20261031000000",
+        "20261031000000", "20261121000000",
     ]
-    assert bundle.schema_version == "v4-sprint3-cu32-cu33"
+    assert bundle.schema_version == "v5-sprint4-cu39"
     assert bundle.allowed_source_schema_versions == (
         "v3-sprint3-cu26-cu27-cu29",
+        "v4-sprint3-cu32-cu33",
     )
     assert [item.version for item in bundle.external_migrations] == [
         "20261024150000",
@@ -166,6 +167,19 @@ def test_manifest_has_exact_approved_order_and_valid_checksums(bundle):
     assert bundle.external_migrations[0].checksum == (
         "d94e3e71041b5c823a08143081a8a6d9b341893a41f32ba15d072083163409b1"
     )
+
+
+def test_cu39_plan_v4_solo_aplica_nueva_migracion(bundle):
+    anteriores = tuple(
+        (item.version, item.checksum) for item in bundle.migrations[:4]
+    ) + external_entries(bundle)
+    database = FakeDatabase(ledger_exists=True, entries=anteriores)
+    plan = build_plan(
+        (target(version="v4-sprint3-cu32-cu33"),), bundle,
+        FakeFactory({"tenant_alpha": database}),
+    )
+    assert plan.tenants[0].migration_states[-1] == ("20261121000000", "pending")
+    assert all(state == "applied" for _, state in plan.tenants[0].migration_states[:-1])
 
 
 def test_changed_local_artifact_is_rejected_before_database_access(tmp_path):
@@ -251,13 +265,13 @@ def test_complete_execution_orders_migrations_verification_and_version(bundle):
     result = execute_plan(plan, plan.plan_hash, bundle, factory, control)[0]
 
     apply_events = [event for event in events if event.startswith("apply:")]
-    assert apply_events == ["apply:20261031000000"]
+    assert apply_events == ["apply:20261031000000", "apply:20261121000000"]
     assert events.index("verify") < events.index("version:tenant_alpha")
     assert "bootstrap" not in events
     assert events.index("control-check:tenant_alpha") < events.index("fingerprint")
     assert events[-2:] == ["unlock", "close"]
-    assert result.applied == ("20261031000000",)
-    assert control.updates == [("tenant_alpha", "v4-sprint3-cu32-cu33")]
+    assert result.applied == ("20261031000000", "20261121000000")
+    assert control.updates == [("tenant_alpha", "v5-sprint4-cu39")]
 
 
 def test_historical_table_change_blocks_version_update(bundle):
@@ -289,7 +303,7 @@ def test_resume_skips_confirmed_versions_without_duplicates(bundle):
 
     assert result.skipped == tuple(item.version for item in bundle.migrations[:2])
     assert result.applied == tuple(item.version for item in bundle.migrations[2:])
-    assert len(database.entries) == 4
+    assert len(database.entries) == 5
 
 
 def test_failure_keeps_committed_ledger_and_resume_continues(bundle):
@@ -309,8 +323,8 @@ def test_failure_keeps_committed_ledger_and_resume_continues(bundle):
     result = execute_plan(
         resumed, resumed.plan_hash, bundle, factory, FakeControlPlane(),
     )[0]
-    assert result.applied == ("20261019000000", "20261031000000")
-    assert len(database.entries) == 4
+    assert result.applied == ("20261019000000", "20261031000000", "20261121000000")
+    assert len(database.entries) == 5
 
 
 def test_state_change_after_plan_is_detected_under_lock(bundle):

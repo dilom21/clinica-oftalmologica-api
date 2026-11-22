@@ -1,10 +1,11 @@
 import unittest
 from contextlib import ExitStack
-from datetime import date, time, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from fastapi import HTTPException
+import pytest
 from pydantic import ValidationError
 
 from app.modules.gestion_agenda_citas.repositories import repository as repo
@@ -18,6 +19,12 @@ from app.modules.gestion_agenda_citas.schemas.schemas import (
 from app.modules.gestion_agenda_citas.services import citas
 
 FUNCION_CU10 = "Gestionar citas médicas"
+
+
+@pytest.fixture(autouse=True)
+def _aislar_notificaciones_cu39():
+    with patch.object(citas, "crear_desde_evento"):
+        yield
 
 
 def fecha_futura():
@@ -441,6 +448,7 @@ class TestReprogramarCitaCU10(unittest.TestCase):
 
     def _patches_base(self, disponibilidad=None):
         stack = ExitStack()
+        self.cita.fecha_actualizacion = datetime.now(timezone.utc)
         stack.enter_context(
             patch.object(citas.repo, "obtener_cita_por_id", return_value=self.cita)
         )
