@@ -1,11 +1,11 @@
-from sqlalchemy import exists, func, select
+from sqlalchemy import exists, func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.gestion_historial_clinico.models.models import (
     ServicioOftalmologico,
     ServicioRealizado,
 )
-from app.modules.gestion_pagos.models.models import PagoDetalle
+from app.modules.gestion_pagos.models.models import Pago, PagoAjuste, PagoDetalle
 
 
 def obtener_servicio(db: Session, servicio_id: int):
@@ -40,11 +40,37 @@ def guardar_registro(db: Session, registro: ServicioRealizado):
 
 
 def tiene_pago_asociado(db: Session, registro_id: int) -> bool:
-    """Indica si cualquier pago ya referencia al servicio realizado."""
-    stmt = select(
-        exists().where(PagoDetalle.servicio_realizado_id == registro_id)
+    """Indica si el servicio sigue comprometido por un pago.
+
+    CU36: un pago PENDIENTE (posible captura), APROBADO (dinero recibido o
+    cobertura vigente), un intento Stripe rechazado aun conciliable o cualquier
+    ajuste financiero abierto siguen bloqueando. Un pago ANULADO o totalmente
+    reembolsado ya no bloquea: el servicio vuelve a estar pendiente de pago.
+    """
+    comprometido = db.scalar(
+        select(PagoDetalle.id)
+        .join(Pago, Pago.id == PagoDetalle.pago_id)
+        .where(
+            PagoDetalle.servicio_realizado_id == registro_id,
+            or_(
+                Pago.estado.in_(("PENDIENTE", "APROBADO")),
+                (Pago.pasarela == "STRIPE") & (Pago.estado == "RECHAZADO"),
+            ),
+        )
+        .limit(1)
     )
-    return bool(db.scalar(stmt))
+    if comprometido is not None:
+        return True
+    abierto = db.scalar(
+        select(PagoAjuste.id)
+        .join(PagoDetalle, PagoDetalle.pago_id == PagoAjuste.pago_id)
+        .where(
+            PagoDetalle.servicio_realizado_id == registro_id,
+            PagoAjuste.estado.in_(("PENDIENTE_PROVEEDOR", "DESCONOCIDO")),
+        )
+        .limit(1)
+    )
+    return abierto is not None
 
 
 def listar_registros(

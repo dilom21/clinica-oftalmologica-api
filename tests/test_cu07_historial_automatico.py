@@ -117,8 +117,13 @@ def _crear_esquema(engine):
             estado BOOLEAN NOT NULL, fecha_creacion TIMESTAMP NOT NULL,
             rol_id INTEGER NOT NULL REFERENCES rol(id)
         )""",
+        """CREATE TABLE modulo (
+            id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, descripcion TEXT,
+            estado BOOLEAN NOT NULL
+        )""",
         """CREATE TABLE funcion (
-            id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
+            id INTEGER PRIMARY KEY, modulo_id INTEGER NOT NULL REFERENCES modulo(id),
+            nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
         )""",
         """CREATE TABLE accion (
             id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
@@ -209,10 +214,13 @@ def _crear_esquema(engine):
             "INSERT INTO accion VALUES (1, 'LECTURA', 1), (2, 'ESCRITURA', 1), (3, 'AMBAS', 1)"
         )
         conn.exec_driver_sql(
-            """INSERT INTO funcion VALUES
-                (15, 'Consultar historial clínico', 1),
-                (17, 'Registrar consulta clínica', 1),
-                (18, 'Registrar diagnóstico', 1)"""
+            "INSERT INTO modulo VALUES (1, 'Clinico', NULL, 1)"
+        )
+        conn.exec_driver_sql(
+            """INSERT INTO funcion (id, modulo_id, nombre, estado) VALUES
+                (15, 1, 'Consultar historial clínico', 1),
+                (17, 1, 'Registrar consulta clínica', 1),
+                (18, 1, 'Registrar diagnóstico', 1)"""
         )
         conn.exec_driver_sql(
             "INSERT INTO rol_funcion VALUES (1, 1, 15, 1), (2, 1, 17, 2), (3, 1, 18, 2)"
@@ -505,8 +513,6 @@ def test_registro_movil_no_duplica_historial_existente(
     assert historial.id == 10
     assert contar_historiales(db, PACIENTE_CON_HISTORIAL) == 1
     assert contar(db, HistorialClinico) == HISTORIALES_SEMBRADOS
-
-
 def test_rollback_en_registro_movil_si_falla_el_historial(
     db_historial_auto, monkeypatch,
 ):
@@ -560,6 +566,3 @@ def test_asegurar_historial_no_reactiva_un_historial_inactivo(db_historial_auto)
     assert historial.estado is False
     assert contar_historiales(db, PACIENTE_HISTORIAL_INACTIVO) == 1
     assert contar(db, HistorialClinico) == HISTORIALES_SEMBRADOS
-
-
-

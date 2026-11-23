@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -31,6 +31,10 @@ class ErrorProveedorPago(RuntimeError):
     pass
 
 
+class ErrorProveedorPagoDesconocido(ErrorProveedorPago):
+    """La operacion externa pudo ejecutarse pero su resultado es desconocido."""
+
+
 class ErrorFirmaWebhook(ValueError):
     pass
 
@@ -42,6 +46,27 @@ class IntentoPagoProveedor:
     amount: int
     currency: str
     status: str
+    # Metadata confiable generada por el servidor al crear el PaymentIntent.
+    # Permite enrutar un refund creado en el dashboard de Stripe (cuyo objeto
+    # refund no lleva metadata) al tenant correcto consultando el proveedor.
+    metadata: dict[str, str] = field(default_factory=dict, hash=False)
+
+
+@dataclass(frozen=True)
+class ReembolsoProveedor:
+    id: str
+    payment_intent_id: str | None
+    amount: int
+    currency: str
+    status: str
+    failure_reason: str | None = None
+    # Metadata con la que se creo el reembolso. Permite atribuir un refund a
+    # un ajuste concreto sin depender del orden en que el proveedor lo liste.
+    metadata: dict[str, str] = field(default_factory=dict, hash=False)
+
+    @property
+    def confirmed(self) -> bool:
+        return self.status == "succeeded"
 
 
 class ProveedorPagoBase(ABC):
@@ -75,3 +100,29 @@ class ProveedorPagoBase(ABC):
         firma: str | None,
     ) -> dict[str, Any]:
         raise NotImplementedError
+
+    # CU36 - El proveedor debe confirmar el reembolso; nunca se simula.
+    # Las implementaciones sin soporte heredan un fallo explicito y seguro.
+    def crear_reembolso(
+        self,
+        *,
+        payment_intent_id: str,
+        amount: int,
+        metadata: dict[str, str],
+        idempotency_key: str,
+    ) -> ReembolsoProveedor:
+        raise ErrorProveedorPago(
+            "El proveedor de pagos no soporta reembolsos"
+        )
+
+    def recuperar_reembolso(self, refund_id: str) -> ReembolsoProveedor:
+        raise ErrorProveedorPago(
+            "El proveedor de pagos no soporta reembolsos"
+        )
+
+    def listar_reembolsos(
+        self, payment_intent_id: str,
+    ) -> list[ReembolsoProveedor]:
+        raise ErrorProveedorPago(
+            "El proveedor de pagos no soporta reembolsos"
+        )

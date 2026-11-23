@@ -1,0 +1,1685 @@
+{
+  "directed": false,
+  "multigraph": false,
+  "graph": {
+    "community_labels": {
+      "0": "Community 0",
+      "1": "Community 1",
+      "2": "Community 2",
+      "3": "Community 3",
+      "4": "Community 4",
+      "5": "Community 5",
+      "6": "Community 6",
+      "7": "Community 7",
+      "8": "Community 8",
+      "9": "Community 9",
+      "10": "Community 10",
+      "11": "Community 11",
+      "12": "Community 12",
+      "13": "Community 13",
+      "14": "Community 14",
+      "15": "Community 15",
+      "16": "Community 16",
+      "17": "Community 17",
+      "18": "Community 18",
+      "19": "Community 19",
+      "20": "Community 20",
+      "21": "Community 21"
+    },
+    "built_from_commit": "1590784fcd5b7753a669d16e8dee6a561ce889f8"
+  },
+  "topology_signature": "n=60;e=51;api_init,api_router,api_router_actualizar_antecedente,api_router_consultar_consulta_clinica,api_router_consultar_historial_clinico,api_router_crear_antecedente,api_router_listar_consultas_clinicas,api_router_obtener_modulo,api_router_registrar_consulta_clinica,base,basemodel,casos_uso_cu13_consultar_historial_clinico,casos_uso_cu14_gestionar_antecedentes_clinicos,casos_uso_cu15_registrar_consulta_clinica,casos_uso_cu16_registrar_diagnostico,casos_uso_cu17_registrar_tratamientos_recetas,casos_uso_cu18_registrar_resultados_examenes,casos_uso_cu19_programar_controles_medicos,casos_uso_cu20_consultar_informacion_clinica,casos_uso_cu21_gestionar_servicios_oftalmologicos,casos_uso_cu22_registrar_servicios_realizados,casos_uso_init,init,models_init,models_models,models_models_antecedenteclinico,models_models_consultaclinica,models_models_historialclinico,repositories_init,repositories_repository,repositories_repository_actualizar_antecedente,repositories_repository_crear_antecedente,repositories_repository_crear_consulta_clinica,repositories_repository_listar_consultas_clinicas,repositories_repository_obtener_antecedente_disponible_por_id,repositories_repository_obtener_consulta_por_cita_id,repositories_repository_obtener_consulta_por_id,repositories_repository_obtener_historial_activo_por_id,repositories_repository_obtener_paciente_con_historial,schemas_init,schemas_schemas,schemas_schemas_antecedenteclinicoactualizar,schemas_schemas_antecedenteclinicobase,schemas_schemas_antecedenteclinicobase_normalizar_tipo,schemas_schemas_antecedenteclinicocrear,schemas_schemas_antecedenteclinicorespuesta,schemas_schemas_consultaclinicacrear,schemas_schemas_consultaclinicacrear_normalizar_texto_opcional,schemas_schemas_consultaclinicarespuesta,schemas_schemas_historialclinicodetallerespuesta,schemas_schemas_historialclinicorespuesta,services_init,services_service,services_service_actualizar_antecedente,services_service_consultar_consulta_clinica,services_service_consultar_historial_clinico,services_service_crear_antecedente,services_service_listar_consultas_clinicas,services_service_rationale_94,services_service_registrar_consulta_clinica|api_router\tapi_router_actualizar_antecedente\tcontains;api_router\tapi_router_consultar_consulta_clinica\tcontains;api_router\tapi_router_consultar_historial_clinico\tcontains;api_router\tapi_router_crear_antecedente\tcontains;api_router\tapi_router_listar_consultas_clinicas\tcontains;api_router\tapi_router_obtener_modulo\tcontains;api_router\tapi_router_registrar_consulta_clinica\tcontains;base\tmodels_models_antecedenteclinico\tinherits;base\tmodels_models_consultaclinica\tinherits;base\tmodels_models_historialclinico\tinherits;basemodel\tschemas_schemas_antecedenteclinicobase\tinherits;basemodel\tschemas_schemas_antecedenteclinicorespuesta\tinherits;basemodel\tschemas_schemas_consultaclinicacrear\tinherits;basemodel\tschemas_schemas_consultaclinicarespuesta\tinherits;basemodel\tschemas_schemas_historialclinicodetallerespuesta\tinherits;basemodel\tschemas_schemas_historialclinicorespuesta\tinherits;models_models\tmodels_models_antecedenteclinico\tcontains;models_models\tmodels_models_consultaclinica\tcontains;models_models\tmodels_models_historialclinico\tcontains;repositories_repository\trepositories_repository_actualizar_antecedente\tcontains;repositories_repository\trepositories_repository_crear_antecedente\tcontains;repositories_repository\trepositories_repository_crear_consulta_clinica\tcontains;repositories_repository\trepositories_repository_listar_consultas_clinicas\tcontains;repositories_repository\trepositories_repository_obtener_antecedente_disponible_por_id\tcontains;repositories_repository\trepositories_repository_obtener_consulta_por_cita_id\tcontains;repositories_repository\trepositories_repository_obtener_consulta_por_id\tcontains;repositories_repository\trepositories_repository_obtener_historial_activo_por_id\tcontains;repositories_repository\trepositories_repository_obtener_paciente_con_historial\tcontains;schemas_schemas\tschemas_schemas_antecedenteclinicoactualizar\tcontains;schemas_schemas\tschemas_schemas_antecedenteclinicobase\tcontains;schemas_schemas\tschemas_schemas_antecedenteclinicocrear\tcontains;schemas_schemas\tschemas_schemas_antecedenteclinicorespuesta\tcontains;schemas_schemas\tschemas_schemas_consultaclinicacrear\tcontains;schemas_schemas\tschemas_schemas_consultaclinicarespuesta\tcontains;schemas_schemas\tschemas_schemas_historialclinicodetallerespuesta\tcontains;schemas_schemas\tschemas_schemas_historialclinicorespuesta\tcontains;schemas_schemas_antecedenteclinicoactualizar\tschemas_schemas_antecedenteclinicobase\tinherits;schemas_schemas_antecedenteclinicoactualizar\tservices_service_rationale_94\tuses;schemas_schemas_antecedenteclinicobase\tschemas_schemas_antecedenteclinicobase_normalizar_tipo\tmethod;schemas_schemas_antecedenteclinicobase\tschemas_schemas_antecedenteclinicocrear\tinherits;schemas_schemas_antecedenteclinicocrear\tservices_service_rationale_94\tuses;schemas_schemas_consultaclinicacrear\tschemas_schemas_consultaclinicacrear_normalizar_texto_opcional\tmethod;schemas_schemas_consultaclinicacrear\tservices_service_rationale_94\tuses;schemas_schemas_historialclinicorespuesta\tservices_service_rationale_94\tuses;services_service\tservices_service_actualizar_antecedente\tcontains;services_service\tservices_service_consultar_consulta_clinica\tcontains;services_service\tservices_service_consultar_historial_clinico\tcontains;services_service\tservices_service_crear_antecedente\tcontains;services_service\tservices_service_listar_consultas_clinicas\tcontains;services_service\tservices_service_registrar_consulta_clinica\tcontains;services_service_rationale_94\tservices_service_registrar_consulta_clinica\trationale_for",
+  "nodes": [
+    {
+      "id": "init",
+      "label": "__init__.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/__init__.py",
+      "source_location": "L1",
+      "community": 17,
+      "community_name": "Community 17",
+      "description": "Package initializer for the clinical history management module."
+    },
+    {
+      "id": "api_init",
+      "label": "__init__.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/api/__init__.py",
+      "source_location": "L1",
+      "community": 5,
+      "community_name": "Community 5",
+      "description": "Package initializer for the API subpackage."
+    },
+    {
+      "id": "api_router",
+      "label": "router.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L1",
+      "community": 2,
+      "community_name": "Community 2",
+      "description": "Módulo de rutas FastAPI que expone los endpoints HTTP del módulo de historial clínico."
+    },
+    {
+      "id": "api_router_obtener_modulo",
+      "label": "obtener_modulo()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L22",
+      "community": 2,
+      "community_name": "Community 2",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "document",
+          "quote": "@router.get(\"/\") def obtener_modulo(): return {\"mensaje\": \"Módulo de historial clínico funcionando\"}",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p3"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Dependencia de FastAPI que resuelve el contexto del módulo para las rutas."
+    },
+    {
+      "id": "api_router_crear_antecedente",
+      "label": "crear_antecedente()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L37",
+      "community": 2,
+      "community_name": "Community 2",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "document",
+          "quote": "@router.post( \"/antecedentes\", response_model=AntecedenteClinicoRespuesta, status_code=201, ) def crear_antecedente( datos: AntecedenteClinicoCrear, db: Session = Depends(get_db), usuario=Depends(permiso_gestionar_antecedentes), ): return service.crear_antecedente(db, datos, usuario)",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p5"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Endpoint HTTP que registra un antecedente clínico nuevo."
+    },
+    {
+      "id": "api_router_actualizar_antecedente",
+      "label": "actualizar_antecedente()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L46",
+      "community": 2,
+      "community_name": "Community 2",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "document",
+          "quote": "@router.put(\"/antecedentes/{antecedente_id}\", response_model=AntecedenteClinicoRespuesta) def actualizar_antecedente( datos: AntecedenteClinicoActualizar, antecedente_id: int = Path(gt=0, le=2**63 - 1), db: Session = Depends(get_db), usuario=Depends(permiso_gestionar_antecedentes), ): return service.actualizar_antecede",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p6"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Endpoint HTTP que actualiza un antecedente clínico existente."
+    },
+    {
+      "id": "api_router_registrar_consulta_clinica",
+      "label": "registrar_consulta_clinica()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L68",
+      "community": 2,
+      "community_name": "Community 2",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "=========================================================",
+          "quote": "@router.post( \"/consultas\", response_model=ConsultaClinicaRespuesta, status_code=201, ) def registrar_consulta_clinica( datos: ConsultaClinicaCrear, db: Session = Depends(get_db), usuario=Depends(permiso_registrar_consulta), ): return service.registrar_consulta_clinica(db, datos, usuario)",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p8"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Endpoint HTTP que registra una consulta clínica."
+    },
+    {
+      "id": "api_router_listar_consultas_clinicas",
+      "label": "listar_consultas_clinicas()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L77",
+      "community": 2,
+      "community_name": "Community 2",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "=========================================================",
+          "quote": "@router.get(\"/consultas\", response_model=list[ConsultaClinicaRespuesta]) def listar_consultas_clinicas( historial_clinico_id: int | None = Query(default=None, gt=0, le=2**63 - 1), paciente_id: int | None = Query(default=None, gt=0, le=2**63 - 1), oftalmologo_id: int | None = Query(default=None, …",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p9"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Endpoint HTTP que lista las consultas clínicas registradas."
+    },
+    {
+      "id": "api_router_consultar_consulta_clinica",
+      "label": "consultar_consulta_clinica()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L95",
+      "community": 2,
+      "community_name": "Community 2",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "=========================================================",
+          "quote": "@router.get( \"/consultas/{consulta_id}\", response_model=ConsultaClinicaRespuesta, ) def consultar_consulta_clinica( consulta_id: int = Path(gt=0, le=2**63 - 1), db: Session = Depends(get_db), _usuario=Depends(permiso_historial_clinico), ): return service.consultar_consulta_clinica(db, consulta_id)",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p10"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Endpoint HTTP que devuelve el detalle de una consulta clínica."
+    },
+    {
+      "id": "api_router_consultar_historial_clinico",
+      "label": "consultar_historial_clinico()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L104",
+      "community": 2,
+      "community_name": "Community 2",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "=========================================================",
+          "quote": "@router.get(\"/{paciente_id}\", response_model=HistorialClinicoRespuesta) def consultar_historial_clinico( paciente_id: int = Path(gt=0, le=2**63 - 1), db: Session = Depends(get_db), _usuario=Depends(permiso_historial_clinico), ): return service.consultar_historial_clinico(db, paciente_id …",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p11"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Endpoint HTTP que devuelve el historial clínico de un paciente."
+    },
+    {
+      "id": "casos_uso_init",
+      "label": "__init__.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/casos_uso/__init__.py",
+      "source_location": "L1",
+      "community": 16,
+      "community_name": "Community 16",
+      "description": "Package initializer for the use cases subpackage."
+    },
+    {
+      "id": "casos_uso_cu13_consultar_historial_clinico",
+      "label": "cu13_consultar_historial_clinico.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/casos_uso/cu13_consultar_historial_clinico.py",
+      "source_location": "L1",
+      "community": 6,
+      "community_name": "Community 6",
+      "description": "Use case module for consulting a patient's clinical history (CU13)."
+    },
+    {
+      "id": "casos_uso_cu14_gestionar_antecedentes_clinicos",
+      "label": "cu14_gestionar_antecedentes_clinicos.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/casos_uso/cu14_gestionar_antecedentes_clinicos.py",
+      "source_location": "L1",
+      "community": 7,
+      "community_name": "Community 7",
+      "description": "Use case module for managing clinical background records (CU14)."
+    },
+    {
+      "id": "casos_uso_cu15_registrar_consulta_clinica",
+      "label": "cu15_registrar_consulta_clinica.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/casos_uso/cu15_registrar_consulta_clinica.py",
+      "source_location": "L1",
+      "community": 8,
+      "community_name": "Community 8",
+      "description": "Use case module for registering a clinical consultation (CU15)."
+    },
+    {
+      "id": "casos_uso_cu16_registrar_diagnostico",
+      "label": "cu16_registrar_diagnostico.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/casos_uso/cu16_registrar_diagnostico.py",
+      "source_location": "L1",
+      "community": 9,
+      "community_name": "Community 9",
+      "description": "Use case module for registering a diagnosis (CU16)."
+    },
+    {
+      "id": "casos_uso_cu17_registrar_tratamientos_recetas",
+      "label": "cu17_registrar_tratamientos_recetas.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/casos_uso/cu17_registrar_tratamientos_recetas.py",
+      "source_location": "L1",
+      "community": 10,
+      "community_name": "Community 10",
+      "description": "Use case module for registering treatments and prescriptions (CU17)."
+    },
+    {
+      "id": "casos_uso_cu18_registrar_resultados_examenes",
+      "label": "cu18_registrar_resultados_examenes.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/casos_uso/cu18_registrar_resultados_examenes.py",
+      "source_location": "L1",
+      "community": 11,
+      "community_name": "Community 11",
+      "description": "Use case module for registering exam results (CU18)."
+    },
+    {
+      "id": "casos_uso_cu19_programar_controles_medicos",
+      "label": "cu19_programar_controles_medicos.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/casos_uso/cu19_programar_controles_medicos.py",
+      "source_location": "L1",
+      "community": 12,
+      "community_name": "Community 12",
+      "description": "Use case module for scheduling medical follow-ups (CU19)."
+    },
+    {
+      "id": "casos_uso_cu20_consultar_informacion_clinica",
+      "label": "cu20_consultar_informacion_clinica.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/casos_uso/cu20_consultar_informacion_clinica.py",
+      "source_location": "L1",
+      "community": 13,
+      "community_name": "Community 13",
+      "description": "Use case module for consulting clinical information (CU20)."
+    },
+    {
+      "id": "casos_uso_cu21_gestionar_servicios_oftalmologicos",
+      "label": "cu21_gestionar_servicios_oftalmologicos.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/casos_uso/cu21_gestionar_servicios_oftalmologicos.py",
+      "source_location": "L1",
+      "community": 14,
+      "community_name": "Community 14",
+      "description": "Use case module for managing ophthalmology services (CU21)."
+    },
+    {
+      "id": "casos_uso_cu22_registrar_servicios_realizados",
+      "label": "cu22_registrar_servicios_realizados.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/casos_uso/cu22_registrar_servicios_realizados.py",
+      "source_location": "L1",
+      "community": 15,
+      "community_name": "Community 15",
+      "description": "Use case module for registering performed services (CU22)."
+    },
+    {
+      "id": "models_init",
+      "label": "__init__.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/models/__init__.py",
+      "source_location": "L1",
+      "community": 18,
+      "community_name": "Community 18",
+      "description": "Package initializer for the models subpackage."
+    },
+    {
+      "id": "models_models",
+      "label": "models.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+      "source_location": "L1",
+      "community": 4,
+      "community_name": "Community 4",
+      "description": "Módulo que define los modelos ORM de historial clínico, antecedentes y consultas clínicas."
+    },
+    {
+      "id": "models_models_historialclinico",
+      "label": "HistorialClinico",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+      "source_location": "L11",
+      "community": 4,
+      "community_name": "Community 4",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+          "source_location": "document",
+          "quote": "class HistorialClinico(Base): __tablename__ = \"historial_clinico\"",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p3"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+          "source_location": "document",
+          "quote": "historial: Mapped[HistorialClinico] = relationship(back_populates=\"antecedentes\")",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p8"
+        }
+      ],
+      "citation_count": 2,
+      "description": "Modelo ORM que representa la tabla de historiales clínicos de los pacientes."
+    },
+    {
+      "id": "base",
+      "label": "Base",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "community": 4,
+      "community_name": "Community 4",
+      "description": "Clase declarativa base de SQLAlchemy de la que heredan los modelos ORM del módulo."
+    },
+    {
+      "id": "models_models_antecedenteclinico",
+      "label": "AntecedenteClinico",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+      "source_location": "L36",
+      "community": 4,
+      "community_name": "Community 4",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+          "source_location": "document",
+          "quote": "paciente: Mapped[Paciente] = relationship() antecedentes: Mapped[list[\"AntecedenteClinico\"]] = relationship( back_populates=\"historial\", order_by=lambda: ( AntecedenteClinico.fecha_registro.desc(), AntecedenteClinico.id.desc(), ), )",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p5"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+          "source_location": "document",
+          "quote": "class AntecedenteClinico(Base): __tablename__ = \"antecedente_clinico\"",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p6"
+        }
+      ],
+      "citation_count": 2,
+      "description": "Modelo ORM que representa la tabla de antecedentes clínicos de un paciente."
+    },
+    {
+      "id": "models_models_consultaclinica",
+      "label": "ConsultaClinica",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+      "source_location": "L55",
+      "community": 4,
+      "community_name": "Community 4",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+          "source_location": "document",
+          "quote": "class ConsultaClinica(Base): __tablename__ = \"consulta_clinica\"",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p9"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Modelo ORM que representa la tabla de consultas clínicas registradas."
+    },
+    {
+      "id": "repositories_init",
+      "label": "__init__.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/__init__.py",
+      "source_location": "L1",
+      "community": 19,
+      "community_name": "Community 19",
+      "description": "Package initializer for the repositories subpackage."
+    },
+    {
+      "id": "repositories_repository",
+      "label": "repository.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L1",
+      "community": 1,
+      "community_name": "Community 1",
+      "description": "Módulo de acceso a datos que agrupa las operaciones de historial clínico, antecedentes y consultas clínicas."
+    },
+    {
+      "id": "repositories_repository_obtener_paciente_con_historial",
+      "label": "obtener_paciente_con_historial()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L18",
+      "community": 1,
+      "community_name": "Community 1",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "document",
+          "quote": "def obtener_paciente_con_historial(db: Session, paciente_id: int): paciente = obtener_paciente_por_id(db, paciente_id) if paciente is None: return None, None",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p3"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Obtiene un paciente junto con su historial clínico."
+    },
+    {
+      "id": "repositories_repository_obtener_historial_activo_por_id",
+      "label": "obtener_historial_activo_por_id()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L39",
+      "community": 1,
+      "community_name": "Community 1",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "document",
+          "quote": "def obtener_historial_activo_por_id(db: Session, historial_clinico_id: int): return db.scalar( select(HistorialClinico).where( HistorialClinico.id == historial_clinico_id, HistorialClinico.estado.is_(True), ) )",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p5"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Obtiene el historial clínico activo correspondiente a un identificador."
+    },
+    {
+      "id": "repositories_repository_obtener_antecedente_disponible_por_id",
+      "label": "obtener_antecedente_disponible_por_id()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L48",
+      "community": 1,
+      "community_name": "Community 1",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "document",
+          "quote": "def obtener_antecedente_disponible_por_id(db: Session, antecedente_id: int): return db.scalar( select(AntecedenteClinico) .join(HistorialClinico, HistorialClinico.id == AntecedenteClinico.historial_clinico_id) .where( …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p6"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Obtiene un antecedente clínico disponible a partir de su identificador."
+    },
+    {
+      "id": "repositories_repository_crear_antecedente",
+      "label": "crear_antecedente()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L60",
+      "community": 1,
+      "community_name": "Community 1",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "document",
+          "quote": "def crear_antecedente(db: Session, datos: AntecedenteClinicoCrear): antecedente = AntecedenteClinico( historial_clinico_id=datos.historial_clinico_id, tipo=datos.tipo, descripcion=datos.descripcion, fecha_registro=datetime …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p7"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Inserta en base de datos un antecedente clínico nuevo."
+    },
+    {
+      "id": "repositories_repository_actualizar_antecedente",
+      "label": "actualizar_antecedente()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L74",
+      "community": 1,
+      "community_name": "Community 1",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "document",
+          "quote": "def actualizar_antecedente( db: Session, antecedente: AntecedenteClinico, datos: AntecedenteClinicoActualizar, ): antecedente.tipo = datos.tipo antecedente.descripcion = datos.descripcion db.flush() db.refresh(antecedente …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p8"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Actualiza en base de datos un antecedente clínico existente."
+    },
+    {
+      "id": "repositories_repository_crear_consulta_clinica",
+      "label": "crear_consulta_clinica()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L91",
+      "community": 1,
+      "community_name": "Community 1",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "=========================================================",
+          "quote": "def crear_consulta_clinica( db: Session, *, historial_clinico_id: int, cita_id: int | None, oftalmologo_id: int, motivo_consulta: str | None, anamnesis: str | None, observaciones: str | None, ): consulta = ConsultaClinica( …",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p9"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Inserta en base de datos una consulta clínica nueva."
+    },
+    {
+      "id": "repositories_repository_obtener_consulta_por_id",
+      "label": "obtener_consulta_por_id()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L117",
+      "community": 1,
+      "community_name": "Community 1",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "=========================================================",
+          "quote": "def obtener_consulta_por_id(db: Session, consulta_id: int): return db.scalar( select(ConsultaClinica) .options(selectinload(ConsultaClinica.oftalmologo)) .where(ConsultaClinica.id == consulta_id) )",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p10"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Obtiene una consulta clínica por su identificador."
+    },
+    {
+      "id": "repositories_repository_obtener_consulta_por_cita_id",
+      "label": "obtener_consulta_por_cita_id()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L125",
+      "community": 1,
+      "community_name": "Community 1",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "=========================================================",
+          "quote": "def obtener_consulta_por_cita_id(db: Session, cita_id: int): return db.scalar( select(ConsultaClinica).where(ConsultaClinica.cita_id == cita_id) )",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p11"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Obtiene la consulta clínica asociada a una cita médica."
+    },
+    {
+      "id": "repositories_repository_listar_consultas_clinicas",
+      "label": "listar_consultas_clinicas()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L131",
+      "community": 1,
+      "community_name": "Community 1",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "=========================================================",
+          "quote": "def listar_consultas_clinicas( db: Session, *, historial_clinico_id: int | None = None, paciente_id: int | None = None, oftalmologo_id: int | None = None, ): stmt = select(ConsultaClinica).options( selectinload(ConsultaClinica …",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p12"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Lista las consultas clínicas almacenadas."
+    },
+    {
+      "id": "schemas_init",
+      "label": "__init__.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/__init__.py",
+      "source_location": "L1",
+      "community": 20,
+      "community_name": "Community 20",
+      "description": "Package initializer for the schemas subpackage."
+    },
+    {
+      "id": "schemas_schemas",
+      "label": "schemas.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L1",
+      "community": 0,
+      "community_name": "Community 0",
+      "description": "Módulo que define los esquemas Pydantic de validación para antecedentes, consultas clínicas e historial clínico."
+    },
+    {
+      "id": "schemas_schemas_antecedenteclinicobase",
+      "label": "AntecedenteClinicoBase",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L18",
+      "community": 0,
+      "community_name": "Community 0",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class AntecedenteClinicoBase(BaseModel): tipo: TipoAntecedente descripcion: str = Field(min_length=1)",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p4"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class AntecedenteClinicoCrear(AntecedenteClinicoBase): historial_clinico_id: int = Field(gt=0, le=2**63 - 1)",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p7"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class AntecedenteClinicoActualizar(AntecedenteClinicoBase): pass",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p8"
+        }
+      ],
+      "citation_count": 3,
+      "description": "Esquema Pydantic base con los campos comunes de un antecedente clínico y la normalización de su tipo."
+    },
+    {
+      "id": "basemodel",
+      "label": "BaseModel",
+      "file_type": "code",
+      "source_file": "",
+      "source_location": "",
+      "community": 0,
+      "community_name": "Community 0",
+      "description": "Clase base de Pydantic de la que heredan los esquemas de validación del módulo."
+    },
+    {
+      "id": "schemas_schemas_antecedenteclinicobase_normalizar_tipo",
+      "label": ".normalizar_tipo()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L26",
+      "community": 0,
+      "community_name": "Community 0",
+      "description": "Normaliza el campo tipo de un antecedente clínico antes de validarlo."
+    },
+    {
+      "id": "schemas_schemas_antecedenteclinicocrear",
+      "label": "AntecedenteClinicoCrear",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L30",
+      "community": 0,
+      "community_name": "Community 0",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class AntecedenteClinicoCrear(AntecedenteClinicoBase): historial_clinico_id: int = Field(gt=0, le=2**63 - 1)",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p7"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Esquema Pydantic de entrada para crear un antecedente clínico nuevo."
+    },
+    {
+      "id": "schemas_schemas_antecedenteclinicoactualizar",
+      "label": "AntecedenteClinicoActualizar",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L34",
+      "community": 0,
+      "community_name": "Community 0",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class AntecedenteClinicoActualizar(AntecedenteClinicoBase): pass",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p8"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Esquema Pydantic de entrada para actualizar un antecedente clínico existente."
+    },
+    {
+      "id": "schemas_schemas_antecedenteclinicorespuesta",
+      "label": "AntecedenteClinicoRespuesta",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L38",
+      "community": 0,
+      "community_name": "Community 0",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "… HistorialClinicoDetalleRespuesta(BaseModel): id: int fecha_apertura: datetime observaciones_generales: str | None antecedentes: list[AntecedenteClinicoRespuesta]",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p11"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class AntecedenteClinicoRespuesta(BaseModel): id: int tipo: str descripcion: str fecha_registro: datetime",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p9"
+        }
+      ],
+      "citation_count": 2,
+      "description": "Esquema Pydantic de salida con los datos de un antecedente clínico."
+    },
+    {
+      "id": "schemas_schemas_historialclinicodetallerespuesta",
+      "label": "HistorialClinicoDetalleRespuesta",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L47",
+      "community": 0,
+      "community_name": "Community 0",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class HistorialClinicoDetalleRespuesta(BaseModel): id: int fecha_apertura: datetime observaciones_generales: str | None antecedentes: list[AntecedenteClinicoRespuesta]",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p11"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class HistorialClinicoRespuesta(BaseModel): paciente: PacienteRespuesta historial: HistorialClinicoDetalleRespuesta | None",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p13"
+        }
+      ],
+      "citation_count": 2,
+      "description": "Esquema Pydantic de salida con el detalle completo de un historial clínico."
+    },
+    {
+      "id": "schemas_schemas_historialclinicorespuesta",
+      "label": "HistorialClinicoRespuesta",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L56",
+      "community": 0,
+      "community_name": "Community 0",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class HistorialClinicoRespuesta(BaseModel): paciente: PacienteRespuesta historial: HistorialClinicoDetalleRespuesta | None",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p13"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Esquema Pydantic de salida con los datos de un historial clínico."
+    },
+    {
+      "id": "schemas_schemas_consultaclinicacrear",
+      "label": "ConsultaClinicaCrear",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L66",
+      "community": 0,
+      "community_name": "Community 0",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "=========================================================",
+          "quote": "class ConsultaClinicaCrear(BaseModel): historial_clinico_id: int = Field(gt=0, le=2**63 - 1) cita_id: int | None = Field(default=None, gt=0, le=2**63 - 1) motivo_consulta: str | None = Field(default=None, max_length=255 …",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p14"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Esquema Pydantic de entrada para crear una consulta clínica, con normalización de texto opcional."
+    },
+    {
+      "id": "schemas_schemas_consultaclinicacrear_normalizar_texto_opcional",
+      "label": ".normalizar_texto_opcional()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L79",
+      "community": 0,
+      "community_name": "Community 0",
+      "description": "Normaliza los campos de texto opcionales de una consulta clínica antes de validarlos."
+    },
+    {
+      "id": "schemas_schemas_consultaclinicarespuesta",
+      "label": "ConsultaClinicaRespuesta",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L86",
+      "community": 0,
+      "community_name": "Community 0",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "=========================================================",
+          "quote": "class ConsultaClinicaRespuesta(BaseModel): id: int historial_clinico_id: int cita_id: int | None oftalmologo: OftalmologoResumidoRespuesta fecha_consulta: datetime motivo_consulta: str | None anamnesis: str | None observaciones: …",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p17"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Esquema Pydantic de salida con los datos de una consulta clínica."
+    },
+    {
+      "id": "services_init",
+      "label": "__init__.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/services/__init__.py",
+      "source_location": "L1",
+      "community": 21,
+      "community_name": "Community 21",
+      "description": "Package initializer for the services subpackage."
+    },
+    {
+      "id": "services_service",
+      "label": "service.py",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L1",
+      "community": 3,
+      "community_name": "Community 3",
+      "description": "Módulo de lógica de negocio que orquesta las operaciones sobre historial clínico, antecedentes y consultas."
+    },
+    {
+      "id": "services_service_consultar_historial_clinico",
+      "label": "consultar_historial_clinico()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L17",
+      "community": 3,
+      "community_name": "Community 3",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "document",
+          "quote": "def consultar_historial_clinico(db: Session, paciente_id: int) -> HistorialClinicoRespuesta: paciente, historial = repo.obtener_paciente_con_historial(db, paciente_id) if paciente is None: raise HTTPException(status_code=404, …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p2"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Returns the clinical history of a patient."
+    },
+    {
+      "id": "services_service_crear_antecedente",
+      "label": "crear_antecedente()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L24",
+      "community": 3,
+      "community_name": "Community 3",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "document",
+          "quote": "def crear_antecedente(db: Session, datos: AntecedenteClinicoCrear, usuario: Usuario): try: historial = repo.obtener_historial_activo_por_id(db, datos.historial_clinico_id) if historial is None: raise HTTPException( …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p3"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "document",
+          "quote": "antecedente = repo.crear_antecedente(db, datos) registrar_bitacora( db=db, usuario_id=usuario.id, accion=\"CREAR_ANTECEDENTE\", entidad_afectada=\"antecedente_clinico\", id_registro_afectado=antecedente.id, descripcion=\"Antecedente clínico …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p4"
+        }
+      ],
+      "citation_count": 2,
+      "description": "Creates a new clinical background record."
+    },
+    {
+      "id": "services_service_actualizar_antecedente",
+      "label": "actualizar_antecedente()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L49",
+      "community": 3,
+      "community_name": "Community 3",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "document",
+          "quote": "def actualizar_antecedente( db: Session, antecedente_id: int, datos: AntecedenteClinicoActualizar, usuario: Usuario, ): try: antecedente = repo.obtener_antecedente_disponible_por_id(db, antecedente_id) if antecedente …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p5"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "document",
+          "quote": "antecedente = repo.actualizar_antecedente(db, antecedente, datos) registrar_bitacora( db=db, usuario_id=usuario.id, accion=\"ACTUALIZAR_ANTECEDENTE\", entidad_afectada=\"antecedente_clinico\", id_registro_afectado=antecedente.id, descripcion= …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p6"
+        }
+      ],
+      "citation_count": 2,
+      "description": "Actualiza un antecedente clínico aplicando las reglas de negocio del servicio."
+    },
+    {
+      "id": "services_service_registrar_consulta_clinica",
+      "label": "registrar_consulta_clinica()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L89",
+      "community": 3,
+      "community_name": "Community 3",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "def registrar_consulta_clinica( db: Session, datos: ConsultaClinicaCrear, usuario: Usuario, ): \"\"\"Registra una consulta clínica realizada por el oftalmólogo autenticado.",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p9"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Registra una consulta clínica nueva aplicando las reglas de negocio del servicio."
+    },
+    {
+      "id": "services_service_consultar_consulta_clinica",
+      "label": "consultar_consulta_clinica()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L179",
+      "community": 3,
+      "community_name": "Community 3",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "def consultar_consulta_clinica(db: Session, consulta_id: int): consulta = repo.obtener_consulta_por_id(db, consulta_id) if consulta is None: raise HTTPException( status_code=404, detail=\"Consulta clínica no encontrada …",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p15"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Consulta y devuelve el detalle de una consulta clínica."
+    },
+    {
+      "id": "services_service_listar_consultas_clinicas",
+      "label": "listar_consultas_clinicas()",
+      "file_type": "code",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L188",
+      "community": 3,
+      "community_name": "Community 3",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "def listar_consultas_clinicas( db: Session, *, historial_clinico_id: int | None = None, paciente_id: int | None = None, oftalmologo_id: int | None = None, ): return repo.listar_consultas_clinicas( db, historial_clinico_id=historial_clinico_id, …",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p16"
+        }
+      ],
+      "citation_count": 1,
+      "description": "Lists the clinical consultations."
+    },
+    {
+      "id": "services_service_rationale_94",
+      "label": "Registra una consulta clínica realizada por el oftalmólogo autenticado.\r \r     E",
+      "file_type": "rationale",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L94",
+      "community": 0,
+      "community_name": "Community 0",
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "=========================================================",
+          "quote": "_ROL_OFTALMOLOGO = \"oftalmologo\"",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p7"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "El `oftalmologo_id` nunca llega desde el frontend: se resuelve a partir del usuario del token (usuario.id -> oftalmologo.usuario_id). Solo el rol Oftalmólogo puede registrar; se validan historial, cita (si se informa …",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p10"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "oftalmologo = agenda_repo.obtener_oftalmologo_activo_por_usuario_id( db, usuario.id, ) if oftalmologo is None: raise HTTPException( status_code=403, detail=( \"El usuario autenticado no tiene un perfil de oftalmólogo …",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p11"
+        }
+      ],
+      "citation_count": 6,
+      "description": "Registra una consulta clínica del oftalmólogo autenticado, resolviendo el oftalmologo_id desde el usuario del token en lugar del frontend."
+    }
+  ],
+  "links": [
+    {
+      "source": "api_router",
+      "target": "api_router_actualizar_antecedente",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L46",
+      "weight": 1,
+      "_src": "api_router",
+      "_tgt": "api_router_actualizar_antecedente",
+      "confidence_score": 1
+    },
+    {
+      "source": "api_router",
+      "target": "api_router_consultar_consulta_clinica",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L95",
+      "weight": 1,
+      "_src": "api_router",
+      "_tgt": "api_router_consultar_consulta_clinica",
+      "confidence_score": 1
+    },
+    {
+      "source": "api_router",
+      "target": "api_router_consultar_historial_clinico",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L104",
+      "weight": 1,
+      "_src": "api_router",
+      "_tgt": "api_router_consultar_historial_clinico",
+      "confidence_score": 1
+    },
+    {
+      "source": "api_router",
+      "target": "api_router_crear_antecedente",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L37",
+      "weight": 1,
+      "_src": "api_router",
+      "_tgt": "api_router_crear_antecedente",
+      "confidence_score": 1
+    },
+    {
+      "source": "api_router",
+      "target": "api_router_listar_consultas_clinicas",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L77",
+      "weight": 1,
+      "_src": "api_router",
+      "_tgt": "api_router_listar_consultas_clinicas",
+      "confidence_score": 1
+    },
+    {
+      "source": "api_router",
+      "target": "api_router_obtener_modulo",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L22",
+      "weight": 1,
+      "_src": "api_router",
+      "_tgt": "api_router_obtener_modulo",
+      "confidence_score": 1
+    },
+    {
+      "source": "api_router",
+      "target": "api_router_registrar_consulta_clinica",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+      "source_location": "L68",
+      "weight": 1,
+      "_src": "api_router",
+      "_tgt": "api_router_registrar_consulta_clinica",
+      "confidence_score": 1
+    },
+    {
+      "source": "models_models",
+      "target": "models_models_antecedenteclinico",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+      "source_location": "L36",
+      "weight": 1,
+      "_src": "models_models",
+      "_tgt": "models_models_antecedenteclinico",
+      "confidence_score": 1
+    },
+    {
+      "source": "models_models",
+      "target": "models_models_consultaclinica",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+      "source_location": "L55",
+      "weight": 1,
+      "_src": "models_models",
+      "_tgt": "models_models_consultaclinica",
+      "confidence_score": 1
+    },
+    {
+      "source": "models_models",
+      "target": "models_models_historialclinico",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+      "source_location": "L11",
+      "weight": 1,
+      "_src": "models_models",
+      "_tgt": "models_models_historialclinico",
+      "confidence_score": 1
+    },
+    {
+      "source": "models_models_antecedenteclinico",
+      "target": "base",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+      "source_location": "L36",
+      "weight": 1,
+      "_src": "models_models_antecedenteclinico",
+      "_tgt": "base",
+      "confidence_score": 1
+    },
+    {
+      "source": "models_models_consultaclinica",
+      "target": "base",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+      "source_location": "L55",
+      "weight": 1,
+      "_src": "models_models_consultaclinica",
+      "_tgt": "base",
+      "confidence_score": 1
+    },
+    {
+      "source": "models_models_historialclinico",
+      "target": "base",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+      "source_location": "L11",
+      "weight": 1,
+      "_src": "models_models_historialclinico",
+      "_tgt": "base",
+      "confidence_score": 1
+    },
+    {
+      "source": "repositories_repository",
+      "target": "repositories_repository_actualizar_antecedente",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L74",
+      "weight": 1,
+      "_src": "repositories_repository",
+      "_tgt": "repositories_repository_actualizar_antecedente",
+      "confidence_score": 1
+    },
+    {
+      "source": "repositories_repository",
+      "target": "repositories_repository_crear_antecedente",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L60",
+      "weight": 1,
+      "_src": "repositories_repository",
+      "_tgt": "repositories_repository_crear_antecedente",
+      "confidence_score": 1
+    },
+    {
+      "source": "repositories_repository",
+      "target": "repositories_repository_crear_consulta_clinica",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L91",
+      "weight": 1,
+      "_src": "repositories_repository",
+      "_tgt": "repositories_repository_crear_consulta_clinica",
+      "confidence_score": 1
+    },
+    {
+      "source": "repositories_repository",
+      "target": "repositories_repository_listar_consultas_clinicas",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L131",
+      "weight": 1,
+      "_src": "repositories_repository",
+      "_tgt": "repositories_repository_listar_consultas_clinicas",
+      "confidence_score": 1
+    },
+    {
+      "source": "repositories_repository",
+      "target": "repositories_repository_obtener_antecedente_disponible_por_id",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L48",
+      "weight": 1,
+      "_src": "repositories_repository",
+      "_tgt": "repositories_repository_obtener_antecedente_disponible_por_id",
+      "confidence_score": 1
+    },
+    {
+      "source": "repositories_repository",
+      "target": "repositories_repository_obtener_consulta_por_cita_id",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L125",
+      "weight": 1,
+      "_src": "repositories_repository",
+      "_tgt": "repositories_repository_obtener_consulta_por_cita_id",
+      "confidence_score": 1
+    },
+    {
+      "source": "repositories_repository",
+      "target": "repositories_repository_obtener_consulta_por_id",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L117",
+      "weight": 1,
+      "_src": "repositories_repository",
+      "_tgt": "repositories_repository_obtener_consulta_por_id",
+      "confidence_score": 1
+    },
+    {
+      "source": "repositories_repository",
+      "target": "repositories_repository_obtener_historial_activo_por_id",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L39",
+      "weight": 1,
+      "_src": "repositories_repository",
+      "_tgt": "repositories_repository_obtener_historial_activo_por_id",
+      "confidence_score": 1
+    },
+    {
+      "source": "repositories_repository",
+      "target": "repositories_repository_obtener_paciente_con_historial",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+      "source_location": "L18",
+      "weight": 1,
+      "_src": "repositories_repository",
+      "_tgt": "repositories_repository_obtener_paciente_con_historial",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas",
+      "target": "schemas_schemas_antecedenteclinicoactualizar",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L34",
+      "weight": 1,
+      "_src": "schemas_schemas",
+      "_tgt": "schemas_schemas_antecedenteclinicoactualizar",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas",
+      "target": "schemas_schemas_antecedenteclinicobase",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L18",
+      "weight": 1,
+      "_src": "schemas_schemas",
+      "_tgt": "schemas_schemas_antecedenteclinicobase",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas",
+      "target": "schemas_schemas_antecedenteclinicocrear",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L30",
+      "weight": 1,
+      "_src": "schemas_schemas",
+      "_tgt": "schemas_schemas_antecedenteclinicocrear",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas",
+      "target": "schemas_schemas_antecedenteclinicorespuesta",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L38",
+      "weight": 1,
+      "_src": "schemas_schemas",
+      "_tgt": "schemas_schemas_antecedenteclinicorespuesta",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas",
+      "target": "schemas_schemas_consultaclinicacrear",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L66",
+      "weight": 1,
+      "_src": "schemas_schemas",
+      "_tgt": "schemas_schemas_consultaclinicacrear",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas",
+      "target": "schemas_schemas_consultaclinicarespuesta",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L86",
+      "weight": 1,
+      "_src": "schemas_schemas",
+      "_tgt": "schemas_schemas_consultaclinicarespuesta",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas",
+      "target": "schemas_schemas_historialclinicodetallerespuesta",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L47",
+      "weight": 1,
+      "_src": "schemas_schemas",
+      "_tgt": "schemas_schemas_historialclinicodetallerespuesta",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas",
+      "target": "schemas_schemas_historialclinicorespuesta",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L56",
+      "weight": 1,
+      "_src": "schemas_schemas",
+      "_tgt": "schemas_schemas_historialclinicorespuesta",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas_antecedenteclinicoactualizar",
+      "target": "schemas_schemas_antecedenteclinicobase",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L34",
+      "weight": 1,
+      "_src": "schemas_schemas_antecedenteclinicoactualizar",
+      "_tgt": "schemas_schemas_antecedenteclinicobase",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas_antecedenteclinicobase",
+      "target": "basemodel",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L18",
+      "weight": 1,
+      "_src": "schemas_schemas_antecedenteclinicobase",
+      "_tgt": "basemodel",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas_antecedenteclinicobase",
+      "target": "schemas_schemas_antecedenteclinicobase_normalizar_tipo",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L26",
+      "weight": 1,
+      "_src": "schemas_schemas_antecedenteclinicobase",
+      "_tgt": "schemas_schemas_antecedenteclinicobase_normalizar_tipo",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas_antecedenteclinicocrear",
+      "target": "schemas_schemas_antecedenteclinicobase",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L30",
+      "weight": 1,
+      "_src": "schemas_schemas_antecedenteclinicocrear",
+      "_tgt": "schemas_schemas_antecedenteclinicobase",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas_antecedenteclinicorespuesta",
+      "target": "basemodel",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L38",
+      "weight": 1,
+      "_src": "schemas_schemas_antecedenteclinicorespuesta",
+      "_tgt": "basemodel",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas_consultaclinicacrear",
+      "target": "basemodel",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L66",
+      "weight": 1,
+      "_src": "schemas_schemas_consultaclinicacrear",
+      "_tgt": "basemodel",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas_consultaclinicacrear",
+      "target": "schemas_schemas_consultaclinicacrear_normalizar_texto_opcional",
+      "relation": "method",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L79",
+      "weight": 1,
+      "_src": "schemas_schemas_consultaclinicacrear",
+      "_tgt": "schemas_schemas_consultaclinicacrear_normalizar_texto_opcional",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas_consultaclinicarespuesta",
+      "target": "basemodel",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L86",
+      "weight": 1,
+      "_src": "schemas_schemas_consultaclinicarespuesta",
+      "_tgt": "basemodel",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas_historialclinicodetallerespuesta",
+      "target": "basemodel",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L47",
+      "weight": 1,
+      "_src": "schemas_schemas_historialclinicodetallerespuesta",
+      "_tgt": "basemodel",
+      "confidence_score": 1
+    },
+    {
+      "source": "schemas_schemas_historialclinicorespuesta",
+      "target": "basemodel",
+      "relation": "inherits",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+      "source_location": "L56",
+      "weight": 1,
+      "_src": "schemas_schemas_historialclinicorespuesta",
+      "_tgt": "basemodel",
+      "confidence_score": 1
+    },
+    {
+      "source": "services_service",
+      "target": "services_service_actualizar_antecedente",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L49",
+      "weight": 1,
+      "_src": "services_service",
+      "_tgt": "services_service_actualizar_antecedente",
+      "confidence_score": 1
+    },
+    {
+      "source": "services_service",
+      "target": "services_service_consultar_consulta_clinica",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L179",
+      "weight": 1,
+      "_src": "services_service",
+      "_tgt": "services_service_consultar_consulta_clinica",
+      "confidence_score": 1
+    },
+    {
+      "source": "services_service",
+      "target": "services_service_consultar_historial_clinico",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L17",
+      "weight": 1,
+      "_src": "services_service",
+      "_tgt": "services_service_consultar_historial_clinico",
+      "confidence_score": 1
+    },
+    {
+      "source": "services_service",
+      "target": "services_service_crear_antecedente",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L24",
+      "weight": 1,
+      "_src": "services_service",
+      "_tgt": "services_service_crear_antecedente",
+      "confidence_score": 1
+    },
+    {
+      "source": "services_service",
+      "target": "services_service_listar_consultas_clinicas",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L188",
+      "weight": 1,
+      "_src": "services_service",
+      "_tgt": "services_service_listar_consultas_clinicas",
+      "confidence_score": 1
+    },
+    {
+      "source": "services_service",
+      "target": "services_service_registrar_consulta_clinica",
+      "relation": "contains",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L89",
+      "weight": 1,
+      "_src": "services_service",
+      "_tgt": "services_service_registrar_consulta_clinica",
+      "confidence_score": 1
+    },
+    {
+      "source": "services_service_rationale_94",
+      "target": "schemas_schemas_antecedenteclinicoactualizar",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L7",
+      "weight": 0.8,
+      "_src": "services_service_rationale_94",
+      "_tgt": "schemas_schemas_antecedenteclinicoactualizar",
+      "confidence_score": 0.5
+    },
+    {
+      "source": "services_service_rationale_94",
+      "target": "schemas_schemas_antecedenteclinicocrear",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L7",
+      "weight": 0.8,
+      "_src": "services_service_rationale_94",
+      "_tgt": "schemas_schemas_antecedenteclinicocrear",
+      "confidence_score": 0.5
+    },
+    {
+      "source": "services_service_rationale_94",
+      "target": "schemas_schemas_consultaclinicacrear",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L7",
+      "weight": 0.8,
+      "_src": "services_service_rationale_94",
+      "_tgt": "schemas_schemas_consultaclinicacrear",
+      "confidence_score": 0.5
+    },
+    {
+      "source": "services_service_rationale_94",
+      "target": "schemas_schemas_historialclinicorespuesta",
+      "relation": "uses",
+      "confidence": "INFERRED",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L7",
+      "weight": 0.8,
+      "_src": "services_service_rationale_94",
+      "_tgt": "schemas_schemas_historialclinicorespuesta",
+      "confidence_score": 0.5
+    },
+    {
+      "source": "services_service_rationale_94",
+      "target": "services_service_registrar_consulta_clinica",
+      "relation": "rationale_for",
+      "confidence": "EXTRACTED",
+      "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+      "source_location": "L94",
+      "weight": 1,
+      "_src": "services_service_rationale_94",
+      "_tgt": "services_service_registrar_consulta_clinica",
+      "confidence_score": 1
+    }
+  ],
+  "hyperedges": []
+}

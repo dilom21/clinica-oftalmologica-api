@@ -10,6 +10,12 @@ from app.modules.gestion_reportes.services.exporters.csv_exporter import export_
 from app.modules.gestion_reportes.services.exporters.excel_exporter import export_xlsx
 from app.modules.gestion_reportes.services.exporters.pdf_exporter import export_pdf
 from app.modules.gestion_reportes.services.exporters.html_exporter import export_html
+from app.modules.gestion_reportes.registry.progressive import REPORTES_PROGRESIVOS
+from app.modules.gestion_reportes.schemas.progressive import (
+    FiltrosProgresivos, RespuestaComparacion, RespuestaKPIs, RespuestaSerie,
+    SolicitudExportacion,
+)
+from app.modules.gestion_reportes.services import progressive
 from app.shared.services import email_service
 from app.modules.gestion_usuarios_seguridad.repositories.repository import registrar_bitacora
 
@@ -19,6 +25,56 @@ router = APIRouter(prefix="/reportes", tags=["Reportes"], dependencies=[Depends(
 @router.get("/catalogo")
 def catalogo():
     return {"datasets": [{"key": key, "label": value["label"], "campos": [{"key": name, "label": field.label, "tipo": field.tipo, "operadores": list(field.operadores)} for name, field in value["fields"].items()]} for key, value in DATASETS.items()], "reportes_estaticos": [{"key": key, "label": value[2], "dataset": value[0], "columnas": list(value[1])} for key, value in STATIC_REPORTS.items()]}
+
+
+@router.get("/progresivos/catalogo", summary="Consultar catálogo agregado de reportes progresivos")
+def catalogo_progresivo():
+    return {
+        "version": "2D.1",
+        "politica_privacidad": {"umbral_k": progressive.PRIVACY_K, "estados": ["OK", "ZERO", "SUPPRESSED", "PARTIAL", "NOT_COVERED"]},
+        "indicadores": [{"key": key, **value} for key, value in REPORTES_PROGRESIVOS.items()],
+    }
+
+
+def _progressive_call(callback, *args):
+    try:
+        return callback(*args)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+
+
+@router.get("/progresivos/kpis", response_model=RespuestaKPIs, summary="Consultar KPIs y distribución agregada")
+def progressive_kpis(filtros: FiltrosProgresivos = Depends(), db: Session = Depends(get_db)):
+    return progressive.kpis(db, filtros)
+
+
+@router.get("/progresivos/series/{indicador}", response_model=RespuestaSerie, summary="Consultar serie diaria, semanal o mensual")
+def progressive_series(indicador: str, filtros: FiltrosProgresivos = Depends(), db: Session = Depends(get_db)):
+    return _progressive_call(progressive.serie, db, indicador, filtros)
+
+
+@router.get("/progresivos/comparaciones/{indicador}", response_model=RespuestaComparacion, summary="Comparar con el período anterior equivalente")
+def progressive_comparison(indicador: str, filtros: FiltrosProgresivos = Depends(), db: Session = Depends(get_db)):
+    return _progressive_call(progressive.comparar, db, indicador, filtros)
+
+
+@router.post("/progresivos/exportar/{formato}", summary="Exportar la serie agregada con los mismos filtros")
+def progressive_export(formato: str, payload: SolicitudExportacion, request: Request, db: Session = Depends(get_db), user=Depends(obtener_administrador_actual)):
+    if formato not in {"csv", "xlsx", "pdf"}:
+        raise HTTPException(422, "Los reportes progresivos admiten CSV, XLSX o PDF")
+    result = _progressive_call(progressive.serie, db, payload.indicador, payload)
+    columns = [
+        {"key": "periodo_inicio", "label": "Período inicio"},
+        {"key": "periodo_fin", "label": "Período fin"},
+        {"key": "valor", "label": "Valor"},
+        {"key": "estado_dato", "label": "Estado del dato"},
+    ]
+    rows = [dict(point) for point in result["puntos"]]
+    exporter = {"csv": export_csv, "xlsx": export_xlsx, "pdf": export_pdf}[formato]
+    body = exporter(result["etiqueta"], columns, rows)
+    _record_audit(request, db, user, f"EXPORTAR_REPORTE_{formato.upper()}", "Exportación de reporte progresivo agregado")
+    mime = {"csv": "text/csv; charset=utf-8", "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "pdf": "application/pdf"}[formato]
+    return Response(body, media_type=mime, headers={"Content-Disposition": f'attachment; filename="{payload.indicador}.{formato}"'})
 
 
 def _preview(db, dataset, columns, filters, orders, limit):
@@ -69,6 +125,10 @@ def _export(request, db, user, dataset, columns, filters, orders, title, fmt):
 
 
 def _send_email(request, db, user, dataset, columns, filters, orders, title, payload):
+    # El proyecto no posee una lista de destinatarios verificados. La única
+    # dirección cuya pertenencia ya acredita el JWT es la del usuario actual.
+    if str(payload.destinatario).strip().casefold() != user.correo.strip().casefold():
+        raise HTTPException(403, "Solo puede enviar reportes a su correo autenticado")
     body, _ = _build_export(db, dataset, columns, filters, orders, title, payload.formato)
     try:
         email_service.enviar_reporte_por_smtp(

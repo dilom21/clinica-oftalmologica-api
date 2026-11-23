@@ -1,18 +1,23 @@
-"""Pruebas locales CU27: SQLite en memoria. Nunca conectan a Supabase."""
-from datetime import date
-from types import SimpleNamespace
+"""Pruebas locales CU27: SQLite en memoria. Nunca conectan a Supabase.
 
+Las dependencias RBAC reales (`get_tenant_claims`, `obtener_usuario_actual`,
+`requerir_permiso`, `permiso_cu27_*`) se mantienen; solo se sustituye la sesión
+por una base SQLite aislada con rol/función/acción sembrados.
+"""
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from app.core.dependencies import get_tenant_claims, obtener_administrador_actual
 from app.core.dependencies import get_db
+from app.core.security import crear_tenant_access_token
 from app.modules.gestion_inventario_proveedores.api.movimientos import router
 from app.modules.gestion_inventario_proveedores.services import movimientos
+
+
+CU27_FUNCION = "Gestionar movimientos de inventario"
 
 
 @pytest.fixture
@@ -22,7 +27,22 @@ def entorno_cu27():
         connect_args={"check_same_thread": False}, poolclass=StaticPool,
     )
     ddl = [
-        "CREATE TABLE usuario (id INTEGER PRIMARY KEY)",
+        """CREATE TABLE rol (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL,
+           descripcion TEXT, estado BOOLEAN NOT NULL, protegido BOOLEAN NOT NULL,
+           fecha_creacion TIMESTAMP NOT NULL)""",
+        """CREATE TABLE usuario (id INTEGER PRIMARY KEY, correo TEXT NOT NULL,
+           password_hash TEXT NOT NULL, estado BOOLEAN NOT NULL,
+           fecha_creacion TIMESTAMP NOT NULL, rol_id INTEGER NOT NULL REFERENCES rol(id))""",
+        """CREATE TABLE modulo (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL,
+           descripcion TEXT, estado BOOLEAN NOT NULL)""",
+        """CREATE TABLE funcion (id INTEGER PRIMARY KEY, modulo_id INTEGER NOT NULL REFERENCES modulo(id),
+           nombre TEXT NOT NULL, descripcion TEXT, estado BOOLEAN NOT NULL)""",
+        """CREATE TABLE accion (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL,
+           descripcion TEXT, estado BOOLEAN NOT NULL)""",
+        """CREATE TABLE rol_funcion (id INTEGER PRIMARY KEY,
+           rol_id INTEGER NOT NULL REFERENCES rol(id),
+           funcion_id INTEGER NOT NULL REFERENCES funcion(id),
+           accion_id INTEGER NOT NULL REFERENCES accion(id), descripcion TEXT)""",
         """CREATE TABLE categoria (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL DEFAULT 'Pruebas',
            descripcion TEXT, estado BOOLEAN NOT NULL, fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)""",
         """CREATE TABLE producto (id INTEGER PRIMARY KEY, categoria_id INTEGER NOT NULL, codigo TEXT NOT NULL DEFAULT 'P-1',
@@ -50,7 +70,28 @@ def entorno_cu27():
         conn.exec_driver_sql("PRAGMA foreign_keys=ON")
         for statement in ddl:
             conn.exec_driver_sql(statement)
-        conn.execute(text("INSERT INTO usuario (id) VALUES (7)"))
+        conn.exec_driver_sql(
+            "INSERT INTO rol VALUES (1,'Administrador',NULL,1,0,'2026-01-01'),"
+            "(2,'SoloLectura',NULL,1,0,'2026-01-01'),(3,'Profesional',NULL,1,0,'2026-01-01')"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO usuario VALUES (7,'admin@example.test','x',1,'2026-01-01',1),"
+            "(8,'lectura@example.test','x',1,'2026-01-01',2),"
+            "(9,'profesional@example.test','x',1,'2026-01-01',3)"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO modulo VALUES (11,'Inventario y Proveedores',NULL,1)"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO funcion VALUES (14,11,?,NULL,1)", (CU27_FUNCION,)
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO accion VALUES (1,'LECTURA',NULL,1),(2,'ESCRITURA',NULL,1),(3,'AMBAS',NULL,1)"
+        )
+        # Administrador: AMBAS; SoloLectura: LECTURA; Profesional: sin permiso.
+        conn.exec_driver_sql(
+            "INSERT INTO rol_funcion VALUES (1,1,14,3,NULL),(2,2,14,1,NULL)"
+        )
         conn.execute(text("INSERT INTO categoria (id,estado) VALUES (1,1)"))
         conn.execute(text("INSERT INTO producto (id,categoria_id,estado) VALUES (1,1,1)"))
         conn.execute(text(
@@ -66,11 +107,12 @@ def entorno_cu27():
             yield db
 
     app.dependency_overrides[get_db] = fake_db
-    app.dependency_overrides[obtener_administrador_actual] = lambda: SimpleNamespace(id=7)
-    app.dependency_overrides[get_tenant_claims] = lambda: {'tenant_id': 1}
 
     try:
         with TestClient(app) as client:
+            client.headers["Authorization"] = (
+                f"Bearer {crear_tenant_access_token(7, 1, 1, 1, 'PRUEBA')}"
+            )
             yield client, engine
     finally:
         app.dependency_overrides.clear()

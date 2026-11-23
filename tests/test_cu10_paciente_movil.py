@@ -28,8 +28,11 @@ DDL = [
         password_hash TEXT NOT NULL, estado BOOLEAN NOT NULL,
         fecha_creacion TIMESTAMP NOT NULL,
         rol_id INTEGER NOT NULL REFERENCES rol(id))""",
-    """CREATE TABLE funcion (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL,
-        estado BOOLEAN NOT NULL)""",
+    """CREATE TABLE modulo (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL,
+        descripcion TEXT, estado BOOLEAN NOT NULL)""",
+    """CREATE TABLE funcion (id INTEGER PRIMARY KEY,
+        modulo_id INTEGER NOT NULL REFERENCES modulo(id),
+        nombre TEXT NOT NULL, estado BOOLEAN NOT NULL)""",
     """CREATE TABLE accion (id INTEGER PRIMARY KEY, nombre TEXT NOT NULL,
         estado BOOLEAN NOT NULL)""",
     """CREATE TABLE rol_funcion (id INTEGER PRIMARY KEY,
@@ -68,6 +71,110 @@ DDL = [
         fecha_hora TIMESTAMP NOT NULL, ip TEXT, accion TEXT NOT NULL,
         entidad_afectada TEXT, id_registro_afectado INTEGER,
         descripcion TEXT)""",
+    # Fase 3C.4: las escrituras de citas emiten evento y notificacion in-app en
+    # la misma transaccion. El DDL replica el esquema tenant de 3C.2.
+    """CREATE TABLE cita_evento (
+        id INTEGER PRIMARY KEY,
+        cita_id INTEGER NOT NULL REFERENCES cita(id),
+        tipo VARCHAR(30) NOT NULL,
+        estado_anterior VARCHAR(20),
+        estado_nuevo VARCHAR(20),
+        fecha_anterior DATE, hora_anterior TIME,
+        fecha_nueva DATE, hora_nueva TIME,
+        fecha_evento TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        actor_usuario_id INTEGER REFERENCES usuario(id),
+        clave_idempotencia VARCHAR(150) NOT NULL,
+        CONSTRAINT uq_cita_evento_clave_idempotencia UNIQUE (clave_idempotencia),
+        CONSTRAINT ck_cita_evento_tipo CHECK (
+            tipo IN ('CITA_CREADA','CITA_ESTADO_CAMBIADO','CITA_REPROGRAMADA')
+        ),
+        CONSTRAINT ck_cita_evento_creacion CHECK (
+            tipo <> 'CITA_CREADA'
+            OR (estado_anterior IS NULL AND fecha_anterior IS NULL
+                AND hora_anterior IS NULL)
+        ),
+        CONSTRAINT ck_cita_evento_cambio_estado CHECK (
+            tipo <> 'CITA_ESTADO_CAMBIADO'
+            OR (estado_anterior IS NOT NULL AND estado_nuevo IS NOT NULL
+                AND estado_anterior <> estado_nuevo)
+        ),
+        CONSTRAINT ck_cita_evento_reprogramacion CHECK (
+            tipo <> 'CITA_REPROGRAMADA'
+            OR (fecha_anterior IS NOT NULL AND hora_anterior IS NOT NULL
+                AND fecha_nueva IS NOT NULL AND hora_nueva IS NOT NULL
+                AND (fecha_anterior <> fecha_nueva
+                     OR hora_anterior <> hora_nueva))
+        )
+    )""",
+    """CREATE TABLE notificacion (
+        id INTEGER PRIMARY KEY,
+        usuario_id INTEGER NOT NULL REFERENCES usuario(id),
+        tipo VARCHAR(30) NOT NULL,
+        evento_clave VARCHAR(150) NOT NULL,
+        titulo VARCHAR(150) NOT NULL,
+        cuerpo TEXT NOT NULL,
+        datos JSON,
+        cita_id INTEGER REFERENCES cita(id),
+        leida BOOLEAN NOT NULL DEFAULT 0,
+        fecha_lectura TIMESTAMP,
+        cancelada_en TIMESTAMP,
+        fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_notificacion_evento_clave UNIQUE (evento_clave),
+        CONSTRAINT ck_notificacion_tipo CHECK (
+            tipo IN ('CITA_CREADA','CITA_CONFIRMADA','CITA_REPROGRAMADA',
+                     'CITA_CANCELADA','RECORDATORIO_CITA',
+                     'ACTUALIZACION_OPERATIVA')
+        )
+    )""",
+    """CREATE TABLE preferencia_notificacion (
+        id INTEGER PRIMARY KEY,
+        usuario_id INTEGER NOT NULL REFERENCES usuario(id),
+        push_habilitado BOOLEAN NOT NULL DEFAULT 1,
+        citas_creadas BOOLEAN NOT NULL DEFAULT 1,
+        citas_confirmadas BOOLEAN NOT NULL DEFAULT 1,
+        citas_reprogramadas BOOLEAN NOT NULL DEFAULT 1,
+        citas_canceladas BOOLEAN NOT NULL DEFAULT 1,
+        recordatorios BOOLEAN NOT NULL DEFAULT 1,
+        fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_preferencia_notificacion_usuario UNIQUE (usuario_id)
+    )""",
+    """CREATE TABLE dispositivo_push (
+        id INTEGER PRIMARY KEY,
+        usuario_id INTEGER NOT NULL REFERENCES usuario(id),
+        token_fcm VARCHAR(1024) NOT NULL,
+        plataforma VARCHAR(10) NOT NULL,
+        instalacion_id VARCHAR(100),
+        app_version VARCHAR(50),
+        nombre_dispositivo VARCHAR(120),
+        activo BOOLEAN NOT NULL DEFAULT 1,
+        fecha_registro TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fecha_ultimo_uso TIMESTAMP,
+        revocado_en TIMESTAMP
+    )""",
+    """CREATE TABLE notificacion_entrega (
+        id INTEGER PRIMARY KEY,
+        notificacion_id INTEGER NOT NULL REFERENCES notificacion(id),
+        dispositivo_id INTEGER NOT NULL REFERENCES dispositivo_push(id),
+        estado VARCHAR(25) NOT NULL DEFAULT 'PENDIENTE',
+        proveedor VARCHAR(20) NOT NULL DEFAULT 'FCM',
+        proveedor_mensaje_id VARCHAR(255),
+        intentos SMALLINT NOT NULL DEFAULT 0,
+        proximo_intento TIMESTAMP,
+        bloqueado_hasta TIMESTAMP,
+        lease_token VARCHAR(64),
+        codigo_ultimo_error VARCHAR(100),
+        fecha_creacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fecha_actualizacion TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        fecha_aceptado TIMESTAMP,
+        CONSTRAINT uq_notificacion_entrega_notificacion_dispositivo
+            UNIQUE (notificacion_id, dispositivo_id),
+        CONSTRAINT ck_notificacion_entrega_estado CHECK (
+            estado IN ('PENDIENTE','PROCESANDO','ACEPTADO_POR_FCM','FALLIDO',
+                       'INVALIDO','OMITIDO')
+        )
+    )""",
 ]
 
 
@@ -96,9 +203,12 @@ def cliente_citas():
             "INSERT INTO accion VALUES (1,'LECTURA',1),(2,'ESCRITURA',1),(3,'AMBAS',1)"
         )
         conn.exec_driver_sql(
+            "INSERT INTO modulo VALUES (1,'Agenda y Citas',NULL,1)"
+        )
+        conn.exec_driver_sql(
             "INSERT INTO funcion VALUES "
-            "(1,'Consultar agenda y disponibilidad médica',1),"
-            "(2,'Gestionar citas médicas',1)"
+            "(1,1,'Consultar agenda y disponibilidad médica',1),"
+            "(2,1,'Gestionar citas médicas',1)"
         )
         conn.exec_driver_sql(
             "INSERT INTO rol_funcion VALUES "
@@ -476,4 +586,3 @@ def test_disponibilidad_devuelve_turnos_de_30_minutos(cliente_citas):
     )
     assert _slot_libre(disponibles, time(10, 0))
     assert _slot_libre(disponibles, time(10, 30))
-

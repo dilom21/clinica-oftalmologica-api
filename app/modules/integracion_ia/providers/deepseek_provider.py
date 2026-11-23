@@ -62,6 +62,7 @@ _ERRORES_PROVEEDOR = (
 # 1024 tokens en respuestas JSON de reportes; 2048 permite completar el mismo
 # contrato sin relajar el parsing, la validación Pydantic ni el registry.
 MAX_TOKENS_POR_DEFECTO = 2048
+MAX_RESPUESTA_CARACTERES = 20000
 
 
 def generar_json(
@@ -126,6 +127,8 @@ def _extraer_contenido(respuesta) -> str:
 
 def _parsear_json(contenido: str) -> dict:
     """Convierte el string del modelo en un objeto JSON utilizable."""
+    if len(contenido) > MAX_RESPUESTA_CARACTERES:
+        raise IARespuestaInvalidaError("La respuesta del proveedor excede el límite")
     try:
         datos = json.loads(contenido)
     except (json.JSONDecodeError, TypeError) as exc:

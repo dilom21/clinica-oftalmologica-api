@@ -72,8 +72,13 @@ def _crear_esquema_ia(engine):
             estado BOOLEAN NOT NULL, fecha_creacion TIMESTAMP NOT NULL,
             rol_id INTEGER NOT NULL REFERENCES rol(id)
         )""",
+        """CREATE TABLE modulo (
+            id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, descripcion TEXT,
+            estado BOOLEAN NOT NULL
+        )""",
         """CREATE TABLE funcion (
-            id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
+            id INTEGER PRIMARY KEY, modulo_id INTEGER NOT NULL REFERENCES modulo(id),
+            nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
         )""",
         """CREATE TABLE accion (
             id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
@@ -172,7 +177,10 @@ def _crear_esquema_ia(engine):
             "INSERT INTO accion VALUES (1, 'LECTURA', 1), (2, 'ESCRITURA', 1), (3, 'AMBAS', 1)"
         )
         conn.exec_driver_sql(
-            "INSERT INTO funcion VALUES (20, 'Usar asistencia clínica IA', 1)"
+            "INSERT INTO modulo VALUES (1, 'Integracion IA', NULL, 1)"
+        )
+        conn.exec_driver_sql(
+            "INSERT INTO funcion VALUES (20, 1, 'Usar asistencia clínica IA', 1)"
         )
         # Permiso LECTURA para Oftalmólogo (rol 1) y Administrador (rol 2).
         # El Administrador lo tiene a propósito: así el 403 proviene del
@@ -250,7 +258,10 @@ def autenticar(client, usuario):
 
 
 def contar(db, modelo):
-    return db.scalar(select(func.count()).select_from(modelo))
+    consulta = select(func.count()).select_from(modelo)
+    if modelo is Bitacora:
+        consulta = consulta.where(Bitacora.accion != "CONSUMO_IA_RESERVADO")
+    return db.scalar(consulta)
 
 
 def mock_provider(monkeypatch, resultado=None, error=None):
@@ -320,7 +331,7 @@ def test_analisis_registra_bitacora_sin_datos_sensibles(
     cliente_ia.post(f"{URL_BASE}/100/analizar")
 
     assert contar(db_ia, Bitacora) == 1
-    bitacora = db_ia.scalar(select(Bitacora))
+    bitacora = db_ia.scalar(select(Bitacora).where(Bitacora.accion != "CONSUMO_IA_RESERVADO"))
     assert bitacora.usuario_id == 7
     assert bitacora.accion == "ANALIZAR_CONSULTA_IA"
     assert bitacora.entidad_afectada == "consulta_clinica"
@@ -566,7 +577,7 @@ def test_mejorar_redaccion_registra_bitacora(cliente_ia, db_ia, monkeypatch):
     )
 
     assert contar(db_ia, Bitacora) == 1
-    bitacora = db_ia.scalar(select(Bitacora))
+    bitacora = db_ia.scalar(select(Bitacora).where(Bitacora.accion != "CONSUMO_IA_RESERVADO"))
     assert bitacora.usuario_id == 7
     assert bitacora.accion == "MEJORAR_REDACCION_DIAGNOSTICO_IA"
     assert bitacora.entidad_afectada == "consulta_clinica"
@@ -844,3 +855,32 @@ def test_provider_extrae_contenido_vacio():
 
     with pytest.raises(IARespuestaInvalidaError):
         deepseek_provider._extraer_contenido(RespuestaVacia())
+
+
+def test_rate_limit_is_persistent_per_user(cliente_ia, monkeypatch):
+    mock_provider(monkeypatch, ANALISIS_MODELO)
+    autenticar(cliente_ia, USUARIO_OFTALMOLOGO)
+
+    for _ in range(10):
+        assert cliente_ia.post(f"{URL_BASE}/100/analizar").status_code == 200
+
+    bloqueada = cliente_ia.post(f"{URL_BASE}/100/analizar")
+    assert bloqueada.status_code == 429
+    assert bloqueada.headers["retry-after"] == "60"
+
+
+def test_prompt_clinico_filters_pii_and_excludes_non_allowlisted_fields(
+    cliente_ia, db_ia, monkeypatch,
+):
+    consulta = db_ia.get(ConsultaClinica, 100)
+    consulta.anamnesis = "CI: 12345678 paciente@example.com +591 70000000"
+    db_ia.commit()
+    captured = mock_provider(monkeypatch, ANALISIS_MODELO)
+    autenticar(cliente_ia, USUARIO_OFTALMOLOGO)
+
+    assert cliente_ia.post(f"{URL_BASE}/100/analizar").status_code == 200
+    prompt = captured["user"]
+    assert "12345678" not in prompt
+    assert "paciente@example.com" not in prompt
+    assert "70000000" not in prompt
+    assert "paciente_id" not in prompt

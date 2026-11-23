@@ -20,7 +20,7 @@ from scripts.saas.provision_tenant import (
 )
 
 from .backup_runner import _client_path, _minimal_client_environment
-from .tenant_migrator import load_bundle
+from .tenant_migrator import BASELINE_LEDGER_VERSIONS, load_bundle
 
 # Public tables whose presence is required before a restored tenant is trusted.
 CRITICAL_TENANT_TABLES = ("usuario", "rol", "paciente", "cita", "historial_clinico")
@@ -302,25 +302,44 @@ class TenantRestoreRunner:
 
     @staticmethod
     def _expected_ledger(schema_version: str) -> dict[str, str] | None:
-        """Return the exact immutable ledger expected for a known schema version."""
+        """Return the exact immutable ledger expected for a known schema version.
+
+        ``BASELINE_LEDGER_VERSIONS`` is the single source of truth for every
+        supported source version, so a v3/v4/v5/v6 backup can never be
+        verified against another version's ledger. The Sprint-3 external
+        migration is a ledger prerequisite for every v3+ baseline; the legacy
+        ``v2-cu31`` label predates that external migration.
+        """
         root = Path(__file__).resolve().parents[3] / "database" / "tenant_migrations"
         bundle = load_bundle(root)
         regular = {item.version: item.checksum for item in bundle.migrations}
         external = {item.version: item.checksum for item in bundle.external_migrations}
+
         if schema_version == bundle.schema_version:
             return regular | external
-        if schema_version in bundle.allowed_source_schema_versions:
-            return {
-                version: checksum
-                for version, checksum in regular.items()
-                if version != bundle.migrations[-1].version
-            } | external
-        if schema_version == "v2-cu31":
-            return {
-                item.version: item.checksum
-                for item in bundle.migrations[:-1]
-            }
-        return None
+
+        baseline = BASELINE_LEDGER_VERSIONS.get(schema_version)
+        if baseline is None:
+            if schema_version != "v2-cu31":
+                return None
+            # CU31 introduced the ledger, but the Sprint-3 inventory migration
+            # (external) was only added later with v3.
+            baseline = BASELINE_LEDGER_VERSIONS["v3-sprint3-cu26-cu27-cu29"]
+            missing = [version for version in baseline if version not in regular]
+            if missing:
+                raise RuntimeError(
+                    "Baseline ledger references unknown migrations: "
+                    + ", ".join(missing)
+                )
+            return {version: regular[version] for version in baseline}
+
+        missing = [version for version in baseline if version not in regular]
+        if missing:
+            raise RuntimeError(
+                "Baseline ledger references unknown migrations: "
+                + ", ".join(missing)
+            )
+        return {version: regular[version] for version in baseline} | external
 
     @classmethod
     def is_known_schema_version(cls, schema_version: str | None) -> bool:
@@ -358,7 +377,7 @@ class TenantRestoreRunner:
             return False
         output = self._query_db(
             database_name,
-            "SELECT version || E'\\t' || checksum "
+            "SELECT version || E'\\t' || checksum_sha256 "
             "FROM app_migrations.schema_migration ORDER BY version;",
         )
         entries: dict[str, str] = {}

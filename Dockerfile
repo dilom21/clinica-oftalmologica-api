@@ -42,4 +42,7 @@ COPY --chown=clinic:clinic . /opt/app/
 USER 10001:10001
 
 EXPOSE 8000
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+# The shared launcher enables --proxy-headers with FORWARDED_ALLOW_IPS
+# (default 127.0.0.1). Deployments must set the real proxy IP/CIDR; a wildcard
+# is rejected at startup.
+CMD ["sh", "/opt/app/scripts/docker/run-api.sh"]

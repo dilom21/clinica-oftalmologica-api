@@ -80,8 +80,13 @@ def _ddl_tablas_cu17():
             estado BOOLEAN NOT NULL, fecha_creacion TIMESTAMP NOT NULL,
             rol_id INTEGER NOT NULL REFERENCES rol(id)
         )""",
+        """CREATE TABLE modulo (
+            id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, descripcion TEXT,
+            estado BOOLEAN NOT NULL
+        )""",
         """CREATE TABLE funcion (
-            id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
+            id INTEGER PRIMARY KEY, modulo_id INTEGER NOT NULL REFERENCES modulo(id),
+            nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
         )""",
         """CREATE TABLE accion (
             id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
@@ -211,11 +216,14 @@ def _crear_esquema_cu17(engine):
             "INSERT INTO accion VALUES (1, 'LECTURA', 1), (2, 'ESCRITURA', 1), (3, 'AMBAS', 1)"
         )
         conn.exec_driver_sql(
-            """INSERT INTO funcion VALUES
-                (15, 'Consultar historial clínico', 1),
-                (17, 'Registrar consulta clínica', 1),
-                (18, 'Registrar diagnóstico', 1),
-                (19, 'Registrar tratamientos, indicaciones y recetas', 1)"""
+            "INSERT INTO modulo VALUES (1, 'Clinico', NULL, 1)"
+        )
+        conn.exec_driver_sql(
+            """INSERT INTO funcion (id, modulo_id, nombre, estado) VALUES
+                (15, 1, 'Consultar historial clínico', 1),
+                (17, 1, 'Registrar consulta clínica', 1),
+                (18, 1, 'Registrar diagnóstico', 1),
+                (19, 1, 'Registrar tratamientos, indicaciones y recetas', 1)"""
         )
         # rol 1: Oftalmólogo (CU17 en ESCRITURA)
         # rol 2: Administrador (CU17 en AMBAS, igual que CU15/CU16)

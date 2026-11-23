@@ -96,6 +96,10 @@ class PagoAdministrativoRespuesta(BaseModel):
     referencia_bancaria: str | None
     observaciones: str | None
     servicio_realizado_ids: list[int]
+    # CU36: campos opcionales de solo lectura; no rompen el contrato previo.
+    importe_vigente: Decimal | None = None
+    importe_reembolsado: Decimal | None = None
+    ajustes_pendientes: bool | None = None
     notificacion: NotificacionPagoRespuesta | None = None
 
 

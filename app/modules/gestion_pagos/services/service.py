@@ -14,6 +14,7 @@ from app.modules.gestion_pacientes.repositories import repository as paciente_re
 from app.modules.gestion_pagos.repositories import repository as repo
 from app.modules.gestion_pagos.repositories import administrativos as admin_repo
 from app.modules.gestion_pagos.repositories import planes_cuotas as planes_repo
+from app.modules.gestion_pagos.repositories import saldos
 from app.modules.gestion_pagos.providers import (
     ErrorFirmaWebhook,
     ErrorProveedorPago,
@@ -577,14 +578,15 @@ def crear_intencion_stripe(
             )
 
         for cancelado in cancelados:
-            repo.actualizar_estado_pago(db, cancelado, estado="ANULADO")
-            registrar_bitacora(
-                db=db,
+            # E-6: ninguna anulacion de intento ocurre fuera del libro CU36.
+            from app.modules.gestion_pagos.services import ajustes as ajustes_service
+
+            ajustes_service.anular_intento_no_capturado(
+                db,
+                cancelado,
+                motivo="PaymentIntent cancelado confirmado antes del reintento",
+                clave_idempotencia=f"cu31-reintento-cancelado-{cancelado.id}",
                 usuario_id=usuario.id,
-                accion="RECONCILIAR_PAGO_STRIPE_ANULADO",
-                entidad_afectada="pago",
-                id_registro_afectado=cancelado.id,
-                descripcion="PaymentIntent cancelado confirmado antes del reintento",
             )
 
         if exactos:
@@ -681,6 +683,167 @@ _EVENTOS_STRIPE = {
     "payment_intent.processing": "PENDIENTE",
     "payment_intent.canceled": "ANULADO",
 }
+_EVENTOS_REEMBOLSO = frozenset(
+    {"refund.created", "refund.updated", "refund.failed"}
+)
+
+
+def _procesar_evento_reembolso_stripe(
+    db: Session,
+    evento: dict[str, Any],
+    scope: StripeWebhookScope,
+) -> WebhookStripeRespuesta:
+    """CU36: aplica refund.* de forma idempotente y sin simular reembolsos."""
+    from app.modules.gestion_pagos.providers import ReembolsoProveedor
+    from app.modules.gestion_pagos.repositories import ajustes as ajustes_repo
+    from app.modules.gestion_pagos.services import ajustes as ajustes_service
+
+    objeto = evento.get("data", {}).get("object", {})
+    refund_id = objeto.get("id")
+    if not refund_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="El evento no contiene un refund valido",
+        )
+    ajuste_id = scope.ajuste_id
+    if ajuste_id is None:
+        # E-3/I-2: un refund sin metadata de ajuste/tenant no se descarta con
+        # 409. Se registra durablemente para conciliacion manual y solo
+        # entonces se responde 2xx a Stripe. Un evento cuyo PaymentIntent no
+        # prueba ningun tenant se guarda en la cuarentena central del Control
+        # Plane: nunca se envia automaticamente a la base legacy.
+        from app.modules.gestion_pagos.services import huerfanos
+
+        if scope.is_orphan:
+            huerfanos.registrar_evento_huerfano_central(db, evento)
+        else:
+            huerfanos.registrar_evento_huerfano(db, evento)
+        return WebhookStripeRespuesta(procesado=False)
+    try:
+        ajuste = ajustes_repo.obtener_ajuste(db, ajuste_id, bloquear=True)
+        if ajuste is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Ajuste de reembolso no encontrado",
+            )
+        if scope.pago_id is not None and ajuste.pago_id != scope.pago_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="La metadata Stripe no corresponde al ajuste",
+            )
+        _, _, pago = ajustes_service._bloquear_pago(db, ajuste.pago_id)
+        amount = objeto.get("amount")
+        currency = str(objeto.get("currency", "")).lower()
+        if (
+            int(amount or 0) != monto_a_unidad_minima(abs(_decimal(ajuste.importe)))
+            or currency != pago.moneda.lower()
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Monto o moneda del reembolso inconsistente con el ajuste",
+            )
+        reembolso = ReembolsoProveedor(
+            id=str(refund_id),
+            payment_intent_id=objeto.get("payment_intent"),
+            amount=int(amount or 0),
+            currency=currency,
+            status=str(objeto.get("status", "")),
+            failure_reason=objeto.get("failure_reason"),
+            metadata={
+                str(clave): str(valor)
+                for clave, valor in dict(objeto.get("metadata") or {}).items()
+                if valor is not None
+            },
+        )
+        if ajuste.estado == "CONFIRMADO" and reembolso.confirmed:
+            db.rollback()
+            return WebhookStripeRespuesta(
+                procesado=True, pago_id=pago.id, estado_pago=pago.estado,
+            )
+        estado_anterior = ajuste.estado
+        ajuste = ajustes_service.aplicar_reembolso_proveedor(
+            db, ajuste, reembolso, usuario_id=None,
+        )
+        if ajuste.estado != estado_anterior:
+            registrar_bitacora(
+                db=db,
+                usuario_id=None,
+                accion=f"REEMBOLSO_STRIPE_{ajuste.estado}",
+                entidad_afectada="pago_ajuste",
+                id_registro_afectado=ajuste.id,
+                descripcion=(
+                    f"Webhook {evento.get('type')} actualizo el ajuste a "
+                    f"{ajuste.estado}"
+                ),
+            )
+        db.commit()
+        db.refresh(pago)
+        return WebhookStripeRespuesta(
+            procesado=True, pago_id=pago.id, estado_pago=pago.estado,
+        )
+    except Exception:
+        db.rollback()
+        raise
+
+
+def _reconciliar_succeeded_tardio(
+    db: Session,
+    pago,
+    intento_cuota,
+    evento: dict[str, Any],
+) -> None:
+    """CU36: Stripe capturo dinero despues de una anulacion local.
+
+    No se ignora el webhook: se restaura la representacion financiera
+    (dinero capturado) y se abre una conciliacion explicita para reembolsar.
+    """
+    from decimal import Decimal
+
+    from app.modules.gestion_pagos.repositories import ajustes as ajustes_repo
+    from app.modules.gestion_pagos.services import notificaciones
+
+    fecha_pago = _fecha_evento_stripe(evento)
+    clave = f"cu36-reconciliacion-{pago.id}"
+    pago.estado = "APROBADO"
+    pago.fecha_hora_pago = pago.fecha_hora_pago or fecha_pago
+    if intento_cuota is not None and not intento_cuota.aplicado_a_cuota:
+        from app.modules.gestion_pagos.services import planes_cuotas
+
+        planes_cuotas.aplicar_pago_desde_webhook(
+            db, intento_cuota, fecha_pago=fecha_pago,
+        )
+    if ajustes_repo.obtener_ajuste_por_clave(db, clave) is None:
+        ajustes_repo.crear_ajuste(
+            db,
+            pago_id=pago.id,
+            tipo="RECONCILIACION",
+            naturaleza="OTRO",
+            efecto_caja="SIN_EFECTO",
+            estado="PENDIENTE_PROVEEDOR",
+            importe=Decimal("0.00"),
+            moneda=pago.moneda,
+            motivo=(
+                "Stripe confirmo la captura despues de una anulacion local; "
+                "requiere conciliacion y reembolso si corresponde"
+            ),
+            evidencia=f"payment_intent {pago.referencia_transaccion}",
+            clave_idempotencia=clave,
+            creado_por=None,
+            observaciones="Ajuste abierto automaticamente por webhook",
+        )
+    notificaciones.programar_comprobante(db, pago.id)
+    registrar_bitacora(
+        db=db,
+        usuario_id=None,
+        accion="RECONCILIAR_STRIPE_SUCCEEDED_TARDIO",
+        entidad_afectada="pago",
+        id_registro_afectado=pago.id,
+        descripcion=(
+            "Stripe reporto succeeded sobre un pago ANULADO; se restauro el "
+            "dinero capturado y se abrio conciliacion"
+        ),
+    )
+    db.flush()
 
 
 def _fecha_evento_stripe(evento: dict[str, Any]) -> datetime:
@@ -688,6 +851,57 @@ def _fecha_evento_stripe(evento: dict[str, Any]) -> datetime:
     if isinstance(timestamp, (int, float)):
         return datetime.fromtimestamp(timestamp, tz=timezone.utc)
     return datetime.now(timezone.utc)
+
+
+def _registrar_discrepancia_canceled(
+    db: Session,
+    pago,
+    evento: dict[str, Any],
+) -> None:
+    """CU36 (I-3): Stripe cancelo un intento que localmente figura APROBADO.
+
+    Un pago APROBADO nunca se anula automaticamente: puede representar dinero
+    realmente capturado. La discrepancia se registra de forma durable e
+    idempotente para que Stripe reciba 2xx (sin reintentos infinitos) y para
+    que un administrador la concilie antes de cualquier otra operacion.
+    """
+    from decimal import Decimal
+
+    from app.modules.gestion_pagos.repositories import ajustes as ajustes_repo
+
+    clave = f"cu36-stripe-canceled-discrepancia-{pago.id}"
+    if ajustes_repo.obtener_ajuste_por_clave(db, clave) is not None:
+        return
+    ajuste = ajustes_repo.crear_ajuste(
+        db,
+        pago_id=pago.id,
+        tipo="RECONCILIACION",
+        naturaleza="OTRO",
+        efecto_caja="SIN_EFECTO",
+        estado="PENDIENTE_PROVEEDOR",
+        importe=Decimal("0.00"),
+        moneda=pago.moneda,
+        motivo=(
+            "Stripe reporto payment_intent.canceled sobre un pago APROBADO; "
+            "requiere conciliacion manual (no se anula automaticamente)"
+        ),
+        evidencia=f"Webhook {evento.get('id')} payment_intent.canceled",
+        clave_idempotencia=clave,
+        creado_por=None,
+        observaciones="Discrepancia abierta automaticamente por webhook",
+    )
+    registrar_bitacora(
+        db=db,
+        usuario_id=None,
+        accion="RECONCILIAR_STRIPE_CANCELED_SOBRE_APROBADO",
+        entidad_afectada="pago_ajuste",
+        id_registro_afectado=ajuste.id,
+        descripcion=(
+            "Stripe cancelo un PaymentIntent que localmente figura APROBADO; "
+            "se abrio conciliacion y no se anulo el pago"
+        ),
+    )
+    db.flush()
 
 
 def verificar_evento_webhook_stripe(
@@ -715,6 +929,8 @@ def procesar_evento_webhook_stripe(
     scope: StripeWebhookScope,
 ) -> WebhookStripeRespuesta:
     tipo = evento.get("type")
+    if tipo in _EVENTOS_REEMBOLSO:
+        return _procesar_evento_reembolso_stripe(db, evento, scope)
     estado_destino = _EVENTOS_STRIPE.get(tipo)
     if estado_destino is None:
         return WebhookStripeRespuesta(procesado=False)
@@ -808,6 +1024,19 @@ def procesar_evento_webhook_stripe(
                     status_code=status.HTTP_409_CONFLICT,
                     detail="La metadata Stripe no corresponde a la cuota del pago",
                 )
+            # E-5: una captura tardia sobre un pago de cuota previamente
+            # ANULADO tambien debe reconciliarse. Antes la rama de cuotas
+            # retornaba antes de esta comprobacion y revertia la anulacion sin
+            # ajuste RECONCILIACION ni bitacora CU36.
+            if estado_destino == "APROBADO" and pago.estado == "ANULADO":
+                _reconciliar_succeeded_tardio(db, pago, intento_cuota, evento)
+                db.commit()
+                db.refresh(pago)
+                return WebhookStripeRespuesta(
+                    procesado=True,
+                    pago_id=pago.id,
+                    estado_pago=pago.estado,
+                )
             if estado_destino == "APROBADO":
                 from app.modules.gestion_pagos.services import planes_cuotas
 
@@ -859,6 +1088,44 @@ def procesar_evento_webhook_stripe(
                 )
 
         estado_anterior = pago.estado
+        if estado_destino == "APROBADO" and pago.estado == "ANULADO":
+            _reconciliar_succeeded_tardio(db, pago, intento_cuota, evento)
+            db.commit()
+            db.refresh(pago)
+            return WebhookStripeRespuesta(
+                procesado=True,
+                pago_id=pago.id,
+                estado_pago=pago.estado,
+            )
+        # I-3: toda anulacion de un intento no capturado pasa por el libro
+        # CU36 (ajuste ANULACION + bitacora). Un pago APROBADO nunca se anula
+        # automaticamente: se registra una discrepancia durable y se responde
+        # 2xx para no provocar reintentos infinitos de Stripe.
+        if estado_destino == "ANULADO":
+            if pago.estado in {"PENDIENTE", "RECHAZADO"}:
+                from app.modules.gestion_pagos.services import ajustes as ajustes_service
+
+                ajustes_service.anular_intento_no_capturado(
+                    db,
+                    pago,
+                    motivo="PaymentIntent cancelado confirmado por Stripe",
+                    clave_idempotencia=f"cu36-stripe-canceled-{pago.id}",
+                    usuario_id=None,
+                    evidencia=(
+                        f"Webhook {evento.get('id')} payment_intent.canceled"
+                    ),
+                )
+            elif pago.estado == "APROBADO":
+                _registrar_discrepancia_canceled(db, pago, evento)
+            # ANULADO/REEMBOLSADO: estado final ya durable -> no-op idempotente.
+            db.commit()
+            db.refresh(pago)
+            return WebhookStripeRespuesta(
+                procesado=True,
+                pago_id=pago.id,
+                estado_pago=pago.estado,
+            )
+
         if pago.estado != "APROBADO":
             puede_cambiar = (
                 pago.estado == "PENDIENTE"
@@ -947,9 +1214,12 @@ def procesar_webhook_stripe_en_base_correcta(
 ) -> WebhookStripeRespuesta:
     """Verify the Stripe signature, then and only then select a database."""
     evento = verificar_evento_webhook_stripe(payload, firma, proveedor)
-    if _EVENTOS_STRIPE.get(evento.get("type")) is None:
+    if (
+        _EVENTOS_STRIPE.get(evento.get("type")) is None
+        and evento.get("type") not in _EVENTOS_REEMBOLSO
+    ):
         return WebhookStripeRespuesta(procesado=False)
-    with session_resolver.open_for_verified_event(evento) as (db, scope):
+    with session_resolver.open_for_verified_event(evento, proveedor) as (db, scope):
         return procesar_evento_webhook_stripe(db, evento, scope)
 
 
@@ -1030,6 +1300,7 @@ def listar_mis_pagos(
     paciente = _resolver_paciente_actual(db, usuario)
     pago_ids = repo.listar_ids_pagos_de_paciente(db, paciente.id)
     pagos = repo.obtener_pagos_con_detalles(db, pago_ids)
+    resumenes = saldos.resumenes_por_pago(db, [pago.id for pago in pagos])
 
     historial: list[PagoHistorialItem] = []
     for pago in pagos:
@@ -1050,6 +1321,7 @@ def listar_mis_pagos(
                 )
             )
         consulta_id = next(iter(consultas)) if len(consultas) == 1 else None
+        resumen = resumenes[pago.id]
         historial.append(
             PagoHistorialItem(
                 pago_id=pago.id,
@@ -1061,6 +1333,8 @@ def listar_mis_pagos(
                 metodo_pago=pago.metodo_pago,
                 estado_pago=pago.estado,
                 pasarela=pago.pasarela,
+                importe_vigente=resumen.vigente,
+                importe_reembolsado=resumen.reembolsado,
                 servicios=servicios,
             )
         )

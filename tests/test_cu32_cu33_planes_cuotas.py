@@ -78,7 +78,7 @@ class ProveedorStripeFalso:
         raise AssertionError("no corresponde")
 
 
-def tenant_token(usuario_id: int, rol_id: int = 4) -> dict[str, str]:
+def tenant_token(usuario_id: int, rol_id: int = 1) -> dict[str, str]:
     token = crear_tenant_access_token(
         usuario_id=usuario_id,
         rol_id=rol_id,

@@ -1,0 +1,534 @@
+{
+  "schema": "graphify_ontology_citations_v1",
+  "graph_signature": "ac212ea87ce7ae04d2c7b948e60b3236a62cd2be7cc2348cbf525cb7c85de210",
+  "nodes": {
+    "api_router_actualizar_antecedente": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "document",
+          "quote": "@router.put(\"/antecedentes/{antecedente_id}\", response_model=AntecedenteClinicoRespuesta) def actualizar_antecedente( datos: AntecedenteClinicoActualizar, antecedente_id: int = Path(gt=0, le=2**63 - 1), db: Session = Depends(get_db), usuario=Depends(permiso_gestionar_antecedentes), ): return service.actualizar_antecede",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p6"
+        }
+      ]
+    },
+    "api_router_consultar_consulta_clinica": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "=========================================================",
+          "quote": "@router.get( \"/consultas/{consulta_id}\", response_model=ConsultaClinicaRespuesta, ) def consultar_consulta_clinica( consulta_id: int = Path(gt=0, le=2**63 - 1), db: Session = Depends(get_db), _usuario=Depends(permiso_historial_clinico), ): return service.consultar_consulta_clinica(db, consulta_id)",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p10"
+        }
+      ]
+    },
+    "api_router_consultar_historial_clinico": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "=========================================================",
+          "quote": "@router.get(\"/{paciente_id}\", response_model=HistorialClinicoRespuesta) def consultar_historial_clinico( paciente_id: int = Path(gt=0, le=2**63 - 1), db: Session = Depends(get_db), _usuario=Depends(permiso_historial_clinico), ): return service.consultar_historial_clinico(db, paciente_id …",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p11"
+        }
+      ]
+    },
+    "api_router_crear_antecedente": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "document",
+          "quote": "@router.post( \"/antecedentes\", response_model=AntecedenteClinicoRespuesta, status_code=201, ) def crear_antecedente( datos: AntecedenteClinicoCrear, db: Session = Depends(get_db), usuario=Depends(permiso_gestionar_antecedentes), ): return service.crear_antecedente(db, datos, usuario)",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p5"
+        }
+      ]
+    },
+    "api_router_listar_consultas_clinicas": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "=========================================================",
+          "quote": "@router.get(\"/consultas\", response_model=list[ConsultaClinicaRespuesta]) def listar_consultas_clinicas( historial_clinico_id: int | None = Query(default=None, gt=0, le=2**63 - 1), paciente_id: int | None = Query(default=None, gt=0, le=2**63 - 1), oftalmologo_id: int | None = Query(default=None, …",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p9"
+        }
+      ]
+    },
+    "api_router_obtener_modulo": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "document",
+          "quote": "@router.get(\"/\") def obtener_modulo(): return {\"mensaje\": \"Módulo de historial clínico funcionando\"}",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p3"
+        }
+      ]
+    },
+    "api_router_registrar_consulta_clinica": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/api/router.py",
+          "source_location": "=========================================================",
+          "quote": "@router.post( \"/consultas\", response_model=ConsultaClinicaRespuesta, status_code=201, ) def registrar_consulta_clinica( datos: ConsultaClinicaCrear, db: Session = Depends(get_db), usuario=Depends(permiso_registrar_consulta), ): return service.registrar_consulta_clinica(db, datos, usuario)",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p8"
+        }
+      ]
+    },
+    "models_models_antecedenteclinico": {
+      "count": 2,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+          "source_location": "document",
+          "quote": "paciente: Mapped[Paciente] = relationship() antecedentes: Mapped[list[\"AntecedenteClinico\"]] = relationship( back_populates=\"historial\", order_by=lambda: ( AntecedenteClinico.fecha_registro.desc(), AntecedenteClinico.id.desc(), ), )",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p5"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+          "source_location": "document",
+          "quote": "class AntecedenteClinico(Base): __tablename__ = \"antecedente_clinico\"",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p6"
+        }
+      ]
+    },
+    "models_models_consultaclinica": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+          "source_location": "document",
+          "quote": "class ConsultaClinica(Base): __tablename__ = \"consulta_clinica\"",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p9"
+        }
+      ]
+    },
+    "models_models_historialclinico": {
+      "count": 2,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+          "source_location": "document",
+          "quote": "class HistorialClinico(Base): __tablename__ = \"historial_clinico\"",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p3"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/models/models.py",
+          "source_location": "document",
+          "quote": "historial: Mapped[HistorialClinico] = relationship(back_populates=\"antecedentes\")",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p8"
+        }
+      ]
+    },
+    "repositories_repository_actualizar_antecedente": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "document",
+          "quote": "def actualizar_antecedente( db: Session, antecedente: AntecedenteClinico, datos: AntecedenteClinicoActualizar, ): antecedente.tipo = datos.tipo antecedente.descripcion = datos.descripcion db.flush() db.refresh(antecedente …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p8"
+        }
+      ]
+    },
+    "repositories_repository_crear_antecedente": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "document",
+          "quote": "def crear_antecedente(db: Session, datos: AntecedenteClinicoCrear): antecedente = AntecedenteClinico( historial_clinico_id=datos.historial_clinico_id, tipo=datos.tipo, descripcion=datos.descripcion, fecha_registro=datetime …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p7"
+        }
+      ]
+    },
+    "repositories_repository_crear_consulta_clinica": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "=========================================================",
+          "quote": "def crear_consulta_clinica( db: Session, *, historial_clinico_id: int, cita_id: int | None, oftalmologo_id: int, motivo_consulta: str | None, anamnesis: str | None, observaciones: str | None, ): consulta = ConsultaClinica( …",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p9"
+        }
+      ]
+    },
+    "repositories_repository_listar_consultas_clinicas": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "=========================================================",
+          "quote": "def listar_consultas_clinicas( db: Session, *, historial_clinico_id: int | None = None, paciente_id: int | None = None, oftalmologo_id: int | None = None, ): stmt = select(ConsultaClinica).options( selectinload(ConsultaClinica …",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p12"
+        }
+      ]
+    },
+    "repositories_repository_obtener_antecedente_disponible_por_id": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "document",
+          "quote": "def obtener_antecedente_disponible_por_id(db: Session, antecedente_id: int): return db.scalar( select(AntecedenteClinico) .join(HistorialClinico, HistorialClinico.id == AntecedenteClinico.historial_clinico_id) .where( …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p6"
+        }
+      ]
+    },
+    "repositories_repository_obtener_consulta_por_cita_id": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "=========================================================",
+          "quote": "def obtener_consulta_por_cita_id(db: Session, cita_id: int): return db.scalar( select(ConsultaClinica).where(ConsultaClinica.cita_id == cita_id) )",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p11"
+        }
+      ]
+    },
+    "repositories_repository_obtener_consulta_por_id": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "=========================================================",
+          "quote": "def obtener_consulta_por_id(db: Session, consulta_id: int): return db.scalar( select(ConsultaClinica) .options(selectinload(ConsultaClinica.oftalmologo)) .where(ConsultaClinica.id == consulta_id) )",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p10"
+        }
+      ]
+    },
+    "repositories_repository_obtener_historial_activo_por_id": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "document",
+          "quote": "def obtener_historial_activo_por_id(db: Session, historial_clinico_id: int): return db.scalar( select(HistorialClinico).where( HistorialClinico.id == historial_clinico_id, HistorialClinico.estado.is_(True), ) )",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p5"
+        }
+      ]
+    },
+    "repositories_repository_obtener_paciente_con_historial": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/repositories/repository.py",
+          "source_location": "document",
+          "quote": "def obtener_paciente_con_historial(db: Session, paciente_id: int): paciente = obtener_paciente_por_id(db, paciente_id) if paciente is None: return None, None",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p3"
+        }
+      ]
+    },
+    "schemas_schemas_antecedenteclinicoactualizar": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class AntecedenteClinicoActualizar(AntecedenteClinicoBase): pass",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p8"
+        }
+      ]
+    },
+    "schemas_schemas_antecedenteclinicobase": {
+      "count": 3,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class AntecedenteClinicoBase(BaseModel): tipo: TipoAntecedente descripcion: str = Field(min_length=1)",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p4"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class AntecedenteClinicoCrear(AntecedenteClinicoBase): historial_clinico_id: int = Field(gt=0, le=2**63 - 1)",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p7"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class AntecedenteClinicoActualizar(AntecedenteClinicoBase): pass",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p8"
+        }
+      ]
+    },
+    "schemas_schemas_antecedenteclinicocrear": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class AntecedenteClinicoCrear(AntecedenteClinicoBase): historial_clinico_id: int = Field(gt=0, le=2**63 - 1)",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p7"
+        }
+      ]
+    },
+    "schemas_schemas_antecedenteclinicorespuesta": {
+      "count": 2,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "… HistorialClinicoDetalleRespuesta(BaseModel): id: int fecha_apertura: datetime observaciones_generales: str | None antecedentes: list[AntecedenteClinicoRespuesta]",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p11"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class AntecedenteClinicoRespuesta(BaseModel): id: int tipo: str descripcion: str fecha_registro: datetime",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p9"
+        }
+      ]
+    },
+    "schemas_schemas_consultaclinicacrear": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "=========================================================",
+          "quote": "class ConsultaClinicaCrear(BaseModel): historial_clinico_id: int = Field(gt=0, le=2**63 - 1) cita_id: int | None = Field(default=None, gt=0, le=2**63 - 1) motivo_consulta: str | None = Field(default=None, max_length=255 …",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p14"
+        }
+      ]
+    },
+    "schemas_schemas_consultaclinicarespuesta": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "=========================================================",
+          "quote": "class ConsultaClinicaRespuesta(BaseModel): id: int historial_clinico_id: int cita_id: int | None oftalmologo: OftalmologoResumidoRespuesta fecha_consulta: datetime motivo_consulta: str | None anamnesis: str | None observaciones: …",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p17"
+        }
+      ]
+    },
+    "schemas_schemas_historialclinicodetallerespuesta": {
+      "count": 2,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class HistorialClinicoDetalleRespuesta(BaseModel): id: int fecha_apertura: datetime observaciones_generales: str | None antecedentes: list[AntecedenteClinicoRespuesta]",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p11"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class HistorialClinicoRespuesta(BaseModel): paciente: PacienteRespuesta historial: HistorialClinicoDetalleRespuesta | None",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p13"
+        }
+      ]
+    },
+    "schemas_schemas_historialclinicorespuesta": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/schemas/schemas.py",
+          "source_location": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "quote": "class HistorialClinicoRespuesta(BaseModel): paciente: PacienteRespuesta historial: HistorialClinicoDetalleRespuesta | None",
+          "confidence": "EXTRACTED",
+          "section": "Valores de la restricción chk_antecedente_tipo de PostgreSQL.",
+          "paragraph_id": "p13"
+        }
+      ]
+    },
+    "services_service_actualizar_antecedente": {
+      "count": 2,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "document",
+          "quote": "def actualizar_antecedente( db: Session, antecedente_id: int, datos: AntecedenteClinicoActualizar, usuario: Usuario, ): try: antecedente = repo.obtener_antecedente_disponible_por_id(db, antecedente_id) if antecedente …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p5"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "document",
+          "quote": "antecedente = repo.actualizar_antecedente(db, antecedente, datos) registrar_bitacora( db=db, usuario_id=usuario.id, accion=\"ACTUALIZAR_ANTECEDENTE\", entidad_afectada=\"antecedente_clinico\", id_registro_afectado=antecedente.id, descripcion= …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p6"
+        }
+      ]
+    },
+    "services_service_consultar_consulta_clinica": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "def consultar_consulta_clinica(db: Session, consulta_id: int): consulta = repo.obtener_consulta_por_id(db, consulta_id) if consulta is None: raise HTTPException( status_code=404, detail=\"Consulta clínica no encontrada …",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p15"
+        }
+      ]
+    },
+    "services_service_consultar_historial_clinico": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "document",
+          "quote": "def consultar_historial_clinico(db: Session, paciente_id: int) -> HistorialClinicoRespuesta: paciente, historial = repo.obtener_paciente_con_historial(db, paciente_id) if paciente is None: raise HTTPException(status_code=404, …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p2"
+        }
+      ]
+    },
+    "services_service_crear_antecedente": {
+      "count": 2,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "document",
+          "quote": "def crear_antecedente(db: Session, datos: AntecedenteClinicoCrear, usuario: Usuario): try: historial = repo.obtener_historial_activo_por_id(db, datos.historial_clinico_id) if historial is None: raise HTTPException( …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p3"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "document",
+          "quote": "antecedente = repo.crear_antecedente(db, datos) registrar_bitacora( db=db, usuario_id=usuario.id, accion=\"CREAR_ANTECEDENTE\", entidad_afectada=\"antecedente_clinico\", id_registro_afectado=antecedente.id, descripcion=\"Antecedente clínico …",
+          "confidence": "EXTRACTED",
+          "paragraph_id": "p4"
+        }
+      ]
+    },
+    "services_service_listar_consultas_clinicas": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "def listar_consultas_clinicas( db: Session, *, historial_clinico_id: int | None = None, paciente_id: int | None = None, oftalmologo_id: int | None = None, ): return repo.listar_consultas_clinicas( db, historial_clinico_id=historial_clinico_id, …",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p16"
+        }
+      ]
+    },
+    "services_service_rationale_94": {
+      "count": 6,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "=========================================================",
+          "quote": "_ROL_OFTALMOLOGO = \"oftalmologo\"",
+          "confidence": "EXTRACTED",
+          "section": "=========================================================",
+          "paragraph_id": "p7"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "El `oftalmologo_id` nunca llega desde el frontend: se resuelve a partir del usuario del token (usuario.id -> oftalmologo.usuario_id). Solo el rol Oftalmólogo puede registrar; se validan historial, cita (si se informa …",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p10"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "oftalmologo = agenda_repo.obtener_oftalmologo_activo_por_usuario_id( db, usuario.id, ) if oftalmologo is None: raise HTTPException( status_code=403, detail=( \"El usuario autenticado no tiene un perfil de oftalmólogo …",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p11"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "… datos.cita_id) if cita is None: raise HTTPException( status_code=404, detail=\"Cita no encontrada\", ) if cita.oftalmologo_id != oftalmologo.id: raise HTTPException( status_code=403, detail=\"La cita no corresponde al oftalmólogo autenticado\", ) if cita.paciente_id != historial.paciente_id: raise HTTPException( status_c",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p13"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "try: consulta = repo.crear_consulta_clinica( db, historial_clinico_id=historial.id, cita_id=datos.cita_id, oftalmologo_id=oftalmologo.id, motivo_consulta=datos.motivo_consulta, anamnesis=datos.anamnesis, observaciones=datos.observaciones, ) registrar_bitacora( db=db, usuario_id=usuario.id, accion=BITACORA_REGISTRAR_CON",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p14"
+        },
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "… Session, datos: ConsultaClinicaCrear, usuario: Usuario, ): \"\"\"Registra una consulta clínica realizada por el oftalmólogo autenticado.",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p9"
+        }
+      ]
+    },
+    "services_service_registrar_consulta_clinica": {
+      "count": 1,
+      "citations": [
+        {
+          "source_file": "app/modules/gestion_historial_clinico/services/service.py",
+          "source_location": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "quote": "def registrar_consulta_clinica( db: Session, datos: ConsultaClinicaCrear, usuario: Usuario, ): \"\"\"Registra una consulta clínica realizada por el oftalmólogo autenticado.",
+          "confidence": "EXTRACTED",
+          "section": "BITACORA_REGISTRAR_CONSULTA = \"REGISTRAR_CONSULTA_CLINICA\"",
+          "paragraph_id": "p9"
+        }
+      ]
+    }
+  }
+}

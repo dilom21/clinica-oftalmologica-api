@@ -59,15 +59,7 @@ def get_db_legacy():
         db.close()
 
 
-def _extract_bearer(request: Request) -> str | None:
-    header = request.headers.get("Authorization")
-    if not header:
-        return None
-    scheme, _, token = header.partition(" ")
-    if scheme.lower() != "bearer":
-        return None
-    token = token.strip()
-    return token or None
+get_legacy_login_db = get_db_legacy
 
 
 def _unauthorized(detail: str = "Token inválido o expirado") -> HTTPException:
@@ -76,6 +68,17 @@ def _unauthorized(detail: str = "Token inválido o expirado") -> HTTPException:
         detail=detail,
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def _extract_bearer(request: Request) -> str | None:
+    header = request.headers.get("Authorization")
+    if not header:
+        return None
+    scheme, _, token = header.partition(" ")
+    if scheme.lower() != "bearer" or not token.strip():
+        raise _unauthorized()
+    token = token.strip()
+    return token
 
 
 def _tenant_unavailable() -> HTTPException:
@@ -96,6 +99,20 @@ def _legacy_session():
 def _open_tenant_session(claims: dict, registry) -> Session:
     """Resolve the current Control Plane state and open the tenant session."""
     if claims.get("token_type") != "tenant" or not _TENANT_REQUIRED_CLAIMS.issubset(claims):
+        raise _unauthorized()
+    subject = claims.get("sub")
+    if (
+        not isinstance(subject, str)
+        or not subject.isdecimal()
+        or int(subject) <= 0
+    ):
+        raise _unauthorized()
+    for claim in ("rol_id", "tenant_id", "empresa_id"):
+        value = claims.get(claim)
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise _unauthorized()
+    empresa_codigo = claims.get("empresa_codigo")
+    if not isinstance(empresa_codigo, str) or not empresa_codigo.strip():
         raise _unauthorized()
 
     control = None
@@ -168,6 +185,11 @@ def get_db(
     token_type = claims.get("token_type")
     if token_type is None:
         # Legacy clinical token: unchanged behaviour.
+        if any(
+            claim in claims
+            for claim in ("tenant_id", "empresa_id", "empresa_codigo")
+        ):
+            raise _unauthorized()
         yield from _legacy_session()
         return
     if token_type != "tenant":

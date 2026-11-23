@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 import os
 import sys
@@ -53,6 +53,7 @@ from scripts.saas.provision_tenant import (
     _sql_literal,
     _validate_admin_connection_context,
     _validate_batch_source_preflight,
+    validate_provisioning_eligibility,
     validate_database_identifier,
 )
 
@@ -209,6 +210,9 @@ def valid_mapping(**changes):
         code=EXPECTED_CODE, database_name=EXPECTED_DATABASE,
         tenant_state=PENDING, provisioning_state=PENDING,
         empresa_id=1, tenant_database_id=2, provisioning_id=3,
+        empresa_state=ACTIVE, subscription_id=4, subscription_state=ACTIVE,
+        subscription_start=date(2020, 1, 1), subscription_end=date(2099, 12, 31),
+        active_subscription_count=1,
     )
     values.update(changes)
     return TenantMapping(**values)
@@ -234,6 +238,9 @@ class FakeResult:
 
     def first(self):
         return self.row
+
+    def all(self):
+        return self.row if isinstance(self.row, list) else [self.row]
 
 
 class FakeSession:
@@ -323,12 +330,103 @@ def test_sql_reader_uses_explicit_state_keys_and_dry_run_builds_plan():
         "tenant_database_id": 2, "database_name": EXPECTED_DATABASE,
         "tenant_state": PENDING, "provisioning_id": 3,
         "provisioning_state": PENDING,
+        "empresa_state": ACTIVE, "subscription_id": 4,
+        "subscription_state": ACTIVE,
+        "subscription_start": date(2020, 1, 1),
+        "subscription_end": date(2099, 12, 31),
     })
     output = dry_run(SqlAlchemyControlPlaneReader(lambda: session), FakeTools())
     assert "Planned database: tenant_vision_clara." in output
     assert "td.estado AS tenant_state" in session.sql
     assert "pt.estado AS provisioning_state" in session.sql
     assert session.closed
+
+
+def subscription_row(**changes):
+    row = {
+        "empresa_id": 1, "codigo": EXPECTED_CODE,
+        "empresa_state": ACTIVE,
+        "tenant_database_id": 2, "database_name": EXPECTED_DATABASE,
+        "tenant_state": PENDING, "provisioning_id": 3,
+        "provisioning_state": PENDING,
+        "subscription_id": 4, "subscription_state": ACTIVE,
+        "subscription_start": date(2020, 1, 1),
+        "subscription_end": date(2099, 12, 31),
+    }
+    row.update(changes)
+    return row
+
+
+@pytest.mark.parametrize(("rows", "expected_count", "expected_id"), [
+    ([subscription_row(subscription_id=None, subscription_state="SUSPENDIDA")], 0, None),
+    ([subscription_row()], 1, 4),
+    ([subscription_row(subscription_id=4), subscription_row(subscription_id=5)], 2, 4),
+])
+def test_sql_reader_counts_zero_one_and_two_eligible_subscriptions(
+    rows, expected_count, expected_id,
+):
+    """The SQL reader must derive eligibility from rows, not from a fixture flag."""
+    session = FakeSession(rows)
+    mapping = SqlAlchemyControlPlaneReader(lambda: session).read_mapping(EXPECTED_CODE)
+
+    assert mapping.active_subscription_count == expected_count
+    assert mapping.subscription_id == expected_id
+    assert session.closed
+    if expected_count != 1:
+        with pytest.raises(ProvisioningError):
+            validate_provisioning_eligibility(mapping)
+
+
+@pytest.mark.parametrize(("hoy", "start", "end"), [
+    (date(2026, 11, 16), date(2026, 11, 16), date(2026, 11, 16)),
+    (date(2026, 11, 16), date(2026, 11, 15), date(2026, 11, 16)),
+    (date(2026, 11, 16), date(2026, 11, 16), date(2026, 11, 17)),
+])
+def test_subscription_vigencia_accepts_boundary_local_days(hoy, start, end):
+    validate_provisioning_eligibility(
+        valid_mapping(subscription_start=start, subscription_end=end),
+        today=hoy,
+    )
+
+
+@pytest.mark.parametrize(("hoy", "start", "end"), [
+    (date(2026, 11, 16), date(2026, 11, 17), date(2026, 12, 1)),
+    (date(2026, 11, 16), date(2026, 10, 1), date(2026, 11, 15)),
+])
+def test_subscription_vigencia_rejects_future_and_expired_local_days(hoy, start, end):
+    with pytest.raises(ProvisioningError, match="not vigente"):
+        validate_provisioning_eligibility(
+            valid_mapping(subscription_start=start, subscription_end=end),
+            today=hoy,
+        )
+
+
+def test_provisioning_uses_la_paz_local_day_instead_of_utc(monkeypatch):
+    """2026-11-17 02:30 UTC is still 2026-11-16 in America/La_Paz (UTC-4)."""
+    import scripts.saas.provision_tenant as provisioning
+
+    class FixedDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            instant = datetime(2026, 11, 17, 2, 30, tzinfo=timezone.utc)
+            return instant.astimezone(tz) if tz is not None else instant.replace(tzinfo=None)
+
+    monkeypatch.setattr("app.core.time.datetime", FixedDatetime)
+
+    utc_instant = datetime(2026, 11, 17, 2, 30, tzinfo=timezone.utc)
+    assert utc_instant.date() == date(2026, 11, 17)
+    assert provisioning._fecha_local_aplicacion() == date(2026, 11, 16)
+    # A subscription ending on the local day is still valid even though the
+    # UTC calendar already moved to the next day.
+    validate_provisioning_eligibility(
+        valid_mapping(subscription_start=date(2026, 11, 1),
+                      subscription_end=date(2026, 11, 16))
+    )
+    with pytest.raises(ProvisioningError, match="not vigente"):
+        validate_provisioning_eligibility(
+            valid_mapping(subscription_start=date(2026, 11, 1),
+                          subscription_end=date(2026, 11, 15))
+        )
 
 
 def test_dry_run_does_not_mutate():
@@ -387,6 +485,30 @@ def test_existing_database_rejected_before_state():
 def test_non_pending_tenant_rejected(field):
     with pytest.raises(ProvisioningError, match="PENDIENTE"):
         execute_provision(FakeReader(valid_mapping(**{field: ACTIVE})), FakeWriter(), FakeBackend(), FakeTools(), EXPECTED_DATABASE)
+
+
+ELIGIBILITY_FAILURES = (
+    {"empresa_state": "SUSPENDIDA"},
+    {"subscription_id": None, "active_subscription_count": 0},
+    {"active_subscription_count": 2},
+    {"subscription_state": "SUSPENDIDA"},
+    {"subscription_end": date(2020, 1, 2)},
+    {"subscription_start": date(2099, 1, 1)},
+)
+
+
+@pytest.mark.parametrize("changes", ELIGIBILITY_FAILURES)
+def test_initial_provisioning_rejects_ineligible_company_before_resources(changes):
+    writer = FakeWriter()
+    backend = FakeBackend()
+
+    with pytest.raises(ProvisioningError):
+        execute_provision(
+            FakeReader(valid_mapping(**changes)), writer, backend, FakeTools(), EXPECTED_DATABASE,
+        )
+
+    assert writer.events == []
+    assert backend.events == []
 
 
 def test_prechecks_happen_before_state_transition():
@@ -1050,6 +1172,45 @@ def test_reconcile_rejects_non_error_states_without_backend_calls(mapping):
     assert backend.events == []
 
 
+@pytest.mark.parametrize("changes", ELIGIBILITY_FAILURES)
+def test_reconcile_rejects_ineligible_company_before_writer_or_resources(changes):
+    mapping = clean_mapping(
+        tenant_state=ERROR, provisioning_state=ERROR, **changes,
+    )
+    writer = FakeWriter(tenant_state=ERROR, provisioning_state=ERROR)
+    backend = FakeBackend(exists=True)
+
+    with pytest.raises(ProvisioningError):
+        reconcile_existing(
+            FakeReader(mapping), writer, backend, CLEAN_EXPECTED_DATABASE,
+        )
+
+    assert writer.events == []
+    assert writer.tenant_state == ERROR and writer.provisioning_state == ERROR
+    assert backend.events == []
+
+
+@pytest.mark.parametrize("flag", ["--reconcile-existing", "--reconcile-clean-existing"])
+def test_cli_reconcile_aliases_apply_eligibility_gate(monkeypatch, flag):
+    writer = FakeWriter(tenant_state=ERROR, provisioning_state=ERROR)
+    backend = FakeBackend()
+    reader = FakeReader(clean_mapping(
+        empresa_state="SUSPENDIDA",
+        tenant_state=ERROR, provisioning_state=ERROR,
+    ))
+    monkeypatch.setattr(
+        "scripts.saas.provision_tenant.build_reconcile_components",
+        lambda *args: (reader, writer, backend),
+    )
+
+    code = main([flag, "--empresa", CLEAN_EXPECTED_CODE,
+                 "--confirm", CLEAN_EXPECTED_DATABASE])
+
+    assert code == 2
+    assert writer.events == []
+    assert backend.events == []
+
+
 def test_reconcile_requires_exact_confirmation_and_existing_database():
     with pytest.raises(ProvisioningError, match="confirmation"):
         run_reconcile(confirm="TENANT_OFTALMO_NORTE")
@@ -1141,7 +1302,12 @@ class CleanBackend(FakeBackend):
 def clean_mapping(**changes):
     values = dict(code=CLEAN_EXPECTED_CODE, database_name="tenant_oftalmo_norte",
                   tenant_state=PENDING, provisioning_state=PENDING,
-                  empresa_id=10, tenant_database_id=20, provisioning_id=30)
+                  empresa_id=10, tenant_database_id=20, provisioning_id=30,
+                  empresa_state=ACTIVE, subscription_id=40,
+                  subscription_state=ACTIVE,
+                  subscription_start=date(2020, 1, 1),
+                  subscription_end=date(2099, 12, 31),
+                  active_subscription_count=1)
     values.update(changes)
     return TenantMapping(**values)
 
@@ -1152,6 +1318,23 @@ def test_clean_provision_requires_dynamic_pending_mapping_and_confirmation():
         execute_provision_clean(FakeReader(clean_mapping()), FakeWriter(), backend,
                                 FakeTools(), "wrong", "admin@norte.test",
                                 password_provider=lambda _: "x")
+    assert backend.clean_calls == []
+
+
+@pytest.mark.parametrize("changes", ELIGIBILITY_FAILURES)
+def test_clean_provisioning_rejects_ineligible_company_before_resources(changes):
+    writer = FakeWriter()
+    backend = CleanBackend()
+
+    with pytest.raises(ProvisioningError):
+        execute_provision_clean(
+            FakeReader(clean_mapping(**changes)), writer, backend, FakeTools(),
+            CLEAN_EXPECTED_DATABASE, "admin@norte.test",
+            password_provider=lambda _: pytest.fail("password prompt must not run"),
+        )
+
+    assert writer.events == []
+    assert backend.events == []
     assert backend.clean_calls == []
 
 
@@ -1274,7 +1457,7 @@ def batch_mapping(code, database, index):
         provisioning_state=PENDING, empresa_id=index, tenant_database_id=100 + index,
         provisioning_id=200 + index, empresa_state=ACTIVE, subscription_id=300 + index,
         subscription_state=ACTIVE, subscription_start=date(2020, 1, 1),
-        subscription_end=date(2099, 12, 31),
+        subscription_end=date(2099, 12, 31), active_subscription_count=1,
     )
 
 
@@ -1335,6 +1518,24 @@ def test_pending_batch_global_preflight_stops_before_create(tmp_path):
         )
     assert not any(event == "create" for event in backend.events)
     assert writer.events == []
+
+
+@pytest.mark.parametrize("changes", ELIGIBILITY_FAILURES)
+def test_batch_provisioning_rejects_ineligible_company_before_any_resource(changes):
+    reader, writer, backend = batch_components()
+    first_code = PENDING_BATCH_CODES[0]
+    reader.mappings[first_code] = TenantMapping(
+        **{**reader.mappings[first_code].__dict__, **changes}
+    )
+
+    with pytest.raises(ProvisioningError):
+        execute_provision_pending_batch(
+            reader, writer, backend, FakeTools(),
+            password_provider=lambda _: pytest.fail("password prompt must not run"),
+        )
+
+    assert writer.events == []
+    assert backend.created_databases == []
 
 
 def test_pending_batch_is_sequential_prompts_twice_and_keeps_database_isolation(tmp_path):

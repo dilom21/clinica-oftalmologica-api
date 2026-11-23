@@ -8,7 +8,8 @@
 
 ## 1. Archivos y arquitectura
 
-- `Dockerfile`: imagen Python 3.12 sin `--reload` y con clientes PostgreSQL 18 (`pg_dump`, `pg_restore`, `psql`); proceso sin privilegios de root.
+- `Dockerfile`: imagen Python 3.12 sin `--reload` y con clientes PostgreSQL 18 (`pg_dump`, `pg_restore`, `psql`); proceso sin privilegios de root. Arranca mediante `scripts/docker/run-api.sh`, que habilita `--proxy-headers` solo con un proxy explícito.
+- `scripts/docker/run-api.sh`: launcher único de Uvicorn para la imagen y Compose; lee `FORWARDED_ALLOW_IPS`, rechaza `*` o valores vacíos y usa `127.0.0.1` si no se configura.
 - `docker-compose.yml`: `api` (puerto 8000 solo interno), `worker` (un único proceso, sin puertos), `nginx` (80 y 443 públicos), restart policies y red de aplicación. API/worker usan la misma imagen y las mismas variables de backend, salvo las propias de Nginx.
 - `.dockerignore`: impide que credenciales, llaves TLS, archivos locales o `.git` entren al build context.
 - `nginx/configs/http.conf.template`: configuración inicial para bootstrap y desafío ACME (solo `GET /` y `/openapi.json`; el resto de la API retorna 403 hasta HTTPS).
@@ -190,3 +191,38 @@ Para rollback, conservar el SHA anterior y el `.env` intacto; detener cambios, v
 - [ ] Evidencias (comandos, capturas y SHA) guardadas en el reporte de entrega.
 
 **Criterio distinto de aceptación AWS:** HTTPS válido, siete tenants operativos y aislados, Stripe test firmado, Resend entrega PDF al correo autorizado, worker persistente y reboot EC2 probado. Esto debe validarlo el responsable AWS junto con Docker una vez publicado el sistema.
+### Confianza de headers forwarded
+
+La imagen y Docker Compose usan el mismo launcher (`scripts/docker/run-api.sh`), de
+modo que el comportamiento es idéntico con `docker run` y con Compose. Uvicorn se
+inicia siempre con `--proxy-headers` y `--forwarded-allow-ips=$FORWARDED_ALLOW_IPS`.
+El valor por defecto es `127.0.0.1`: los headers `X-Forwarded-*` se ignoran salvo
+que el despliegue declare el proxy real. El launcher aborta si el valor contiene
+`*` o está vacío.
+
+La distinción es deliberada: si `FORWARDED_ALLOW_IPS` **no está definida** se usa
+`127.0.0.1`; si está definida pero vacía o solo con espacios, el contenedor **no
+arranca** (`FORWARDED_ALLOW_IPS is set but empty`). No hay fallback silencioso a
+loopback cuando el operador dejó la variable en blanco.
+
+`FORWARDED_ALLOW_IPS` acepta una IP o un CIDR separados por comas. **No invente ni
+copie un CIDR de ejemplo**: obtenga el valor real de la topología desplegada.
+
+- **AWS EC2 con el Nginx de este Compose:** el proxy es el contenedor `nginx`, no
+  `127.0.0.1`. Obtenga la subred real de la red `backend` con
+  `docker network inspect <proyecto>_backend` y configure ese CIDR verificado (o la
+  IP del contenedor si se fija de forma estable). Si recrea la red, vuelva a verificar
+  el valor. Mantenga el puerto 8000 sin publicar.
+- **Render:** Render termina TLS en su proxy. Use las direcciones de proxy publicadas
+  por Render para la región del servicio, o deje `127.0.0.1` si no necesita cliente
+  real/esquema reenviado. No invente rangos ni active `*`.
+- **Docker directo sin proxy** (`docker run -p 8000:8000`): conserve el valor por
+  defecto `127.0.0.1` para que un cliente no pueda falsificar `X-Forwarded-*`. Lo
+  recomendado es no publicar 8000 y poner un proxy delante.
+- **Docker directo detrás de un proxy del host:** configure la dirección verificada
+  del proxy tal como la ve el contenedor (por ejemplo, la puerta de enlace del
+  bridge solo si fue comprobada). No use comodines.
+
+El proxy debe enviar `X-Forwarded-For` y `X-Forwarded-Proto`; el template Nginx HTTP
+de bootstrap solo reenvía `X-Forwarded-Proto`. Verifique los logs de acceso antes de
+confiar en la IP de cliente.

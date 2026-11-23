@@ -141,7 +141,7 @@ class ResolverDosBases:
         self.calls = 0
 
     @contextmanager
-    def open_for_verified_event(self, evento):
+    def open_for_verified_event(self, evento, proveedor=None):
         self.calls += 1
         metadata = evento["data"]["object"]["metadata"]
         db, contexto = self.mapping[metadata["empresa_codigo"]]
@@ -349,7 +349,7 @@ def test_firma_invalida_no_intenta_resolver_ninguna_base(
 ):
     class ResolverNoInvocable:
         @contextmanager
-        def open_for_verified_event(self, evento):
+        def open_for_verified_event(self, evento, proveedor=None):
             pytest.fail("la firma debe verificarse antes de abrir una base")
             yield
 

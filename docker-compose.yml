@@ -22,16 +22,11 @@ services:
       context: .
       dockerfile: Dockerfile
     command:
-      - python
-      - -m
-      - uvicorn
-      - app.main:app
-      - --host
-      - 0.0.0.0
-      - --port
-      - "8000"
-      - --proxy-headers
-      - --forwarded-allow-ips=*
+      - sh
+      - /opt/app/scripts/docker/run-api.sh
+    # Forwarded headers: the shared launcher reads FORWARDED_ALLOW_IPS from the
+    # container environment (env_file) and defaults to 127.0.0.1. Set it to the
+    # real and verified Nginx/ELB address or internal CIDR; never use "*".
     expose:
       - "8000"
     volumes:

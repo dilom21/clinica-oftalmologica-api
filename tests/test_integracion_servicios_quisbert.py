@@ -58,7 +58,7 @@ def db_catalogo(db_historial):
         "INSERT INTO usuario VALUES (8, 'recepcion@example.test', 'x', 1, '2026-01-01', 2)",
     ))
     db_historial.execute(text(
-        "INSERT INTO funcion VALUES (30, 'Registrar servicios realizados', 1)",
+        "INSERT INTO funcion VALUES (30, 1, 'Registrar servicios realizados', 1)",
     ))
     db_historial.execute(text(
         "INSERT INTO rol_funcion VALUES (4, 1, 30, 3)",
@@ -235,7 +235,7 @@ def test_catalogo_esta_aislado_entre_tenants(routed_client):
                 (nombre,),
             )
             conexion.exec_driver_sql(
-                "INSERT INTO funcion VALUES (30, 'Registrar servicios realizados', 1)",
+                "INSERT INTO funcion VALUES (30, 1, 'Registrar servicios realizados', 1)",
             )
             conexion.exec_driver_sql(
                 "INSERT INTO rol_funcion VALUES (30, 1, 30, 1)",

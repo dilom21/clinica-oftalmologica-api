@@ -923,4 +923,3 @@ def test_adaptador_rechaza_cabecera_sin_formato():
     proveedor = StripeProveedor(webhook_secret=secreto)
     with pytest.raises(ErrorFirmaWebhook):
         proveedor.verificar_webhook(payload, "firma-invalida-sin-formato")
-

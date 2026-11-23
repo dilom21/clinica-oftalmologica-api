@@ -3,21 +3,31 @@ from fastapi import APIRouter, Depends, Path, Query, status
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import (
+    ACCION_ESCRITURA,
+    ACCION_LECTURA,
     get_db,
     get_tenant_claims,
-    obtener_administrador_actual,
+    requerir_permiso,
 )
 from app.modules.gestion_inventario_proveedores.schemas.movimientos import (
     ExistenciaRespuesta, MovimientoManualCrear, MovimientoRespuesta,
 )
 from app.modules.gestion_inventario_proveedores.services import movimientos
 
-# Las dependencias existentes obligan a autenticación de usuario administrador;
-# get_db resuelve y revalida la sesión del tenant del JWT.
+FUNCION_CU27 = "Gestionar movimientos de inventario"
+MODULO_CU27 = "Inventario y Proveedores"
+permiso_cu27_lectura = requerir_permiso(
+    FUNCION_CU27, ACCION_LECTURA, modulo=MODULO_CU27,
+)
+permiso_cu27_escritura = requerir_permiso(
+    FUNCION_CU27, ACCION_ESCRITURA, modulo=MODULO_CU27,
+)
+
+
 router = APIRouter(
     prefix="/inventario-proveedores",
     tags=["CU27 - Movimientos de inventario"],
-    dependencies=[Depends(get_tenant_claims), Depends(obtener_administrador_actual)],
+    dependencies=[Depends(get_tenant_claims)],
 )
 
 
@@ -28,7 +38,7 @@ router = APIRouter(
 def registrar_movimiento(
     datos: MovimientoManualCrear,
     db: Session = Depends(get_db),
-    usuario=Depends(obtener_administrador_actual),
+    usuario=Depends(permiso_cu27_escritura),
 ):
     return movimientos.registrar_manual(db, datos, usuario.id)
 
@@ -39,6 +49,7 @@ def consultar_movimientos(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=100),
     db: Session = Depends(get_db),
+    _usuario=Depends(permiso_cu27_lectura),
 ):
     return movimientos.listar_movimientos(db, lote_id=lote_id, skip=skip, limit=limit)
 
@@ -47,5 +58,6 @@ def consultar_movimientos(
 def consultar_existencia(
     lote_id: int = Path(gt=0),
     db: Session = Depends(get_db),
+    _usuario=Depends(permiso_cu27_lectura),
 ):
     return movimientos.consultar_existencia(db, lote_id)

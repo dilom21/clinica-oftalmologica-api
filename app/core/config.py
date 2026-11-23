@@ -24,6 +24,7 @@ GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID")
 GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET")
 GMAIL_REFRESH_TOKEN = os.getenv("GMAIL_REFRESH_TOKEN")
 GMAIL_SENDER_EMAIL = os.getenv("GMAIL_SENDER_EMAIL")
+FCM_PROJECT_ID = (os.getenv("FCM_PROJECT_ID") or "").strip() or None
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
 STRIPE_CURRENCY = os.getenv("STRIPE_CURRENCY", "bob").strip().lower()
@@ -72,6 +73,18 @@ def _es_entorno_produccion_o_render() -> bool:
         or ""
     ).strip().lower()
     return entorno in {"production", "prod"}
+
+
+def _validar_fortaleza_jwt(secret: str, *, entorno_real: bool) -> None:
+    """Require the HS256 minimum key size in real deployments.
+
+    Development remains compatible with historical local fixtures, while
+    production/Render fails closed before accepting a weak HMAC key.
+    """
+    if entorno_real and len(secret.encode("utf-8")) < 32:
+        raise RuntimeError(
+            "JWT_SECRET_KEY debe tener al menos 32 bytes en produccion o Render"
+        )
 
 
 def _email_test_normalizado() -> str:
@@ -176,6 +189,11 @@ if not DATABASE_URL:
 
 if not JWT_SECRET_KEY:
     raise RuntimeError("JWT_SECRET_KEY no está configurada en el archivo .env")
+
+_validar_fortaleza_jwt(
+    JWT_SECRET_KEY,
+    entorno_real=_es_entorno_produccion_o_render(),
+)
 
 if JWT_ALGORITHM != "HS256":
     raise RuntimeError("JWT_ALGORITHM debe ser HS256")

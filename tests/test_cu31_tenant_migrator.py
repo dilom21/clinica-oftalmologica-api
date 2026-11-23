@@ -154,11 +154,17 @@ def v3_entries(bundle):
 def test_manifest_has_exact_approved_order_and_valid_checksums(bundle):
     assert [item.version for item in bundle.migrations] == [
         "20261007211200", "20261007211247", "20261019000000",
-        "20261031000000",
+        "20261031000000", "20261116000000", "20261117000000",
+        "20261121000000", "20261122000000", "20261123000000",
     ]
-    assert bundle.schema_version == "v4-sprint3-cu32-cu33"
+    assert bundle.schema_version == "v9-sprint5-revocacion-global-push"
     assert bundle.allowed_source_schema_versions == (
         "v3-sprint3-cu26-cu27-cu29",
+        "v4-sprint3-cu32-cu33",
+        "v5-sprint4-cu36",
+        "v6-sprint4-cu36",
+        "v7-sprint5-notificaciones-push",
+        "v8-sprint5-worker-fcm-push",
     )
     assert [item.version for item in bundle.external_migrations] == [
         "20261024150000",
@@ -228,7 +234,7 @@ def test_supporting_sql_change_invalidates_confirmed_plan(bundle):
         bundle,
         verification_sql=bundle.verification_sql + "\n-- changed\n",
         supporting_checksums=tuple(
-            (name, "f" * 64 if name == "999_verify_cu32_cu33.sql" else checksum)
+            (name, "f" * 64 if name == "999_verify_cu3c5.sql" else checksum)
             for name, checksum in bundle.supporting_checksums
         ),
     )
@@ -251,13 +257,20 @@ def test_complete_execution_orders_migrations_verification_and_version(bundle):
     result = execute_plan(plan, plan.plan_hash, bundle, factory, control)[0]
 
     apply_events = [event for event in events if event.startswith("apply:")]
-    assert apply_events == ["apply:20261031000000"]
+    assert apply_events == [
+        "apply:20261031000000", "apply:20261116000000",
+        "apply:20261117000000", "apply:20261121000000",
+        "apply:20261122000000", "apply:20261123000000",
+    ]
     assert events.index("verify") < events.index("version:tenant_alpha")
     assert "bootstrap" not in events
     assert events.index("control-check:tenant_alpha") < events.index("fingerprint")
     assert events[-2:] == ["unlock", "close"]
-    assert result.applied == ("20261031000000",)
-    assert control.updates == [("tenant_alpha", "v4-sprint3-cu32-cu33")]
+    assert result.applied == (
+        "20261031000000", "20261116000000", "20261117000000",
+        "20261121000000", "20261122000000", "20261123000000",
+    )
+    assert control.updates == [("tenant_alpha", "v9-sprint5-revocacion-global-push")]
 
 
 def test_historical_table_change_blocks_version_update(bundle):
@@ -289,7 +302,7 @@ def test_resume_skips_confirmed_versions_without_duplicates(bundle):
 
     assert result.skipped == tuple(item.version for item in bundle.migrations[:2])
     assert result.applied == tuple(item.version for item in bundle.migrations[2:])
-    assert len(database.entries) == 4
+    assert len(database.entries) == 9
 
 
 def test_failure_keeps_committed_ledger_and_resume_continues(bundle):
@@ -309,8 +322,12 @@ def test_failure_keeps_committed_ledger_and_resume_continues(bundle):
     result = execute_plan(
         resumed, resumed.plan_hash, bundle, factory, FakeControlPlane(),
     )[0]
-    assert result.applied == ("20261019000000", "20261031000000")
-    assert len(database.entries) == 4
+    assert result.applied == (
+        "20261019000000", "20261031000000", "20261116000000",
+        "20261117000000", "20261121000000", "20261122000000",
+        "20261123000000",
+    )
+    assert len(database.entries) == 9
 
 
 def test_state_change_after_plan_is_detected_under_lock(bundle):
@@ -387,7 +404,7 @@ def test_version_claim_without_complete_ledger_is_rejected(bundle):
     )
     with pytest.raises(MigrationError, match="ledger is incomplete"):
         build_plan(
-            (target(version="v4-sprint3-cu32-cu33"),),
+            (target(version="v5-sprint4-cu36"),),
             bundle,
             FakeFactory({"tenant_alpha": database}),
         )

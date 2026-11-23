@@ -26,7 +26,9 @@ from app.core.tenancy.repository import TenantControlPlaneRepository
 from app.core.tenancy.resolver import TenantResolver
 from app.main import app
 from app.modules.administracion_saas.models import (
+    BackupTenant,
     ProvisionamientoTenant,
+    RestoreTenant,
     SaasBitacora,
     SaasUsuario,
 )
@@ -47,6 +49,18 @@ FORBIDDEN_RESPONSE_TERMS = (
     "mysql://",
     "connection string",
 )
+
+# Owner policy M-4: physical database names and correlation suffix used by the
+# retained-restore fixture. Only SUPERADMIN may receive them.
+RETAINED_TEMPORARY_SUFFIX = "0123456789abcdef0123456789abcdef"
+RETAINED_BACKUP_SUFFIX = "fedcba9876543210fedcba9876543210"
+PHYSICAL_NAMES = (
+    "tenant_acme",
+    f"restore_{RETAINED_TEMPORARY_SUFFIX}",
+    f"restore_backup_{RETAINED_BACKUP_SUFFIX}",
+)
+OPERADOR_EMAIL = "operador@example.com"
+OPERADOR_PASSWORD = "operator-password"
 
 
 @pytest.fixture
@@ -69,6 +83,8 @@ def saas_client(monkeypatch):
         SaasUsuario,
         SaasBitacora,
         ProvisionamientoTenant,
+        BackupTenant,
+        RestoreTenant,
     ]
     with engine.begin() as conn:
         for model in tables:
@@ -144,6 +160,47 @@ def saas_client(monkeypatch):
         )
         for index in range(7)
     ]
+    backups = [
+        BackupTenant(
+            id=60,
+            empresa_id=10,
+            tenant_database_id=40,
+            tipo="MANUAL",
+            estado="COMPLETADO",
+            storage_key=f"{60:032x}.dump",
+            nombre_archivo="tenant_10_20261116T010101Z_60.dump",
+            formato="CUSTOM",
+            size_bytes=1024,
+            sha256="a" * 64,
+            version_schema="v1",
+            fecha_inicio=now,
+            fecha_fin=now,
+        )
+    ]
+    # Owner policy M-4 fixture: a retained restore that exposes both physical
+    # names in ``mensaje_error`` and the correlated audit row in ``descripcion``.
+    retained_note = (
+        "restore_id=70; tenant_database_id=40; base_canonica=tenant_acme; "
+        f"base_temporal=restore_{RETAINED_TEMPORARY_SUFFIX}; "
+        f"base_respaldo=restore_backup_{RETAINED_BACKUP_SUFFIX}; "
+        "etapa=RENOMBRE_TEMPORAL; motivo=renombre_temporal_fallido_"
+        "original_recuperado_temporal_retenida"
+    )
+    restores = [
+        RestoreTenant(
+            id=70,
+            empresa_id=10,
+            tenant_database_id=40,
+            backup_id=60,
+            pre_restore_backup_id=60,
+            estado="ERROR",
+            etapa="RENOMBRE_TEMPORAL",
+            fecha_inicio=now,
+            fecha_fin=now,
+            mensaje_error=retained_note,
+            creado_por_saas_usuario_id=1,
+        )
+    ]
     with Session(engine) as db:
         db.add_all(
             [
@@ -165,11 +222,22 @@ def saas_client(monkeypatch):
                     rol="SUPERADMIN",
                     estado=False,
                 ),
+                SaasUsuario(
+                    id=4,
+                    correo=OPERADOR_EMAIL,
+                    password_hash=hash_password(OPERADOR_PASSWORD),
+                    nombres="Operador",
+                    apellidos="SaaS",
+                    rol="OPERADOR",
+                    estado=True,
+                ),
                 *companies,
                 *plans,
                 *subscriptions,
                 *tenants,
                 *provisionamientos,
+                *backups,
+                *restores,
             ]
         )
         db.commit()
@@ -428,6 +496,49 @@ def test_saas_bitacora_records_login_and_state_changes_without_secrets(saas_clie
         assert all("password" not in (row.descripcion or "").casefold() for row in db.query(SaasBitacora).all())
     assert_no_sensitive_response(empresa)
     assert_no_sensitive_response(subscription)
+
+
+@pytest.mark.parametrize("path", [
+    "/saas/empresas/10/estado",
+    "/saas/suscripciones/30/estado",
+])
+def test_only_superadmin_can_change_company_or_subscription_state(saas_client, path):
+    client, engine = saas_client
+    token = login(client)
+    with Session(engine) as db:
+        db.get(SaasUsuario, 1).rol = "OPERADOR"
+        db.commit()
+
+    denied = client.patch(
+        path,
+        json={"estado": "SUSPENDIDA"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    assert denied.status_code == 403
+    with Session(engine) as db:
+        model, record_id = ((Empresa, 10) if "/empresas/" in path else (Suscripcion, 30))
+        assert db.get(model, record_id).estado == "ACTIVA"
+
+
+@pytest.mark.parametrize("path", [
+    "/saas/empresas/10/estado",
+    "/saas/suscripciones/30/estado",
+])
+def test_state_mutations_reject_unauthenticated_and_invalid_tokens(saas_client, path):
+    client, engine = saas_client
+
+    unauthenticated = client.patch(path, json={"estado": "SUSPENDIDA"})
+    invalid = client.patch(
+        path,
+        json={"estado": "SUSPENDIDA"},
+        headers={"Authorization": "Bearer invalid-token"},
+    )
+
+    assert unauthenticated.status_code == invalid.status_code == 401
+    with Session(engine) as db:
+        model, record_id = ((Empresa, 10) if "/empresas/" in path else (Suscripcion, 30))
+        assert db.get(model, record_id).estado == "ACTIVA"
 
 
 def test_saas_bitacora_uses_postgresql_inet_and_preserves_ip_values(saas_client):
@@ -752,3 +863,173 @@ def test_subscription_state_change_is_verified_by_tenant_resolver(saas_client):
     assert reactivate.status_code == 200
     with Session(engine) as db:
         assert TenantResolver(TenantControlPlaneRepository(db)).resolver_por_codigo_empresa("ACME").empresa_codigo == "ACME"
+
+
+# ---------------------------------------------------------------------------
+# Owner policy M-4: physical database names are SUPERADMIN-only.
+# ---------------------------------------------------------------------------
+M4_PATHS = (
+    "/saas/restores",
+    "/saas/restores/70",
+    "/saas/tenants",
+    "/saas/empresas",
+    "/saas/empresas/10",
+    "/saas/bitacora",
+)
+
+
+def login_operador(client):
+    response = client.post(
+        "/saas/auth/login",
+        json={"correo": OPERADOR_EMAIL, "password": OPERADOR_PASSWORD},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["access_token"]
+
+
+def seed_retained_audit(engine):
+    with Session(engine) as db:
+        db.add(SaasBitacora(
+            id=900,
+            saas_usuario_id=1,
+            fecha_hora=datetime.now(timezone.utc),
+            accion="RETENER_RESPALDO_RESTORE",
+            entidad_afectada="restore_tenant",
+            id_registro_afectado=70,
+            descripcion=(
+                "empresa_id=10; restore_id=70; tenant_database_id=40; "
+                "base_canonica=tenant_acme; "
+                f"base_temporal=restore_{RETAINED_TEMPORARY_SUFFIX}; "
+                f"base_respaldo=restore_backup_{RETAINED_BACKUP_SUFFIX}; "
+                "etapa=RENOMBRE_TEMPORAL; motivo=respaldo_retenido"
+            ),
+            resultado="ERROR",
+        ))
+        db.commit()
+
+
+@pytest.mark.parametrize("path", M4_PATHS)
+def test_superadmin_receives_every_physical_name(saas_client, path):
+    client, engine = saas_client
+    seed_retained_audit(engine)
+    client.headers["Authorization"] = f"Bearer {login(client)}"
+
+    response = client.get(path)
+
+    assert response.status_code == 200, response.text
+    body = response.text
+    if path in {"/saas/tenants", "/saas/empresas", "/saas/empresas/10"}:
+        assert "tenant_acme" in body
+    if path in {"/saas/restores", "/saas/restores/70", "/saas/bitacora"}:
+        assert "tenant_acme" in body
+        assert f"restore_{RETAINED_TEMPORARY_SUFFIX}" in body
+        assert f"restore_backup_{RETAINED_BACKUP_SUFFIX}" in body
+
+
+@pytest.mark.parametrize("path", M4_PATHS)
+def test_operador_keeps_saas_read_but_never_receives_physical_names(saas_client, path):
+    client, engine = saas_client
+    seed_retained_audit(engine)
+    client.headers["Authorization"] = f"Bearer {login_operador(client)}"
+
+    response = client.get(path)
+
+    assert response.status_code == 200, response.text
+    body = response.text
+    for name in PHYSICAL_NAMES:
+        assert name not in body
+    assert "base_canonica" not in body and "base_respaldo" not in body
+    assert_no_sensitive_response(response)
+
+
+def test_operador_keeps_non_sensitive_saas_fields_and_correlation(saas_client):
+    client, engine = saas_client
+    seed_retained_audit(engine)
+    client.headers["Authorization"] = f"Bearer {login_operador(client)}"
+
+    restores = client.get("/saas/restores").json()
+    assert len(restores) == 1
+    assert restores[0]["id"] == 70
+    assert restores[0]["estado"] == "ERROR"
+    assert restores[0]["etapa"] == "RENOMBRE_TEMPORAL"
+    # Correlation keys survive redaction: the operator can still audit.
+    assert "restore_id=70" in restores[0]["mensaje_error"]
+    assert "tenant_database_id=40" in restores[0]["mensaje_error"]
+    assert "etapa=RENOMBRE_TEMPORAL" in restores[0]["mensaje_error"]
+
+    detail = client.get("/saas/restores/70").json()
+    assert detail["backup_id"] == 60 and detail["empresa_id"] == 10
+
+    tenants = client.get("/saas/tenants").json()
+    assert len(tenants) == 7
+    assert all(row["database_name"] is None for row in tenants)
+    assert {row["estado"] for row in tenants} == {"ACTIVA"}
+
+    empresas = client.get("/saas/empresas").json()
+    assert len(empresas) == 7
+    assert all(row["database_name"] is None for row in empresas)
+    assert empresas[0]["codigo"] == "ACME"
+
+    bitacora = client.get("/saas/bitacora").json()
+    assert any(row["accion"] == "RETENER_RESPALDO_RESTORE" for row in bitacora)
+    correlated = next(row for row in bitacora if row["accion"] == "RETENER_RESPALDO_RESTORE")
+    assert correlated["id_registro_afectado"] == 70
+    assert "restore_id=70" in correlated["descripcion"]
+
+
+@pytest.mark.parametrize("path", (
+    "/saas/tenants",
+    "/saas/empresas",
+    "/saas/empresas/10",
+    "/saas/restores",
+    "/saas/restores/70",
+    "/saas/bitacora",
+))
+def test_tenant_jwt_never_reaches_saas_physical_name_endpoints(saas_client, path):
+    client, _ = saas_client
+    response = client.get(
+        path,
+        headers={"Authorization": f"Bearer {crear_tenant_access_token(1, 1, 40, 10, 'ACME')}"},
+    )
+    assert response.status_code in (401, 403)
+    body = response.text
+    for name in PHYSICAL_NAMES:
+        assert name not in body
+
+
+def test_m4_has_no_indirect_leak_in_errors_or_legacy_tokens(saas_client):
+    client, engine = saas_client
+    seed_retained_audit(engine)
+    operador = login_operador(client)
+
+    missing = client.get("/saas/restores/999", headers={"Authorization": f"Bearer {operador}"})
+    invalid_filter = client.get(
+        "/saas/restores?estado=PENDIENTE", headers={"Authorization": f"Bearer {operador}"},
+    )
+    legacy = client.get(
+        "/saas/restores",
+        headers={"Authorization": f"Bearer {crear_access_token(1, 1)}"},
+    )
+
+    assert missing.status_code == 404
+    assert invalid_filter.status_code == 200
+    assert legacy.status_code == 401
+    for response in (missing, invalid_filter, legacy):
+        for name in PHYSICAL_NAMES:
+            assert name not in response.text
+        assert "base_respaldo" not in response.text
+
+
+def test_physical_names_remain_stored_for_audit_and_superadmin(saas_client):
+    client, engine = saas_client
+    seed_retained_audit(engine)
+    with Session(engine) as db:
+        restore = db.get(RestoreTenant, 70)
+        assert f"base_temporal=restore_{RETAINED_TEMPORARY_SUFFIX}" in restore.mensaje_error
+        assert f"base_respaldo=restore_backup_{RETAINED_BACKUP_SUFFIX}" in restore.mensaje_error
+        audit = db.get(SaasBitacora, 900)
+        assert "base_canonica=tenant_acme" in audit.descripcion
+
+    client.headers["Authorization"] = f"Bearer {login(client)}"
+    assert "/saas/bitacora" in M4_PATHS
+    assert "tenant_acme" in client.get("/saas/bitacora").text

@@ -6,9 +6,11 @@ from app.core import config
 from app.modules.gestion_pagos.providers.base import (
     ErrorFirmaWebhook,
     ErrorProveedorPago,
+    ErrorProveedorPagoDesconocido,
     IntentoPagoProveedor,
     ProveedorNoConfigurado,
     ProveedorPagoBase,
+    ReembolsoProveedor,
 )
 
 
@@ -42,12 +44,18 @@ class StripeProveedor(ProveedorPagoBase):
 
     @staticmethod
     def _normalizar_intencion(objeto) -> IntentoPagoProveedor:
+        metadata = getattr(objeto, "metadata", None) or {}
         return IntentoPagoProveedor(
             id=objeto.id,
             client_secret=getattr(objeto, "client_secret", None),
             amount=int(objeto.amount),
             currency=str(objeto.currency).lower(),
             status=str(objeto.status),
+            metadata={
+                str(clave): str(valor)
+                for clave, valor in dict(metadata).items()
+                if valor is not None
+            },
         )
 
     def crear_intencion(
@@ -120,6 +128,97 @@ class StripeProveedor(ProveedorPagoBase):
             raise
         except (ValueError, stripe.SignatureVerificationError) as error:
             raise ErrorFirmaWebhook("Firma webhook Stripe invalida") from error
+
+    # CU36 - Reembolsos reales. Nunca se marca REEMBOLSADO sin evidencia
+    # del proveedor: el resultado se persiste con su refund_id y estado.
+    @staticmethod
+    def _normalizar_reembolso(objeto) -> ReembolsoProveedor:
+        payment_intent = getattr(objeto, "payment_intent", None)
+        if hasattr(payment_intent, "id"):
+            payment_intent = payment_intent.id
+        metadata = getattr(objeto, "metadata", None) or {}
+        return ReembolsoProveedor(
+            id=str(objeto.id),
+            payment_intent_id=str(payment_intent) if payment_intent else None,
+            amount=int(getattr(objeto, "amount", 0) or 0),
+            currency=str(getattr(objeto, "currency", "")).lower(),
+            status=str(getattr(objeto, "status", "")),
+            failure_reason=getattr(objeto, "failure_reason", None),
+            metadata={
+                str(clave): str(valor)
+                for clave, valor in dict(metadata).items()
+                if valor is not None
+            },
+        )
+
+    def crear_reembolso(
+        self,
+        *,
+        payment_intent_id: str,
+        amount: int,
+        metadata: dict[str, str],
+        idempotency_key: str,
+    ) -> ReembolsoProveedor:
+        try:
+            reembolso = stripe.Refund.create(
+                payment_intent=payment_intent_id,
+                amount=amount,
+                metadata=metadata,
+                api_key=self._clave_api(),
+                idempotency_key=idempotency_key,
+            )
+            return self._normalizar_reembolso(reembolso)
+        except ProveedorNoConfigurado:
+            raise
+        except stripe.APIConnectionError as error:
+            raise ErrorProveedorPagoDesconocido(
+                "El resultado del reembolso Stripe es desconocido"
+            ) from error
+        except stripe.StripeError as error:
+            raise ErrorProveedorPago(
+                "No fue posible crear el reembolso en Stripe"
+            ) from error
+
+    def recuperar_reembolso(self, refund_id: str) -> ReembolsoProveedor:
+        try:
+            reembolso = stripe.Refund.retrieve(
+                refund_id, api_key=self._clave_api(),
+            )
+            return self._normalizar_reembolso(reembolso)
+        except ProveedorNoConfigurado:
+            raise
+        except stripe.APIConnectionError as error:
+            raise ErrorProveedorPagoDesconocido(
+                "El estado del reembolso Stripe es desconocido"
+            ) from error
+        except stripe.StripeError as error:
+            raise ErrorProveedorPago(
+                "No fue posible recuperar el reembolso de Stripe"
+            ) from error
+
+    def listar_reembolsos(
+        self, payment_intent_id: str,
+    ) -> list[ReembolsoProveedor]:
+        try:
+            lista = stripe.Refund.list(
+                payment_intent=payment_intent_id,
+                api_key=self._clave_api(),
+                limit=100,
+            )
+            return [
+                self._normalizar_reembolso(item)
+                for item in lista.get("data", [])
+            ]
+        except ProveedorNoConfigurado:
+            raise
+        except stripe.APIConnectionError as error:
+            raise ErrorProveedorPagoDesconocido(
+                "No fue posible consultar los reembolsos de Stripe"
+            ) from error
+        except stripe.StripeError as error:
+            raise ErrorProveedorPago(
+                "No fue posible consultar los reembolsos de Stripe"
+            ) from error
 
 
 def obtener_proveedor_stripe() -> ProveedorPagoBase:

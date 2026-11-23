@@ -8,7 +8,7 @@ from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import ValidationError
 
 from app.core import dependencies
-from app.core.config import JWT_ALGORITHM, JWT_SECRET_KEY
+from app.core.config import JWT_ALGORITHM, JWT_SECRET_KEY, _validar_fortaleza_jwt
 from app.core.security import crear_access_token, crear_tenant_access_token, hash_password
 from app.core.tenancy.context import TenantContext
 from app.core.tenancy.dependencies import revalidate_tenant_context
@@ -380,3 +380,10 @@ def test_tenant_user_repository_is_injectable_without_real_database():
     with pytest.raises(HTTPException):
         authenticate(None, registry=registry)
     assert registry.calls == 1
+
+
+def test_jwt_hs256_secret_strength_is_required_only_for_real_environments():
+    _validar_fortaleza_jwt("short-test-key", entorno_real=False)
+    with pytest.raises(RuntimeError, match="32 bytes"):
+        _validar_fortaleza_jwt("short-production-key", entorno_real=True)
+    _validar_fortaleza_jwt("x" * 32, entorno_real=True)

@@ -657,13 +657,34 @@ def crear_intencion_stripe(
         if intento_proveedor.status == "succeeded":
             raise HTTPException(409, "Existe un cobro exitoso pendiente de webhook")
         if intento_proveedor.status == "canceled":
+            # E-6: la anulacion de un intento no capturado se registra en el
+            # libro CU36. Un pago APROBADO nunca se anula aqui: el proveedor
+            # pudo capturar dinero real y se exige conciliacion administrativa.
+            from app.modules.gestion_pagos.services import ajustes as ajustes_service
+
             try:
                 _, anterior, pago_anterior = repo.bloquear_operacion_por_pago(
                     db,
                     candidato.pago_id,
                 )
+                if anterior is None or pago_anterior is None:
+                    raise HTTPException(
+                        409, "El intento de cuota cambio durante la operacion",
+                    )
                 anterior.pago = pago_anterior
-                pago_anterior.estado = "ANULADO"
+                ajustes_service.anular_intento_no_capturado(
+                    db,
+                    pago_anterior,
+                    motivo="PaymentIntent cancelado en Stripe antes del cobro",
+                    clave_idempotencia=(
+                        f"cu32-intento-cancelado-{pago_anterior.id}"
+                    ),
+                    usuario_id=usuario.id,
+                    evidencia=(
+                        f"PaymentIntent {pago_anterior.referencia_transaccion} "
+                        "cancelado (CU32)"
+                    ),
+                )
                 db.commit()
                 candidato = None
                 intento_proveedor = None
@@ -781,3 +802,40 @@ def aplicar_pago_desde_webhook(
         db.flush()
         return
     _aplicar_pago(db, intento, fecha_pago=fecha_pago, usuario_id=None)
+
+
+def revertir_aplicacion_pago(
+    db: Session,
+    intento,
+    *,
+    motivo: str,
+    usuario_id: int | None = None,
+) -> bool:
+    """Revierte la aplicacion de un pago a una cuota (CU36).
+
+    Solo actua sobre la cuota de este intento. Las demas cuotas y cuotas
+    pagadas por otros pagos permanecen intactas. Si el plan estaba
+    COMPLETADO vuelve a ACTIVO para reflejar que ya no hay cobertura total.
+    """
+    cuota = intento.cuota
+    if not intento.aplicado_a_cuota:
+        return False
+    intento.aplicado_a_cuota = False
+    revertida = False
+    if cuota.estado == "PAGADA":
+        cuota.estado = "PENDIENTE"
+        revertida = True
+    if cuota.plan.estado == "COMPLETADO":
+        cuota.plan.estado = "ACTIVO"
+    registrar_bitacora(
+        db=db,
+        usuario_id=usuario_id,
+        accion="REVERTIR_APLICACION_CUOTA",
+        entidad_afectada="cuota",
+        id_registro_afectado=cuota.id,
+        descripcion=(
+            f"Reversion financiera de la cuota {cuota.numero_cuota}: {motivo}"
+        ),
+    )
+    db.flush()
+    return revertida

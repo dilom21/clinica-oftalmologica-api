@@ -49,8 +49,13 @@ def _crear_esquema(engine):
             estado BOOLEAN NOT NULL, fecha_creacion TIMESTAMP NOT NULL,
             rol_id INTEGER NOT NULL REFERENCES rol(id)
         )""",
+        """CREATE TABLE modulo (
+            id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, descripcion TEXT,
+            estado BOOLEAN NOT NULL
+        )""",
         """CREATE TABLE funcion (
-            id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
+            id INTEGER PRIMARY KEY, modulo_id INTEGER NOT NULL REFERENCES modulo(id),
+            nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
         )""",
         """CREATE TABLE accion (
             id INTEGER PRIMARY KEY, nombre TEXT NOT NULL, estado BOOLEAN NOT NULL
@@ -142,10 +147,13 @@ def _crear_esquema(engine):
             "INSERT INTO accion VALUES (1, 'LECTURA', 1), (2, 'ESCRITURA', 1), (3, 'AMBAS', 1)"
         )
         conn.exec_driver_sql(
-            """INSERT INTO funcion VALUES
-                (15, 'Consultar historial clínico', 1),
-                (19, 'Programar controles médicos', 1),
-                (10, 'Gestionar citas médicas', 1)"""
+            "INSERT INTO modulo VALUES (1, 'Clinico', NULL, 1)"
+        )
+        conn.exec_driver_sql(
+            """INSERT INTO funcion (id, modulo_id, nombre, estado) VALUES
+                (15, 1, 'Consultar historial clínico', 1),
+                (19, 1, 'Programar controles médicos', 1),
+                (10, 1, 'Gestionar citas médicas', 1)"""
         )
         conn.exec_driver_sql(
             """INSERT INTO rol_funcion VALUES

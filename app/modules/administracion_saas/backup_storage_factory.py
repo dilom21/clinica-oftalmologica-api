@@ -8,7 +8,7 @@ exception message, or in an operator summary.
 """
 
 from __future__ import annotations
-
+import json
 import io
 import os
 import re
@@ -61,6 +61,40 @@ def _file_chunks(source: BinaryIO, size: int = 1024 * 1024) -> Iterator[bytes]:
         if not block:
             return
         yield block
+
+
+def _is_missing_object(status: int, body) -> bool:
+    if status == 404:
+        closer = getattr(body, "close", None)
+        if callable(closer):
+            closer()
+        return True
+
+    if status != 400:
+        return False
+
+    try:
+        if hasattr(body, "read"):
+            raw = body.read()
+        elif isinstance(body, bytes):
+            raw = body
+        elif isinstance(body, str):
+            raw = body.encode("utf-8")
+        else:
+            raw = b""
+
+        payload = json.loads(raw.decode("utf-8"))
+
+        return (
+            str(payload.get("statusCode")) == "404"
+            or payload.get("code") == "NoSuchKey"
+        )
+    except (ValueError, TypeError, AttributeError):
+        return False
+    finally:
+        closer = getattr(body, "close", None)
+        if callable(closer):
+            closer()
 
 
 class SupabasePrivateBackupStorage:
@@ -141,19 +175,66 @@ class SupabasePrivateBackupStorage:
             raise RuntimeError("Supabase backup download failed")
         return body if hasattr(body, "read") else io.BytesIO(body)
 
+
     def delete(self, key: str) -> None:
         _validate_key(key)
-        status, _ = self._transport("DELETE", self._url(key), self._headers(), None)
-        if status not in (200, 204, 404):
-            raise RuntimeError("Supabase backup deletion failed")
+
+        status, body = self._transport(
+            "DELETE", self._url(key), self._headers(), None
+        )
+
+        if status in (200, 204):
+            return
+
+        if _is_missing_object(status, body):
+            return
+
+        closer = getattr(body, "close", None)
+        if callable(closer):
+            closer()
+
+        raise RuntimeError("Supabase backup storage deletion failed")
 
     def exists(self, key: str) -> bool:
         _validate_key(key)
-        status, _ = self._transport("HEAD", self._url(key), self._headers(), None)
+
+        status, body = self._transport(
+            "HEAD", self._url(key), self._headers(), None
+        )
+
         if status == 200:
+            closer = getattr(body, "close", None)
+            if callable(closer):
+                closer()
             return True
-        if status == 404:
+
+        if _is_missing_object(status, body):
             return False
+
+        # Supabase may return HTTP 400 for a missing object.
+        # Confirm using GET before deciding whether it exists.
+        if status == 400:
+            probe_status, probe_body = self._transport(
+                "GET", self._url(key), self._headers(), None
+            )
+
+            if probe_status == 200:
+                closer = getattr(probe_body, "close", None)
+                if callable(closer):
+                    closer()
+                return True
+
+            if _is_missing_object(probe_status, probe_body):
+                return False
+
+            closer = getattr(probe_body, "close", None)
+            if callable(closer):
+                closer()
+
+        closer = getattr(body, "close", None)
+        if callable(closer):
+            closer()
+
         raise RuntimeError("Supabase backup storage lookup failed")
 
 

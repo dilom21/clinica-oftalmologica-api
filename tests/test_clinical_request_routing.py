@@ -60,7 +60,12 @@ def routed_client(monkeypatch):
                 "estado BOOLEAN, fecha_creacion TIMESTAMP, rol_id INTEGER)"
             )
             connection.exec_driver_sql(
-                "CREATE TABLE funcion (id INTEGER PRIMARY KEY, nombre TEXT, estado BOOLEAN)"
+                "CREATE TABLE modulo (id INTEGER PRIMARY KEY, nombre TEXT, "
+                "descripcion TEXT, estado BOOLEAN)"
+            )
+            connection.exec_driver_sql(
+                "CREATE TABLE funcion (id INTEGER PRIMARY KEY, "
+                "modulo_id INTEGER REFERENCES modulo(id), nombre TEXT, estado BOOLEAN)"
             )
             connection.exec_driver_sql(
                 "CREATE TABLE accion (id INTEGER PRIMARY KEY, nombre TEXT, estado BOOLEAN)"
@@ -87,7 +92,10 @@ def routed_client(monkeypatch):
                 "INSERT INTO usuario VALUES (7, ?, 'unused', 1, '2026-01-01', 1)",
                 (f"{name.lower()}@example.test",))
             connection.exec_driver_sql(
-                "INSERT INTO funcion VALUES (1, 'Gestionar roles y permisos', 1)"
+                "INSERT INTO modulo VALUES (1, 'Seguridad', NULL, 1)"
+            )
+            connection.exec_driver_sql(
+                "INSERT INTO funcion VALUES (1, 1, 'Gestionar roles y permisos', 1)"
             )
             connection.exec_driver_sql("INSERT INTO accion VALUES (1, 'AMBAS', 1)")
             if name == "ALPHA":

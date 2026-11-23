@@ -2,9 +2,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.tenancy.dependencies import get_control_db
+from app.core.tenancy.registry_provider import get_tenant_engine_registry
 from app.modules.administracion_saas import policy_service, restore_service
 from app.modules.administracion_saas.backup_service import create_manual_backup, list_backups
 from app.modules.administracion_saas.dependencies import get_saas_admin, get_saas_superadmin
+from app.modules.administracion_saas.exposure import (
+    puede_ver_nombres_fisicos,
+    redactar_nombres_fisicos,
+)
 from app.modules.administracion_saas.models import BackupTenant, RestoreTenant, SaasUsuario
 from app.modules.administracion_saas.repository import SaasRepository
 from app.modules.administracion_saas.schemas import (
@@ -32,12 +37,17 @@ from app.modules.administracion_saas.service import (
     cambiar_estado_suscripcion,
     sanitize_error,
 )
+from app.modules.gestion_pagos.schemas.ajustes import (
+    AtribuirHuerfanoCentral,
+    WebhookHuerfanoCentralRespuesta,
+)
+from app.modules.gestion_pagos.services import huerfanos as huerfanos_service
 
 
 router = APIRouter(prefix="/saas", tags=["Administracion SaaS"])
 
 
-def _empresa_response(row) -> dict:
+def _empresa_response(row, *, ver_nombres: bool) -> dict:
     empresa, plan, estado_suscripcion, tenant = row
     return {
         "id": empresa.id,
@@ -47,7 +57,8 @@ def _empresa_response(row) -> dict:
         "estado": empresa.estado,
         "plan": plan,
         "estado_suscripcion": estado_suscripcion,
-        "database_name": getattr(tenant, "database_name", None),
+        # Owner policy M-4: the physical tenant database name is SUPERADMIN-only.
+        "database_name": getattr(tenant, "database_name", None) if ver_nombres else None,
         "estado_tenant": getattr(tenant, "estado", None),
         "version_schema": getattr(tenant, "version_schema", None),
         "fecha_provisionamiento": getattr(tenant, "fecha_provisionamiento", None),
@@ -67,16 +78,17 @@ def login(
 @router.get("/empresas", response_model=list[EmpresaResponse])
 def empresas(
     db: Session = Depends(get_control_db),
-    _usuario: SaasUsuario = Depends(get_saas_admin),
+    usuario: SaasUsuario = Depends(get_saas_admin),
 ):
-    return [_empresa_response(row) for row in SaasRepository(db).empresas()]
+    ver_nombres = puede_ver_nombres_fisicos(usuario)
+    return [_empresa_response(row, ver_nombres=ver_nombres) for row in SaasRepository(db).empresas()]
 
 
 @router.get("/empresas/{empresa_id}", response_model=EmpresaResponse)
 def empresa(
     empresa_id: int,
     db: Session = Depends(get_control_db),
-    _usuario: SaasUsuario = Depends(get_saas_admin),
+    usuario: SaasUsuario = Depends(get_saas_admin),
 ):
     row = next(
         (item for item in SaasRepository(db).empresas() if item[0].id == empresa_id),
@@ -84,7 +96,7 @@ def empresa(
     )
     if row is None:
         raise HTTPException(status_code=404, detail="Empresa no encontrada")
-    return _empresa_response(row)
+    return _empresa_response(row, ver_nombres=puede_ver_nombres_fisicos(usuario))
 
 
 @router.get("/planes", response_model=list[PlanResponse])
@@ -106,12 +118,14 @@ def suscripciones(
 @router.get("/tenants", response_model=list[TenantResponse])
 def tenants(
     db: Session = Depends(get_control_db),
-    _usuario: SaasUsuario = Depends(get_saas_admin),
+    usuario: SaasUsuario = Depends(get_saas_admin),
 ):
+    ver_nombres = puede_ver_nombres_fisicos(usuario)
     return [
         {
             "empresa": tenant.empresa_id,
-            "database_name": tenant.database_name,
+            # Owner policy M-4: physical names are SUPERADMIN-only.
+            "database_name": tenant.database_name if ver_nombres else None,
             "estado": tenant.estado,
             "version_schema": tenant.version_schema,
             "fecha_provisionamiento": tenant.fecha_provisionamiento,
@@ -124,8 +138,9 @@ def tenants(
 @router.get("/provisionamientos", response_model=list[ProvisionamientoResponse])
 def provisionamientos(
     db: Session = Depends(get_control_db),
-    _usuario: SaasUsuario = Depends(get_saas_admin),
+    usuario: SaasUsuario = Depends(get_saas_admin),
 ):
+    ver_nombres = puede_ver_nombres_fisicos(usuario)
     return [
         {
             "id": item.id,
@@ -136,7 +151,9 @@ def provisionamientos(
             "intentos": item.intentos,
             "fecha_inicio": item.fecha_inicio,
             "fecha_fin": item.fecha_fin,
-            "mensaje_error": sanitize_error(item.mensaje_error),
+            "mensaje_error": sanitize_error(item.mensaje_error)
+            if ver_nombres
+            else redactar_nombres_fisicos(sanitize_error(item.mensaje_error)),
         }
         for item in SaasRepository(db).provisionamientos()
     ]
@@ -145,11 +162,16 @@ def provisionamientos(
 @router.get("/bitacora", response_model=list[BitacoraResponse])
 def bitacora(
     db: Session = Depends(get_control_db),
-    _usuario: SaasUsuario = Depends(get_saas_admin),
+    usuario: SaasUsuario = Depends(get_saas_admin),
 ):
+    ver_nombres = puede_ver_nombres_fisicos(usuario)
     return [
         BitacoraResponse.model_validate(row).model_copy(
-            update={"descripcion": sanitize_error(row.descripcion)},
+            update={
+                "descripcion": sanitize_error(row.descripcion)
+                if ver_nombres
+                else redactar_nombres_fisicos(sanitize_error(row.descripcion)),
+            },
         )
         for row in SaasRepository(db).bitacora()
     ]
@@ -161,7 +183,7 @@ def estado_empresa(
     empresa_id: int,
     data: EstadoRequest,
     db: Session = Depends(get_control_db),
-    usuario: SaasUsuario = Depends(get_saas_admin),
+    usuario: SaasUsuario = Depends(get_saas_superadmin),
 ):
     ip = request.client.host if request.client else None
     cambiar_estado_empresa(db, empresa_id, data.estado, usuario.id, ip)
@@ -177,7 +199,7 @@ def estado_suscripcion(
     suscripcion_id: int,
     data: EstadoRequest,
     db: Session = Depends(get_control_db),
-    usuario: SaasUsuario = Depends(get_saas_admin),
+    usuario: SaasUsuario = Depends(get_saas_superadmin),
 ):
     ip = request.client.host if request.client else None
     return cambiar_estado_suscripcion(
@@ -263,10 +285,16 @@ def actualizar_backup_policy(
     )
 
 
-def _restore_response(row: RestoreTenant) -> RestoreResponse:
+def _restore_response(row: RestoreTenant, *, ver_nombres: bool) -> RestoreResponse:
+    mensaje_error = sanitize_error(row.mensaje_error)
+    rollback_mensaje = sanitize_error(row.rollback_mensaje)
+    if not ver_nombres:
+        # Owner policy M-4: retained temporary/backup names are SUPERADMIN-only.
+        mensaje_error = redactar_nombres_fisicos(mensaje_error)
+        rollback_mensaje = redactar_nombres_fisicos(rollback_mensaje)
     return RestoreResponse.model_validate(row).model_copy(update={
-        "mensaje_error": sanitize_error(row.mensaje_error),
-        "rollback_mensaje": sanitize_error(row.rollback_mensaje),
+        "mensaje_error": mensaje_error,
+        "rollback_mensaje": rollback_mensaje,
     })
 
 
@@ -323,7 +351,7 @@ def crear_restore(
             storage=dependencies.storage,
             engine_disposer=restore_service.get_engine_disposer(),
         )
-        return _restore_response(row)
+        return _restore_response(row, ver_nombres=True)
     except HTTPException:
         raise
     except restore_service.RestoreReservationError:
@@ -349,10 +377,11 @@ def restores(
         ),
     ),
     db: Session = Depends(get_control_db),
-    _usuario: SaasUsuario = Depends(get_saas_admin),
+    usuario: SaasUsuario = Depends(get_saas_admin),
 ):
+    ver_nombres = puede_ver_nombres_fisicos(usuario)
     return [
-        _restore_response(row)
+        _restore_response(row, ver_nombres=ver_nombres)
         for row in restore_service.list_restores(db, empresa_id, estado)
     ]
 
@@ -361,11 +390,44 @@ def restores(
 def restore_detail(
     restore_id: int,
     db: Session = Depends(get_control_db),
-    _usuario: SaasUsuario = Depends(get_saas_admin),
+    usuario: SaasUsuario = Depends(get_saas_admin),
 ):
     if restore_id <= 0:
         raise HTTPException(404, "Restore not found")
     row = db.get(RestoreTenant, restore_id)
     if row is None:
         raise HTTPException(404, "Restore not found")
-    return _restore_response(row)
+    return _restore_response(row, ver_nombres=puede_ver_nombres_fisicos(usuario))
+
+
+# --------------------------------------------------------------------------
+# CU36 I-2: refunds Stripe sin tenant resoluble. La cuarentena vive en el
+# Control Plane y solo SUPERADMIN puede atribuirla a una empresa.
+# --------------------------------------------------------------------------
+@router.get(
+    "/stripe/reembolsos-huerfanos",
+    response_model=list[WebhookHuerfanoCentralRespuesta],
+)
+def listar_reembolsos_huerfanos_central(
+    db: Session = Depends(get_control_db),
+    _usuario: SaasUsuario = Depends(get_saas_superadmin),
+):
+    return huerfanos_service.listar_huerfanos_central(db)
+
+
+@router.post(
+    "/stripe/reembolsos-huerfanos/{huerfano_id}/atribuir",
+    response_model=WebhookHuerfanoCentralRespuesta,
+)
+def atribuir_reembolso_huerfano_central(
+    huerfano_id: int,
+    datos: AtribuirHuerfanoCentral,
+    db: Session = Depends(get_control_db),
+    usuario: SaasUsuario = Depends(get_saas_superadmin),
+    registry=Depends(get_tenant_engine_registry),
+):
+    if huerfano_id <= 0:
+        raise HTTPException(404, "Reembolso huerfano central no encontrado")
+    return huerfanos_service.atribuir_huerfano_central(
+        db, huerfano_id, datos, usuario, registry,
+    )

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import getpass
+import json
 import os
 import re
 import shutil
@@ -34,7 +35,36 @@ EXCLUDED_SCHEMAS = (
     "vault", "graphql", "graphql_public", "supabase_functions",
 )
 REQUIRED_TOOLS = ("pg_dump", "pg_restore", "psql")
-SCHEMA_VERSION = "v4-sprint3-cu32-cu33"
+MANIFEST_PATH = (
+    Path(__file__).resolve().parents[2]
+    / "database" / "tenant_migrations" / "manifest.json"
+)
+
+
+def manifest_schema_version() -> str:
+    """Return the schema version declared by the immutable migration manifest.
+
+    It is never hard-coded: a provisioner that labels tenants with a stale
+    version silently mislabels the Control Plane (audit I-4).
+    """
+    try:
+        payload = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ProvisioningError("Migration manifest cannot be loaded") from exc
+    version = payload.get("schema_version")
+    if not isinstance(version, str) or not version.strip():
+        raise ProvisioningError("Migration manifest has no schema_version")
+    return version.strip()
+
+
+# Physical objects that prove a migration was really applied. A cloned schema
+# is only stamped with the current version after these exist and the bundle
+# verification SQL passes; without them the tenant must not claim v6.
+CU36_SCHEMA_MARKERS = {
+    "20261116000000": ("public.pago_ajuste", "public.pago_ajuste_detalle"),
+    "20261117000000": ("public.stripe_webhook_huerfano",),
+}
+
 RECONCILE_COUNT_TABLES = ("usuario", "paciente", "cita")
 DEFAULT_COMMAND_TIMEOUT_SECONDS = 900
 EXPECTED_SOURCE_TABLE_COUNT = 41
@@ -111,8 +141,24 @@ def _ensure_repository_root_on_sys_path() -> None:
         sys.path.insert(0, repository_root)
 
 
+def _fecha_local_aplicacion() -> date:
+    """Return today's date in the validated application timezone.
+
+    Provisioning, restore and ``TenantResolver`` must evaluate subscription
+    vigencia on the same local day (America/La_Paz by default), never on the
+    server's UTC date.
+    """
+    _ensure_repository_root_on_sys_path()
+    from app.core.time import fecha_local_aplicacion
+
+    return fecha_local_aplicacion()
+
+
 class ProvisioningError(RuntimeError):
     """Controlled failure whose message must not contain credentials."""
+
+
+SCHEMA_VERSION = manifest_schema_version()
 
 
 @dataclass(frozen=True)
@@ -129,6 +175,7 @@ class TenantMapping:
     subscription_state: str | None = None
     subscription_start: date | None = None
     subscription_end: date | None = None
+    active_subscription_count: int | None = None
 
 
 @dataclass(frozen=True)
@@ -424,7 +471,7 @@ END $$;
         self._run([str(self.tools.psql), *self._common(target_database), "-v", "ON_ERROR_STOP=1", "-f", "-"], sql)
 
     def record_schema_baseline(self, target_database: str) -> None:
-        """Create the immutable ledger baseline for a newly cloned v4 schema."""
+        """Create the immutable ledger baseline for a newly cloned schema."""
         from app.modules.administracion_saas.tenant_migrator import load_bundle
 
         migration_root = Path(__file__).resolve().parents[2] / "database" / "tenant_migrations"
@@ -479,6 +526,90 @@ COMMIT;
              "-v", "ON_ERROR_STOP=1", "-f", "-"],
             sql,
         )
+
+    def _missing_tables(self, target_database: str, tables: tuple[str, ...]) -> list[str]:
+        validate_database_identifier(target_database)
+        if not tables:
+            return []
+        values = ", ".join(f"({_sql_literal(table)})" for table in tables)
+        output = self._psql(
+            target_database,
+            "SELECT string_agg(x, ',' ORDER BY x) FROM (VALUES " + values
+            + ") v(x) WHERE to_regclass(x) IS NULL;",
+        ).strip()
+        return [item for item in output.split(",") if item]
+
+    def prepare_schema_baseline(self, target_database: str) -> str:
+        """Apply missing CU36 migrations, stamp the exact ledger and verify it.
+
+        A freshly cloned schema may still be v4/v5 if the template database was
+        not migrated. The tenant is only labelled with the manifest version
+        after the physical CU36 objects exist, the complete ledger is recorded
+        and the bundle verification SQL passes (audit I-4).
+        """
+        from app.modules.administracion_saas.tenant_migrator import load_bundle
+
+        migration_root = Path(__file__).resolve().parents[2] / "database" / "tenant_migrations"
+        bundle = load_bundle(migration_root)
+        for migration in bundle.migrations:
+            markers = CU36_SCHEMA_MARKERS.get(migration.version)
+            if markers is None:
+                continue
+            missing = self._missing_tables(target_database, markers)
+            if not missing:
+                continue
+            present = [marker for marker in markers if marker not in missing]
+            if present:
+                raise ProvisioningError(
+                    "Cloned schema has a partial " + migration.version
+                    + " installation; reconcile the template database"
+                )
+            argv = [
+                str(self.tools.psql), *self._common(target_database),
+                "-v", "ON_ERROR_STOP=1",
+            ]
+            if migration.transaction == "runner":
+                argv.append("-1")
+            argv += ["-f", "-"]
+            self._run(argv, migration.sql)
+
+        self.record_schema_baseline(target_database)
+        self._run(
+            [str(self.tools.psql), *self._common(target_database),
+             "-v", "ON_ERROR_STOP=1", "-f", "-"],
+            bundle.verification_sql,
+        )
+        return bundle.schema_version
+
+    def verify_current_schema(self, target_database: str) -> bool:
+        """Read-only proof that the tenant physically has the current schema.
+
+        Used before the Control Plane is allowed to keep/label the current
+        version during reconciliation; it never writes anything.
+        """
+        from app.modules.administracion_saas.tenant_migrator import load_bundle
+
+        migration_root = Path(__file__).resolve().parents[2] / "database" / "tenant_migrations"
+        bundle = load_bundle(migration_root)
+        for markers in CU36_SCHEMA_MARKERS.values():
+            if self._missing_tables(target_database, markers):
+                return False
+        expected = sorted(
+            [item.version for item in bundle.migrations]
+            + [item.version for item in bundle.external_migrations]
+        )
+        if not expected:
+            return False
+        versions = ", ".join(_sql_literal(version) for version in expected)
+        recorded = self._psql(
+            target_database,
+            "SELECT count(*) FROM app_migrations.schema_migration "
+            "WHERE version IN (" + versions + ");",
+        ).strip()
+        try:
+            return int(recorded or "0") == len(expected)
+        except ValueError:
+            return False
 
     def verify_clean(self, target_database: str, source_structure: SchemaSnapshot,
                      admin_email: str) -> CleanVerification:
@@ -759,7 +890,7 @@ class SqlAlchemyControlPlaneReader:
 
         session = self._session_factory()
         try:
-            row = session.execute(
+            rows = session.execute(
                 text("""SELECT e.id AS empresa_id, e.codigo AS codigo,
                               e.estado AS empresa_state,
                               td.id AS tenant_database_id,
@@ -778,9 +909,18 @@ class SqlAlchemyControlPlaneReader:
                        LEFT JOIN saas_control.suscripcion AS s ON s.empresa_id = e.id
                        WHERE e.codigo = :code"""),
                 {"code": code},
-            ).mappings().first()
-            if row is None:
+            ).mappings().all()
+            if not rows:
                 raise ProvisioningError("Control Plane mapping was not found")
+            today = _fecha_local_aplicacion()
+            eligible = [
+                item for item in rows
+                if item.get("subscription_state") == ACTIVE
+                and item.get("subscription_start") is not None
+                and item.get("subscription_end") is not None
+                and item["subscription_start"] <= today <= item["subscription_end"]
+            ]
+            row = eligible[0] if len(eligible) == 1 else rows[0]
             return TenantMapping(
                 code=row["codigo"], database_name=row["database_name"],
                 tenant_state=row["tenant_state"], provisioning_state=row["provisioning_state"],
@@ -791,6 +931,7 @@ class SqlAlchemyControlPlaneReader:
                 subscription_state=row.get("subscription_state"),
                 subscription_start=row.get("subscription_start"),
                 subscription_end=row.get("subscription_end"),
+                active_subscription_count=len(eligible),
             )
         finally:
             session.close()
@@ -871,6 +1012,29 @@ class SqlAlchemyControlPlaneWriter:
         ))
 
 
+def validate_provisioning_eligibility(
+    mapping: TenantMapping,
+    *,
+    today: date | None = None,
+) -> None:
+    """Fail closed before any provisioning resource or state is created."""
+    if mapping.empresa_id is None or mapping.tenant_database_id is None or mapping.provisioning_id is None:
+        raise ProvisioningError("Control Plane identifiers are unavailable or inconsistent")
+    if mapping.empresa_state != ACTIVE:
+        raise ProvisioningError(f"Empresa {mapping.code} is not ACTIVA")
+    if mapping.active_subscription_count != 1 or mapping.subscription_id is None:
+        raise ProvisioningError(
+            f"Empresa {mapping.code} must have exactly one active vigente subscription"
+        )
+    if mapping.subscription_state != ACTIVE:
+        raise ProvisioningError(f"Subscription for {mapping.code} is not ACTIVA")
+    current = today or _fecha_local_aplicacion()
+    if mapping.subscription_start is None or mapping.subscription_end is None or not (
+        mapping.subscription_start <= current <= mapping.subscription_end
+    ):
+        raise ProvisioningError(f"Subscription for {mapping.code} is not vigente")
+
+
 def validate_mapping(mapping: TenantMapping, requested_database: str | None = None) -> None:
     if mapping.code != EXPECTED_CODE:
         raise ProvisioningError("Control Plane mapping is not VISION-CLARA")
@@ -880,6 +1044,7 @@ def validate_mapping(mapping: TenantMapping, requested_database: str | None = No
         raise ProvisioningError("CLI database name does not match the Control Plane mapping")
     if mapping.tenant_state != PENDING or mapping.provisioning_state != PENDING:
         raise ProvisioningError("Only PENDIENTE tenant and provisioning states are allowed")
+    validate_provisioning_eligibility(mapping)
 
 
 def _normalize_check_definition(definition: str) -> str:
@@ -1127,7 +1292,9 @@ def execute_provision(
             if not verification.counts_ok:
                 raise ProvisioningError("Tenant count verification failed")
             progress(9, "Registrando baseline de migraciones")
-            backend.record_schema_baseline(mapping.database_name)
+            baseline_version = _prepare_schema_baseline(
+                backend, mapping.database_name,
+            )
             progress(10, "Health check")
             if not backend.health_check(mapping):
                 raise ProvisioningError("Tenant health check failed")
@@ -1135,7 +1302,7 @@ def execute_provision(
         finally:
             if dump_path is not None:
                 backend.cleanup_dump(dump_path)
-        writer.complete(mapping, version=SCHEMA_VERSION)
+        writer.complete(mapping, version=baseline_version)
         return "Provisioning completed: tenant_vision_clara is ACTIVA/COMPLETADO."
     except Exception as exc:
         writer.fail(mapping, _sanitized_error(str(exc)))
@@ -1165,21 +1332,13 @@ def validate_clean_mapping(
         raise ProvisioningError("confirmation does not match the Control Plane database")
     if mapping.tenant_state != PENDING or mapping.provisioning_state != PENDING:
         raise ProvisioningError("Only PENDIENTE tenant and provisioning states are allowed")
+    validate_provisioning_eligibility(mapping)
 
 
 def _validate_batch_mapping(mapping: TenantMapping, expected_code: str, expected_database: str) -> None:
     if mapping.code in EXCLUDED_BATCH_CODES:
         raise ProvisioningError(f"Batch target is excluded: {mapping.code}")
     validate_clean_mapping(mapping, expected_database, expected_code, expected_database)
-    if mapping.empresa_state != ACTIVE:
-        raise ProvisioningError(f"Empresa {mapping.code} is not ACTIVA")
-    if mapping.subscription_state != ACTIVE:
-        raise ProvisioningError(f"Subscription for {mapping.code} is not ACTIVA")
-    today = date.today()
-    if mapping.subscription_start is None or mapping.subscription_end is None or not (
-        mapping.subscription_start <= today <= mapping.subscription_end
-    ):
-        raise ProvisioningError(f"Subscription for {mapping.code} is not vigente")
 
 
 def execute_provision_clean(
@@ -1260,7 +1419,9 @@ def _execute_provision_clean_mapping(
             if not verification.ok:
                 raise ProvisioningError("Clean tenant verification failed")
             progress(9, "Registrando baseline de migraciones")
-            backend.record_schema_baseline(mapping.database_name)
+            baseline_version = _prepare_schema_baseline(
+                backend, mapping.database_name,
+            )
             progress(10, "Health check")
             if not backend.health_check(mapping):
                 raise ProvisioningError("Tenant health check failed")
@@ -1271,7 +1432,7 @@ def _execute_provision_clean_mapping(
                     backend.cleanup_dump(dump_path)
                 finally:
                     dump_path = None
-        writer.complete(mapping, version=SCHEMA_VERSION)
+        writer.complete(mapping, version=baseline_version)
         return f"Clean provisioning completed: {mapping.code} is ACTIVA/COMPLETADO."
     except Exception as exc:
         writer.fail(mapping, _sanitized_error(str(exc)))
@@ -1376,6 +1537,12 @@ def reconcile_existing(
     if mapping.tenant_state != ERROR or mapping.provisioning_state != ERROR:
         raise ProvisioningError("Reconciliation requires ERROR tenant and provisioning states")
     validate_database_identifier(mapping.database_name)
+    # Reconcile is a separate entry point: it must not bypass the same
+    # fail-closed eligibility gate used by initial, clean and batch flows.
+    # Run before any writer, backend lookup, engine disposal or activation so a
+    # suspended company or a missing/duplicated/suspended/expired/future
+    # subscription can never reactivate an ERROR tenant.
+    validate_provisioning_eligibility(mapping)
     progress = _progress_callback(reporter)
     try:
         progress(1, "Preflight reconciliation")
@@ -1420,6 +1587,11 @@ def reconcile_existing(
             raise ProvisioningError("Tenant reconciliation health check failed")
 
         progress(6, "Control Plane activation")
+        verify_current = getattr(backend, "verify_current_schema", None)
+        if verify_current is not None and not verify_current(mapping.database_name):
+            raise ProvisioningError(
+                "Tenant schema is not at the current version; refusing to label it"
+            )
         writer.complete(mapping, version=SCHEMA_VERSION)
         return "Reconciliation completed: OFTALMO-NORTE is ACTIVA/COMPLETADO."
     except Exception as exc:
@@ -1435,6 +1607,17 @@ def _progress_callback(reporter):
     if hasattr(reporter, "report"):
         return lambda step, label: reporter.report(step, label)
     return reporter
+
+
+def _prepare_schema_baseline(backend, database_name: str) -> str:
+    """Stamp only the schema version the tenant really has physically."""
+    prepare = getattr(backend, "prepare_schema_baseline", None)
+    if prepare is not None:
+        return prepare(database_name)
+    record = getattr(backend, "record_schema_baseline", None)
+    if record is not None:
+        record(database_name)
+    return SCHEMA_VERSION
 
 
 def execute_recovery(

@@ -13,6 +13,9 @@ from app.modules.gestion_historial_clinico.schemas.schemas import (
 )
 from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 from app.modules.gestion_usuarios_seguridad.repositories.repository import registrar_bitacora
+from app.modules.notificaciones_push.services import (
+    eventos_cita as eventos_cita_notificaciones,
+)
 
 
 def consultar_historial_clinico(db: Session, paciente_id: int) -> HistorialClinicoRespuesta:
@@ -224,9 +227,20 @@ def registrar_consulta_clinica(
         )
 
         if cita is not None:
+            estado_anterior_cita = cita.estado
             agenda_repo.actualizar_estado_cita(
                 db, cita, ESTADO_CITA_ATENDIDA,
             )
+            # Fase 3C.4: este flujo tambien modifica el estado de la cita y no
+            # debe quedar como camino de escritura sin evento estructurado.
+            if estado_anterior_cita != ESTADO_CITA_ATENDIDA:
+                eventos_cita_notificaciones.registrar_evento_cita_estado(
+                    db,
+                    cita,
+                    estado_anterior=estado_anterior_cita,
+                    estado_nuevo=ESTADO_CITA_ATENDIDA,
+                    usuario=usuario,
+                )
 
         registrar_bitacora(
             db=db,

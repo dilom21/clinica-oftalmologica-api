@@ -6,7 +6,15 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.modules.gestion_historial_clinico.models.models import ServicioRealizado
 from app.modules.gestion_pacientes.models.models import Paciente
-from app.modules.gestion_pagos.models.models import NotificacionPago, Pago, PagoDetalle
+from app.modules.gestion_pagos.models.models import (
+    ESTADOS_AJUSTE_ABIERTOS,
+    ESTADOS_PAGO_CAPTURADO,
+    NotificacionPago,
+    Pago,
+    PagoAjuste,
+    PagoDetalle,
+)
+from app.modules.gestion_pagos.repositories import saldos
 from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 
 
@@ -31,7 +39,18 @@ def pagos_conflictivos_para_servicios(
     *,
     excluir_pago_id: int | None = None,
 ):
+    """Pagos que impiden volver a cobrar los servicios (CU36).
+
+    Un pago anulado o totalmente reembolsado ya no bloquea. Un pago con
+    cobertura vigente, un intento pendiente o cualquier ajuste abierto
+    (`PENDIENTE_PROVEEDOR`/`DESCONOCIDO`) si bloquea.
+    """
     ids = list(servicio_ids)
+    if not ids:
+        return []
+    pagos_con_ajuste_abierto = select(PagoAjuste.pago_id).where(
+        PagoAjuste.estado.in_(ESTADOS_AJUSTE_ABIERTOS),
+    )
     stmt = (
         select(Pago)
         .join(PagoDetalle, PagoDetalle.pago_id == Pago.id)
@@ -42,6 +61,7 @@ def pagos_conflictivos_para_servicios(
                 Pago.estado == "APROBADO",
                 Pago.estado == "PENDIENTE",
                 (Pago.pasarela == "STRIPE") & (Pago.estado == "RECHAZADO"),
+                Pago.id.in_(pagos_con_ajuste_abierto),
             ),
         )
         .order_by(Pago.id.asc())
@@ -49,51 +69,79 @@ def pagos_conflictivos_para_servicios(
     )
     if excluir_pago_id is not None:
         stmt = stmt.where(Pago.id != excluir_pago_id)
-    return list(db.scalars(stmt).unique().all())
+    pagos = list(db.scalars(stmt).unique().all())
+    abiertos = saldos.ids_pagos_con_ajuste_abierto(db, [pago.id for pago in pagos])
+    resultado = []
+    for pago in pagos:
+        if pago.id in abiertos:
+            resultado.append(pago)
+            continue
+        if pago.estado in ESTADOS_PAGO_CAPTURADO:
+            desglose = saldos.desglose_vigente_pago(db, pago)
+            if any(desglose.get(servicio_id, 0) > 0 for servicio_id in ids):
+                resultado.append(pago)
+            continue
+        resultado.append(pago)
+    return resultado
 
 
 def conflictos_por_servicio(db: Session, servicio_ids: Iterable[int]):
     ids = list(servicio_ids)
     if not ids:
         return {}
-    filas = db.execute(
-        select(
-            PagoDetalle.servicio_realizado_id,
-            Pago.pasarela,
-            Pago.estado,
-        )
-        .join(Pago, Pago.id == PagoDetalle.pago_id)
+    stmt = (
+        select(Pago)
+        .join(PagoDetalle, PagoDetalle.pago_id == Pago.id)
+        .options(selectinload(Pago.detalles))
         .where(
             PagoDetalle.servicio_realizado_id.in_(ids),
             or_(
                 Pago.estado == "APROBADO",
                 Pago.estado == "PENDIENTE",
                 (Pago.pasarela == "STRIPE") & (Pago.estado == "RECHAZADO"),
+                Pago.id.in_(
+                    select(PagoAjuste.pago_id).where(
+                        PagoAjuste.estado.in_(ESTADOS_AJUSTE_ABIERTOS),
+                    )
+                ),
             ),
         )
-    ).all()
-    resultado = {}
-    for servicio_id, pasarela, estado in filas:
-        if estado == "APROBADO":
-            conflicto = "PAGO_APROBADO_EXISTENTE"
-        else:
-            conflicto = (
-                "INTENTO_STRIPE_POTENCIALMENTE_COBRABLE"
-                if pasarela == "STRIPE"
-                else "PAGO_MANUAL_PENDIENTE"
-            )
-        # Un pago aprobado siempre prevalece; entre pendientes, Stripe aporta
-        # el conflicto más fuerte porque todavía podría confirmarse por webhook.
-        actual = resultado.get(servicio_id)
-        if (
-            actual is None
-            or conflicto == "PAGO_APROBADO_EXISTENTE"
-            or (
-                actual == "PAGO_MANUAL_PENDIENTE"
-                and conflicto == "INTENTO_STRIPE_POTENCIALMENTE_COBRABLE"
-            )
-        ):
-            resultado[servicio_id] = conflicto
+        .order_by(Pago.id.asc())
+    )
+    pagos = list(db.scalars(stmt).unique().all())
+    abiertos = saldos.ids_pagos_con_ajuste_abierto(db, [pago.id for pago in pagos])
+    prioridad = {
+        "AJUSTE_PENDIENTE_CONCILIACION": 4,
+        "PAGO_APROBADO_EXISTENTE": 3,
+        "INTENTO_STRIPE_POTENCIALMENTE_COBRABLE": 2,
+        "PAGO_MANUAL_PENDIENTE": 1,
+    }
+    resultado: dict[int, str] = {}
+    for pago in pagos:
+        desglose = (
+            saldos.desglose_vigente_pago(db, pago)
+            if pago.estado in ESTADOS_PAGO_CAPTURADO
+            else {}
+        )
+        for detalle in pago.detalles:
+            servicio_id = detalle.servicio_realizado_id
+            if servicio_id not in ids:
+                continue
+            if pago.estado in ESTADOS_PAGO_CAPTURADO:
+                if desglose.get(servicio_id, 0) <= 0:
+                    continue
+                conflicto = "PAGO_APROBADO_EXISTENTE"
+            else:
+                conflicto = (
+                    "INTENTO_STRIPE_POTENCIALMENTE_COBRABLE"
+                    if pago.pasarela == "STRIPE"
+                    else "PAGO_MANUAL_PENDIENTE"
+                )
+            if pago.id in abiertos:
+                conflicto = "AJUSTE_PENDIENTE_CONCILIACION"
+            actual = resultado.get(servicio_id)
+            if actual is None or prioridad[conflicto] > prioridad[actual]:
+                resultado[servicio_id] = conflicto
     return resultado
 
 

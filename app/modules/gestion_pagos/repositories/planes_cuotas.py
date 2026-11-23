@@ -12,6 +12,7 @@ from app.modules.gestion_pagos.models.models import (
     PlanPago,
     PlanPagoServicio,
 )
+from app.modules.gestion_pagos.repositories import saldos
 
 
 def _carga_plan():
@@ -145,22 +146,13 @@ def montos_aprobados_por_servicio(
     db: Session,
     servicio_ids: Iterable[int],
 ) -> dict[int, object]:
-    ids = list(servicio_ids)
-    if not ids:
-        return {}
-    filas = db.execute(
-        select(
-            PagoDetalle.servicio_realizado_id,
-            func.coalesce(func.sum(PagoDetalle.monto_aplicado), 0),
-        )
-        .join(Pago, Pago.id == PagoDetalle.pago_id)
-        .where(
-            PagoDetalle.servicio_realizado_id.in_(ids),
-            Pago.estado == "APROBADO",
-        )
-        .group_by(PagoDetalle.servicio_realizado_id)
-    ).all()
-    return dict(filas)
+    """Importe vigente por servicio (CU36).
+
+    Conserva el nombre historico usado por CU32/CU33, pero delega en el unico
+    calculo de importe vigente para no contabilizar dos veces el importe base
+    ni ignorar reembolsos/anulaciones.
+    """
+    return saldos.montos_vigentes_por_servicio(db, servicio_ids)
 
 
 def obtener_cuota(db: Session, cuota_id: int, *, bloquear: bool = False):

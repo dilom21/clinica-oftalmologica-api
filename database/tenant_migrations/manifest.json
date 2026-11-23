@@ -1,8 +1,13 @@
 {
-  "schema_version": "v4-sprint3-cu32-cu33",
+  "schema_version": "v9-sprint5-revocacion-global-push",
   "runner_version": "tenant-migrator-v2",
   "allowed_source_schema_versions": [
-    "v3-sprint3-cu26-cu27-cu29"
+    "v3-sprint3-cu26-cu27-cu29",
+    "v4-sprint3-cu32-cu33",
+    "v5-sprint4-cu36",
+    "v6-sprint4-cu36",
+    "v7-sprint5-notificaciones-push",
+    "v8-sprint5-worker-fcm-push"
   ],
   "external_migrations": [
     {
@@ -11,14 +16,16 @@
       "sha256": "d94e3e71041b5c823a08143081a8a6d9b341893a41f32ba15d072083163409b1",
       "required_for_schema_versions": [
         "v3-sprint3-cu26-cu27-cu29",
-        "v4-sprint3-cu32-cu33"
+        "v4-sprint3-cu32-cu33",
+        "v5-sprint4-cu36",
+        "v6-sprint4-cu36"
       ]
     }
   ],
   "supporting_files": {
     "bootstrap": "bootstrap_ledger.sql",
-    "preflight": "000_preflight_cu32_cu33.sql",
-    "verification": "999_verify_cu32_cu33.sql"
+    "preflight": "000_preflight_cu3c5.sql",
+    "verification": "999_verify_cu3c5.sql"
   },
   "migrations": [
     {
@@ -50,6 +57,41 @@
       "name": "cu32_cu33_planes_cuotas",
       "path": "versions/20261031000000_cu32_cu33_planes_cuotas.sql",
       "sha256": "625fd5caef7f39bea228e7019145826839891ebfec00c8c07b91c6742e01e312",
+      "transaction": "runner"
+    },
+    {
+      "version": "20261116000000",
+      "name": "cu36_ajustes_pago",
+      "path": "versions/20261116000000_cu36_ajustes_pago.sql",
+      "sha256": "31580281acc776fc8b9c0e583624cd72c790e77cdf147e33144734ef131f7f4b",
+      "transaction": "runner"
+    },
+    {
+      "version": "20261117000000",
+      "name": "cu36_webhooks_huerfanos",
+      "path": "versions/20261117000000_cu36_webhooks_huerfanos.sql",
+      "sha256": "6d5e5cc8623a79c25140a7070fd522842f974b9c9063786b4d82902f20bb33e1",
+      "transaction": "runner"
+    },
+    {
+      "version": "20261121000000",
+      "name": "cu3c2_notificaciones_push",
+      "path": "versions/20261121000000_cu3c2_notificaciones_push.sql",
+      "sha256": "4e0cb1de5fa9b6b13e5f22b8d3da372fbdeac2d5c2b58d7aff5efc90d22556d2",
+      "transaction": "runner"
+    },
+    {
+      "version": "20261122000000",
+      "name": "cu3c5_worker_fcm_push",
+      "path": "versions/20261122000000_cu3c5_worker_fcm_push.sql",
+      "sha256": "d769152308bed9a3086adae694e23edf859295e20828fc2478025d16db7897a9",
+      "transaction": "runner"
+    },
+    {
+      "version": "20261123000000",
+      "name": "cu3c52_revocacion_global_push",
+      "path": "versions/20261123000000_cu3c52_revocacion_global_push.sql",
+      "sha256": "8121316a6ef3b8bfc37e71daa4d555bbcdac26539eb50af81d0adebc94fd73ef",
       "transaction": "runner"
     }
   ]
