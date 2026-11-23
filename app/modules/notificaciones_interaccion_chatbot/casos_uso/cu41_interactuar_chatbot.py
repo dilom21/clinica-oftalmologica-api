@@ -14,6 +14,7 @@ from app.modules.notificaciones_interaccion_chatbot.schemas.chatbot import Mensa
 from app.modules.notificaciones_interaccion_chatbot.services import herramientas as tools
 from app.modules.notificaciones_interaccion_chatbot.services.memoria import tamano
 from app.modules.notificaciones_interaccion_chatbot.services.privacidad import respuesta_local, salida_segura
+from app.modules.notificaciones_interaccion_chatbot.services.social import respuesta_social
 from app.modules.notificaciones_interaccion_chatbot.services.proveedor import validar_turno
 from app.modules.notificaciones_interaccion_chatbot.services import contexto as dialogo
 from app.modules.notificaciones_interaccion_chatbot.services.composicion import componer, deduplicar, para_voz
@@ -50,6 +51,11 @@ async def conversar(c, datos, actor, db, cfg, store, proveedor):
         logger.info("cu41_operacion",extra={"evento":"entrada_local","motivo":"privacidad"})
         # Sensitive/refused input is neither persisted nor transmitted.
         return _respuesta(c, local, "privacidad")
+    social = respuesta_social(datos.mensaje, propuesta_pendiente=c.contexto.propuesta_preparada)
+    if social:
+        logger.info("cu41_operacion", extra={"evento": "social_local", "motivo": "sin_datos"})
+        # El agradecimiento/saludo no borra contexto ni autoriza ninguna reserva.
+        return _respuesta(c, social, "texto")
     history = [m for m in c.historial if not respuesta_local(m["content"])]
     contexto, continuacion = dialogo.preparar_contexto(c.contexto, datos.mensaje)
     hint = dialogo.intencion_clara(datos.mensaje)

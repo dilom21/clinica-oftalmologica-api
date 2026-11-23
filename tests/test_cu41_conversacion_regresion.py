@@ -81,7 +81,7 @@ def test_seguimiento_manana_y_seleccion_nueve_en_voz(caso):
 def test_voz_limpia_markdown_sin_perder_contenido(caso):
     id=crear(caso)
     caso.model.respuestas=[{"content":"**Hola**.\n- Puedo orientarte sobre *servicios*.\n- ¿Qué necesitas?"}]
-    r=enviar(caso,id,"Hola").json()
+    r=enviar(caso,id,"Necesito orientación").json()
     assert "*" not in r["texto_voz"] and "\n" not in r["texto_voz"]
     assert "Hola" in r["texto_voz"] and "servicios" in r["texto_voz"]
 

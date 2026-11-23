@@ -218,6 +218,16 @@ localmente sin enviarlas al proveedor. No se genera audio, STT ni TTS en Backend
 Flutter puede leer directamente texto_voz y mostrar respuesta/tarjetas; no debe
 reenviar tarjetas privadas al modelo para redactar la lectura.
 
+### Turnos sociales
+
+Saludos, agradecimientos y despedidas inequívocos («Hola», «Gracias», «Okay muchas
+gracias», «Perfecto, gracias», «Eso es todo, gracias», «Adiós») se responden
+localmente, sin proveedor ni herramientas: `tipo=texto`, `tarjetas=[]`, mismo
+`conversacion_id` y contexto intacto. Si hay una propuesta preparada, el agradecimiento
+recuerda que sigue pendiente de confirmación en el formulario; nunca afirma una reserva.
+Un mensaje mixto («Gracias, ¿qué horarios hay mañana?») no se intercepta y sigue el
+flujo normal. La privacidad se evalúa antes que lo social.
+
 ### Tarjetas discriminadas
 
 La respuesta usa el mismo sobre, `tipo=datos`, más `tarjetas` con los objetos siguientes.
@@ -327,6 +337,8 @@ en rojo, omisiones/errores del modelo, composición, memoria pública, voz, nulo
 paginación, deduplicación, actualización de disponibilidad, cierre y privacidad mixta.
 `tests/test_cu41_catalogo.py`: listado general determinista sin filtros inventados,
 búsquedas/precios/referencias, paginación, catálogo sin activos y mensajes de vacío.
+`tests/test_cu41_social.py`: saludos/agradecimientos/despedidas locales, contexto
+preservado tras servicios, disponibilidad y propuesta, mensajes mixtos y privacidad.
 `tests/test_cu41_validacion_real.py`: opt-in facturable con DeepSeek real y endpoints
 reales sobre SQLite aislado; sin `CU41_REAL_CONFIRM_COST=1` permanece omitido.
 
