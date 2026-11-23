@@ -361,7 +361,11 @@ def test_estado_cuenta_lee_tenant_autenticado_con_ids_coincidentes(routed_client
             for ddl in ddls:
                 conn.exec_driver_sql(ddl)
             conn.exec_driver_sql(
-                "INSERT INTO funcion VALUES (2,'Gestionar pagos',1),(3,'Gestionar planes de pago',1),(4,'Gestionar cuotas',1)"
+                "INSERT INTO modulo VALUES (2,'Pagos',NULL,1)"
+            )
+            conn.exec_driver_sql(
+                "INSERT INTO funcion (id,modulo_id,nombre,estado) VALUES "
+                "(2,2,'Gestionar pagos',1),(3,2,'Gestionar planes de pago',1),(4,2,'Gestionar cuotas',1)"
             )
             conn.exec_driver_sql(
                 "INSERT INTO rol_funcion VALUES (2,1,2,1),(3,1,3,1),(4,1,4,1)"

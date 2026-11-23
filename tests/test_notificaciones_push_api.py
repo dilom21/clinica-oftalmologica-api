@@ -984,7 +984,9 @@ def test_openapi_solo_expone_las_rutas_esperadas():
     rutas = {
         ruta: set(operaciones)
         for ruta, operaciones in esquema["paths"].items()
-        if ruta.startswith("/notificaciones")
+        # /notificaciones-chatbot pertenece a CU41 y se valida en sus propias
+        # pruebas; aquí solo se acota el contrato del módulo push.
+        if ruta == "/notificaciones" or ruta.startswith("/notificaciones/")
     }
     assert rutas == {
         "/notificaciones": {"get"},
