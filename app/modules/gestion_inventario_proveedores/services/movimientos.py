@@ -30,7 +30,7 @@ def _lote_habilitado(db: Session, lote_id: int, *, bloquear: bool) -> Lote:
     if bloquear:
         # El bloqueo del lote serializa también la primera creación de Inventario.
         consulta = consulta.with_for_update()
-    lote = db.scalar(consulta)
+    lote = db.scalar(consulta.execution_options(populate_existing=True))
     if lote is None:
         raise HTTPException(status_code=404, detail="Lote no encontrado")
     producto = db.get(Producto, lote.producto_id)
@@ -45,6 +45,7 @@ def _lote_habilitado(db: Session, lote_id: int, *, bloquear: bool) -> Lote:
 def _inventario_bloqueado(db: Session, lote_id: int) -> Inventario | None:
     return db.scalar(
         select(Inventario).where(Inventario.lote_id == lote_id).with_for_update()
+        .execution_options(populate_existing=True)
     )
 
 
