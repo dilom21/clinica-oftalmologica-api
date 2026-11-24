@@ -146,3 +146,73 @@ python -m pytest -q
 - Sin upstream remoto; no existe `origin/integracion-harold-josias`.
 - `git status` limpio.
 - Sin push, sin PR, sin merge a `main`, sin cambios en `dev-harold`.
+
+## 13. Validación funcional y estado real de bases (24/11/2026)
+
+### Diagnóstico PostgreSQL/Supabase (solo lectura)
+
+- Motor: PostgreSQL 17.6 en Supabase, base de control `postgres`, esquema `saas_control`.
+- 7 empresas, todas `ACTIVA`, con suscripción `ACTIVA` y vigente.
+- 7 bases tenant: `tenant_instituto_vision`, `tenant_medico_ocular`, `tenant_oftalmo_norte`, `tenant_oftalmocare`, `tenant_vision_clara`, `tenant_vista_sur`, `tenant_visual_oriental`.
+- Las 7 tienen `saas_control.tenant_database.version_schema = v9-sprint5-revocacion-global-push`.
+- Las 7 tienen ledger `app_migrations.schema_migration` con las 10 versiones esperadas (9 del manifiesto + externa `20261024150000`), sin faltantes ni checksums distintos.
+- Tablas verificadas en todos los tenants: `pago_ajuste`, `pago_ajuste_detalle`, `stripe_webhook_huerfano`, `dispositivo_push`, `notificacion`, `notificacion_entrega`, `preferencia_notificacion`, `cita_evento`, `dispositivo_push_revocacion`.
+- Columnas de esas tablas comparadas contra los modelos SQLAlchemy: sin faltantes ni sobrantes.
+- Control-plane: `dispositivo_push_registry` existe y coincide con el modelo; `backup_*`/`restore_*` existen; `010` ya amplió `version_schema` a 64.
+- **Pendiente real:** no existe `saas_control.stripe_webhook_huerfano`. Falta aplicar `database/saas_control/008_create_stripe_webhook_huerfano.sql` (CU36 I-2). No afecta login, CU41 ni push, pero bloquea la cuarentena/atribución de refunds huérfanos.
+
+### RBAC de tenants
+
+- 6 módulos por tenant, 25–28 funciones y 49–52 asignaciones; sin módulos/funciones/roles inactivos, sin funciones sin módulo y sin nombres duplicados.
+- Funciones requeridas por el código: 19. Están todas salvo **“Consultar inventario y alertas”** en los 7 tenants.
+- Es un hueco de datos preexistente de CU30, no una regresión del merge. El plan oficial (`scripts/saas/habilitar_cu30.py --plan`) confirma 7 funciones nuevas, 7 permisos LECTURA para Administrador y hash `44eeb748033206d1b0b306f0416528ac7fe55459088e749586868bee835bb2cc`.
+- No se aplicó: requiere escritura en tenants compartidos y autorización explícita.
+
+### Validación aislada de la migración 008
+
+En PostgreSQL 17 local aislado se creó una base temporal, se aplicaron `001, 005, 006, 007, 008, 009, 010` y se verificó:
+- `saas_control.stripe_webhook_huerfano` con 17 columnas.
+- `saas_control.dispositivo_push_registry` presente.
+- `version_schema` con longitud 64.
+
+La base temporal se eliminó. No se ejecutó ninguna escritura en Supabase.
+
+### Configuración y arranque
+
+- `pip check`: sin dependencias rotas.
+- FastAPI importa con la configuración real; OpenAPI genera 164 rutas (9 push, 12 reportes, 2 IA predictiva, 4 CU41).
+- El arranque no ejecuta migraciones, seeds ni workers.
+- JWT actual: 89 bytes (cumple el mínimo de producción).
+- `CHATBOT_ENABLED=true` en el `.env` local; el default del código sigue siendo `false`.
+- Claves DeepSeek y Stripe presentes; `CHATBOT_DEEPSEEK_*` independiente de la IA clínica.
+- `FCM_PROJECT_ID` y `GOOGLE_APPLICATION_CREDENTIALS` ausentes: el envío push real no está configurado; registro/bandeja no dependen de FCM.
+- No se modificó el `.env` original.
+
+### Procedimiento autorizado pendiente
+
+1. Respaldo del control-plane y ventana de mantenimiento.
+2. Aplicar la migración 008 (aditiva e idempotente) con la DSN de un gestor de secretos:
+   `psql "<DATABASE_URL_SIN_+psycopg>" -v ON_ERROR_STOP=1 -f database/saas_control/008_create_stripe_webhook_huerfano.sql`
+3. Verificar `to_regclass('saas_control.stripe_webhook_huerfano')`.
+4. Reejecutar el plan CU30 y comparar el hash:
+   `python -m scripts.saas.habilitar_cu30 --plan --expected-companies 7`
+5. Solo con aprobación:
+   `python -m scripts.saas.habilitar_cu30 --apply --confirm-plan <hash_revisado> --expected-companies 7`
+6. Verificar los 7 permisos y probar `/inventario-proveedores/inventario` y `/alertas` con un Administrador de prueba.
+7. Configurar FCM (`FCM_PROJECT_ID` y ADC) y ejecutar el worker si se habilitará push real.
+
+### Pruebas finales
+
+- Suite general: **2753 aprobadas, 41 omitidas, 0 fallos, 0 errores**.
+- CU30: 117 aprobadas.
+- CU41: 242 aprobadas (sin cambios).
+- `compileall` y `git diff --check`: correctos.
+- La colección excluye solo `CU26_Backend_dev_josias/`; `tests/test_cu26_backend.py` sí se ejecuta.
+
+### Artefactos candidatos a limpieza (no eliminados)
+
+- ZIPs: `CU26_Backend_dev_josias.zip`, `SI2_Sprint3_Migracion_7Tenants_CU26_CU27_CU29.zip`, `fix_restore_acl_pg17.zip`.
+- `.bak`: `restore_runner.py.bak`, `router.py.backup-cu26`, `test_saas_restore.py.bak`.
+- `.graphify/` y `.atl/`: cachés/documentación de herramientas, no runtime.
+- `CU26_Backend_dev_josias/`: copia histórica duplicada, no importada; pruebas excluidas por `pytest.ini`.
+- `pytest.ini` no oculta pruebas vigentes; `.gitattributes` solo afecta whitespace de Markdown/minificados.
