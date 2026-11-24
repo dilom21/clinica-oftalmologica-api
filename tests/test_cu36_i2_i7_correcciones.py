@@ -8,7 +8,7 @@ Cada bloque referencia el hallazgo de auditoria que protege:
 * I-4: el provisionamiento deriva la version del manifiesto y verifica el
   esquema fisico antes de etiquetar un tenant.
 * I-5: el preflight RBAC acepta todas las versiones soportadas (v5/v6).
-* I-6: el runbook usa la variable real del migrador.
+* I-6: el migrador exige habilitación y confirmación antes de abrir conexiones.
 * I-7: el SQL externo CU26 coincide byte a byte con el manifiesto (LF).
 """
 
@@ -647,13 +647,32 @@ def test_i5_preflight_rechaza_una_version_no_soportada():
 
 
 # --------------------------------------------------------------------- I-6
-def test_i6_runbook_usa_la_variable_real_del_migrador():
+def test_i6_migrador_exige_variable_real_y_confirmacion(monkeypatch, capsys):
     from scripts.saas import migrate_active_tenants
 
-    docs = (ROOT / "docs" / "CU36_BACKEND.md").read_text(encoding="utf-8")
+    # El documento CU36 fue eliminado intencionalmente. Proteger la guarda
+    # ejecutable, no la existencia de un runbook histórico.
+    def runtime_prohibido(*args, **kwargs):
+        pytest.fail("No debe abrir conexiones ni planificar sin autorización")
+
+    monkeypatch.setattr(migrate_active_tenants, "_runtime", runtime_prohibido)
     assert migrate_active_tenants.ALLOW_ENV == "CU31_TENANT_MIGRATIONS_ALLOW"
-    assert migrate_active_tenants.ALLOW_ENV in docs
-    assert "ALLOW_TENANT_MIGRATION=" not in docs
+    monkeypatch.setenv("ALLOW_TENANT_MIGRATION", "1")
+    for valor in (None, "", "0", "true"):
+        if valor is None:
+            monkeypatch.delenv(migrate_active_tenants.ALLOW_ENV, raising=False)
+        else:
+            monkeypatch.setenv(migrate_active_tenants.ALLOW_ENV, valor)
+        assert migrate_active_tenants.main([
+            "--execute", "--confirm-plan", "f" * 64,
+        ]) == migrate_active_tenants.EXIT_REFUSED
+        assert "CU31_TENANT_MIGRATIONS_ALLOW=1 is required" in capsys.readouterr().err
+    monkeypatch.setenv(migrate_active_tenants.ALLOW_ENV, "1")
+    assert migrate_active_tenants.main(["--execute"]) == migrate_active_tenants.EXIT_REFUSED
+    assert "--confirm-plan is required" in capsys.readouterr().err
+    docs = (ROOT / "README-Docker.md").read_text(encoding="utf-8")
+    assert f"{migrate_active_tenants.ALLOW_ENV}=1" in docs
+    assert "--confirm-plan" in docs
 
 
 # --------------------------------------------------------------------- I-7

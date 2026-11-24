@@ -164,6 +164,32 @@ docker compose exec -T nginx nginx -s reload
 - Nunca agregar migraciones CU32/CU33 como paso de `Dockerfile`, `entrypoint` ni `docker compose up`; verificar ledger y aplicar solo las pendientes con procedimiento independiente.
 - Evitar `docker compose down -v` porque elimina volúmenes y podría destruir copias locales.
 
+### Guardas vigentes de migración y recuperación
+
+Esta es la documentación Markdown versionada vigente; los runbooks históricos
+eliminados no son requisitos para ejecutar el Backend.
+
+- `scripts/saas/migrate_active_tenants.py --plan` es de solo lectura. Ejecutar
+  migraciones requiere autorización independiente, `CU31_TENANT_MIGRATIONS_ALLOW=1`
+  y `--execute --confirm-plan <SHA256_revisado>`. La habilitación no sustituye
+  la revisión del plan ni autoriza operaciones sobre bases compartidas.
+- El ledger real es `app_migrations.schema_migration`, con columnas `version`,
+  `nombre`, `checksum_sha256`, `aplicada_en`, `duracion_ms` y `runner_version`.
+  Consulta de inspección de solo lectura:
+
+  ```sql
+  SELECT * FROM app_migrations.schema_migration ORDER BY version;
+  ```
+
+- Un restore puede conservar bases `restore_backup_*` o temporales para
+  recuperación. `COMPLETADO_RESPALDO_RETENIDO` indica que el destino está sano
+  pero el respaldo se retuvo; `RENOMBRE_TEMPORAL` identifica un fallo de cutover
+  que exige revisar la recuperación del original y la temporal conservada.
+- **Nunca** ejecute `DROP DATABASE` manualmente sobre bases retenidas, temporales
+  o tenants sin autorización expresa, identificación inequívoca del destino y
+  una copia recuperable verificada. No convertir esta advertencia en una tarea
+  automática de limpieza. Las pruebas de restore usan dobles y no bases reales.
+
 ## 8. Observabilidad y recuperación
 
 ```bash

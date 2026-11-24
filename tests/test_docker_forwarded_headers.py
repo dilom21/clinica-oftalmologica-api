@@ -6,6 +6,7 @@ empty, wildcard rejection, argument passing) is actually exercised.
 """
 
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -144,8 +145,11 @@ def test_launcher_passes_explicit_proxy_cidr_to_uvicorn(tmp_path):
     assert argv[argv.index("--forwarded-allow-ips") + 1] == "10.20.0.0/16"
 
 
-def test_runbook_documents_retained_databases_and_drop_prohibition():
-    runbook = _read("docs/RUNBOOK_RESTORE_SAAS.md")
+def test_readme_documents_retained_databases_and_drop_prohibition():
+    # La política de documentación conserva únicamente README-Docker.md.
+    # Mantener la advertencia operativa; las ramas de retención/recuperación
+    # se ejecutan funcionalmente en tests/test_saas_restore.py.
+    runbook = _read("README-Docker.md")
 
     assert "restore_backup_" in runbook
     assert "COMPLETADO_RESPALDO_RETENIDO" in runbook
@@ -153,8 +157,48 @@ def test_runbook_documents_retained_databases_and_drop_prohibition():
     assert "RENOMBRE_TEMPORAL" in runbook
 
 
-def test_runbook_ledger_query_uses_the_real_table():
-    runbook = _read("docs/RUNBOOK_RESTORE_SAAS.md")
+def test_ledger_contract_matches_runner_schema_and_readme():
+    from scripts.saas.migrate_active_tenants import PsycopgTenantDatabase
+
+    # Capturar las consultas reales sin abrir una conexión. El runner debe
+    # resolver el ledger por schema.tabla y conservar versión/checksum.
+    class Cursor:
+        def __init__(self):
+            self.queries = []
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def execute(self, query):
+            self.queries.append(" ".join(query.split()))
+
+        def fetchone(self):
+            return (True,)
+
+        def fetchall(self):
+            return [("20261123000000", "a" * 64 + "  ")]
+
+    class Connection:
+        def __init__(self):
+            self.recorder = Cursor()
+
+        def cursor(self):
+            return self.recorder
+
+    connection = Connection()
+    state = PsycopgTenantDatabase(connection, "tenant_ficticio_test", "test").ledger_state()
+    assert state.exists is True
+    assert state.entries == (("20261123000000", "a" * 64),)
+    assert connection.recorder.queries == [
+        "SELECT to_regclass('app_migrations.schema_migration') IS NOT NULL",
+        "SELECT version, checksum_sha256 FROM app_migrations.schema_migration ORDER BY version",
+    ]
+    schema = _read("database/tenant_migrations/bootstrap_ledger.sql")
+    assert "CREATE TABLE IF NOT EXISTS app_migrations.schema_migration" in schema
+    runbook = _read("README-Docker.md")
 
     assert "SELECT * FROM app_migrations.schema_migration ORDER BY version;" in runbook
     assert "SELECT * FROM app_migrations ORDER BY 1;" not in runbook
@@ -162,3 +206,4 @@ def test_runbook_ledger_query_uses_the_real_table():
     for column in ("version", "nombre", "checksum_sha256", "aplicada_en",
                    "duracion_ms", "runner_version"):
         assert column in runbook
+        assert re.search(rf"(?m)^\s*{column}\s+\w+", schema)
