@@ -200,7 +200,7 @@ def sanitizar_mensaje_id(valor: object) -> str | None:
     """
     if not isinstance(valor, str):
         return None
-    limpio = valor.strip()
+    limpio = valor
     if len(limpio) > 255 or not _RE_MENSAJE_ID.fullmatch(limpio):
         return None
     _, proyecto, _, mensaje = limpio.split("/")
