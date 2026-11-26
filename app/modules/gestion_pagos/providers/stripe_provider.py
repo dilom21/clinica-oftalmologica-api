@@ -45,6 +45,8 @@ class StripeProveedor(ProveedorPagoBase):
     @staticmethod
     def _normalizar_intencion(objeto) -> IntentoPagoProveedor:
         metadata = getattr(objeto, "metadata", None) or {}
+        if isinstance(metadata, stripe.StripeObject):
+            metadata = metadata.to_dict()
         return IntentoPagoProveedor(
             id=objeto.id,
             client_secret=getattr(objeto, "client_secret", None),
@@ -137,6 +139,8 @@ class StripeProveedor(ProveedorPagoBase):
         if hasattr(payment_intent, "id"):
             payment_intent = payment_intent.id
         metadata = getattr(objeto, "metadata", None) or {}
+        if isinstance(metadata, stripe.StripeObject):
+            metadata = metadata.to_dict()
         return ReembolsoProveedor(
             id=str(objeto.id),
             payment_intent_id=str(payment_intent) if payment_intent else None,
@@ -205,6 +209,8 @@ class StripeProveedor(ProveedorPagoBase):
                 api_key=self._clave_api(),
                 limit=100,
             )
+            if isinstance(lista, stripe.StripeObject):
+                lista = lista.to_dict(recursive=False)
             return [
                 self._normalizar_reembolso(item)
                 for item in lista.get("data", [])
