@@ -65,7 +65,9 @@ _CODIGOS_TOKEN_NO_REGISTRADO = frozenset({
 })
 
 _RE_CODIGO = re.compile(r"[^A-Z0-9_]+")
-_RE_MENSAJE_ID = re.compile(r"^projects/[A-Za-z0-9._:-]{1,100}/messages/[A-Za-z0-9._:%-]+$")
+_RE_MENSAJE_ID = re.compile(
+    r"^projects/[A-Za-z0-9._:-]{1,100}/messages/[A-Za-z0-9._:%-]+$"
+)
 _LONGITUD_CODIGO = 60
 _LONGITUD_ERROR = 100
 
