@@ -47,6 +47,23 @@ services:
     # Exactly one worker for this demo; do not scale with --scale worker.
     # No ports and no direct external exposure.
 
+  worker-fcm:
+    <<: *backend-common
+    # Perfil opt-in: no arranca hasta que WIF y el entorno dedicado estén listos.
+    profiles:
+      - fcm
+    # Este worker no recibe .env de API/Resend/Stripe: solo el entorno mínimo.
+    env_file:
+      - path: ${FCM_WORKER_ENV_FILE:-.env.fcm-worker}
+        required: true
+    command: ["python", "-m", "app.modules.notificaciones_push.worker_runner"]
+    environment:
+      GOOGLE_APPLICATION_CREDENTIALS: /run/google-wif/gcp-wif-credentials.json
+    volumes:
+      - ./secrets/fcm-wif:/run/google-wif:ro
+    # Exactamente una instancia; no escalar este servicio.
+    # Sin puertos publicados ni exposición externa.
+
   nginx:
     image: nginx:1.28-alpine
     restart: unless-stopped
