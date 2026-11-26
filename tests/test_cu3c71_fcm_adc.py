@@ -248,6 +248,8 @@ def test_sanitizar_acepta_ids_fcm_http_v1_validos(mensaje_id):
         "projects//messages/123",
         "projects/demo/messages/id/extra",
         "projects/demo/messages/id con espacios",
+        " projects/demo/messages/id",
+        "projects/demo/messages/id ",
         "projects/demo/messages/id\n",
         "projects/../messages/123",
         "projects/demo/messages/..",
