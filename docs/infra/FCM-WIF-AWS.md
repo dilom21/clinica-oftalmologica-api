@@ -13,7 +13,7 @@ AWS:
 Recursos Google propuestos:
 - Pool: `clinica-aws-pool`
 - Provider AWS: `aws-ec2-fcm`
-- Service Account: `fcm-worker-aws`
+- Service Account: `fcm-worker`
 - Configuración generada: `secrets/fcm-wif/gcp-wif-credentials.json`
 
 Este runbook prepara la federación y el servicio. Los recursos de Google Cloud deben crearse con una cuenta autorizada del proyecto. No se almacena ninguna clave privada de Service Account.
@@ -85,19 +85,19 @@ No continuar si la condición no contiene exactamente la cuenta, rol e instancia
 ## 4. Crear Service Account y conceder permiso FCM
 
 ```bash
-gcloud iam service-accounts create fcm-worker-aws \
+gcloud iam service-accounts create fcm-worker \
   --project=clinica-oftalmologica-24ff7 \
   --display-name="Worker FCM AWS EC2" \
   --description="Identidad federada para enviar notificaciones FCM desde EC2"
 
-SA="fcm-worker-aws@clinica-oftalmologica-24ff7.iam.gserviceaccount.com"
+SA="fcm-worker@clinica-oftalmologica-24ff7.iam.gserviceaccount.com"
 
 gcloud projects add-iam-policy-binding clinica-oftalmologica-24ff7 \
   --member="serviceAccount:${SA}" \
-  --role="roles/cloudmessaging.editor"
+  --role="roles/firebasecloudmessaging.admin"
 ```
 
-El rol predefinido `roles/cloudmessaging.editor` incluye `cloudmessaging.messages.create`, requerido por FCM HTTP v1, además de permisos de gestión de suscripciones a temas y lectura de datos de entrega. Se elige porque es el rol predefinido específico de FCM; no conceder roles Owner, Editor general ni Firebase Admin.
+El rol predefinido `roles/firebasecloudmessaging.admin` incluye `cloudmessaging.messages.create`, requerido por FCM HTTP v1, además de permisos de gestión de suscripciones a temas y lectura de datos de entrega. Se elige porque es el rol predefinido específico de FCM; no conceder roles Owner, Editor general ni Firebase Admin.
 
 ## 5. Permitir que únicamente la EC2 autorizada suplante la Service Account
 
@@ -106,7 +106,7 @@ Obtener el número del proyecto:
 ```bash
 PROJECT_NUMBER="$(gcloud projects describe clinica-oftalmologica-24ff7 --format='value(projectNumber)')"
 POOL_MEMBER="principalSet://iam.googleapis.com/projects/${PROJECT_NUMBER}/locations/global/workloadIdentityPools/clinica-aws-pool/attribute.aws_ec2_instance/i-0c1077cb35f8f9073"
-SA="fcm-worker-aws@clinica-oftalmologica-24ff7.iam.gserviceaccount.com"
+SA="fcm-worker@clinica-oftalmologica-24ff7.iam.gserviceaccount.com"
 
 gcloud iam service-accounts add-iam-policy-binding "${SA}" \
   --project=clinica-oftalmologica-24ff7 \
@@ -122,7 +122,7 @@ En un equipo administrativo con Google Cloud CLI autenticado y con permisos de l
 
 ```bash
 PROJECT_NUMBER="$(gcloud projects describe clinica-oftalmologica-24ff7 --format='value(projectNumber)')"
-SA="fcm-worker-aws@clinica-oftalmologica-24ff7.iam.gserviceaccount.com"
+SA="fcm-worker@clinica-oftalmologica-24ff7.iam.gserviceaccount.com"
 mkdir -p secrets/fcm-wif
 chmod 700 secrets secrets/fcm-wif
 
