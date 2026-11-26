@@ -1,0 +1,131 @@
+@startuml cu40_registrar_valoracion_clinica_secuencia
+mainframe CU40 - Registrar y actualizar valoración de la clínica (Móvil)
+
+skinparam backgroundColor #FFFFFF
+skinparam shadowing false
+skinparam roundcorner 0
+skinparam sequence {
+  ArrowColor #1F2937
+  ArrowFontColor #111827
+  ArrowFontSize 11
+  ActorBorderColor #1F2937
+  ActorBackgroundColor #FFFFFF
+  ActorFontColor #111827
+  ParticipantBorderColor #1F2937
+  ParticipantBackgroundColor #55CCF2
+  ParticipantFontColor #111827
+  ParticipantFontStyle plain
+  LifeLineBorderColor #374151
+  LifeLineBackgroundColor #FFFFFF
+  GroupBorderColor #374151
+  GroupBorderThickness 1
+  GroupBackgroundColor #FFFFFF
+  GroupHeaderFontColor #111827
+  GroupFontColor #111827
+}
+
+actor Paciente
+participant "<<interface>>\nFormularioValoracionClinica" as UI
+participant "<<controller>>\nControladorValoracionClinica" as CTRL
+participant "<<entity>>\nUsuario / Rol / Paciente" as USR
+participant "<<entity>>\nConsultaClinica / Notificacion" as CONS
+participant "<<entity>>\nValoracionClinica" as VAL
+
+' 1. Cargar atenciones pendientes y valoraciones
+Paciente -> UI : 1. abrirValoraciones()
+activate UI
+
+UI -> CTRL : 1.1 obtenerResumenValoraciones()
+activate CTRL
+
+CTRL -> CTRL : 1.2 validarSesionYEmpresa(JWT)
+CTRL -> USR : 1.3 resolverPacienteAutenticado()
+activate USR
+USR --> CTRL : pacienteActivo
+deactivate USR
+
+CTRL -> CONS : 2. listarAtencionesYAvisos(pacienteId, usuarioId)
+activate CONS
+CONS --> CTRL : atencionesYNotificaciones
+deactivate CONS
+
+CTRL -> VAL : 2.1 listarPorPaciente(pacienteId)
+activate VAL
+VAL --> CTRL : valoracionesRegistradas
+deactivate VAL
+
+CTRL --> UI : 2.2 resumenValoraciones(pendientes, valoraciones)
+deactivate CTRL
+
+UI -> UI : 2.3 mostrarPendientesYValoraciones()
+
+' 2. Registrar nueva valoración
+Paciente -> UI : 3. calificarAtencion(consultaId, puntuacion, comentario?)
+UI -> UI : 3.1 validarEscala(1..5) y solicitarConfirmacion()
+
+opt [Confirmación aceptada]
+  UI -> CTRL : 3.2 registrarValoracion(consultaId, puntuacion, comentario?)
+  activate CTRL
+  CTRL -> CTRL : 3.3 validarDatosYEmpresa(JWT, puntuacion)
+
+  CTRL -> CONS : 3.4 verificarConsultaDelPaciente(consultaId, pacienteId)
+  activate CONS
+  CONS --> CTRL : consultaActiva / noEncontrada
+  deactivate CONS
+
+  CTRL -> VAL : 3.5 buscarPorConsulta(consultaId)
+  activate VAL
+  VAL --> CTRL : sinValoracion / yaExiste
+  deactivate VAL
+
+  alt [Datos válidos y sin registro previo]
+    CTRL -> VAL : 3.6 crearValoracion(pacienteId, consultaId, oftalmologoId, puntuacion, comentario?)
+    activate VAL
+    VAL --> CTRL : valoracionCreada
+    deactivate VAL
+
+    CTRL -> CONS : 3.7 marcarNotificacionLeida(consultaId, usuarioId)
+    activate CONS
+    CONS --> CTRL : ok
+    deactivate CONS
+
+    CTRL --> UI : 3.8 valoracionRegistrada(201, mensajeConfirmacion)
+    UI -> UI : 3.9 mostrarConfirmacionYActualizarLista()
+  else [Duplicada (409), inválida (422) o error]
+    CTRL --> UI : 3.10 errorOperacion(409 / 422 / 500)
+    UI -> UI : 3.11 mostrarErrorYPermitirReintentar()
+  end
+  deactivate CTRL
+end
+
+' 3. Consultar y actualizar valoración existente (sin duplicar)
+Paciente -> UI : 4. editarValoracion(valoracionId, puntuacion, comentario?)
+UI -> UI : 4.1 precargarDatos, validarEscala(1..5) y solicitarConfirmacion()
+
+opt [Confirmación aceptada]
+  UI -> CTRL : 4.2 actualizarValoracion(valoracionId, puntuacion, comentario?)
+  activate CTRL
+  CTRL -> CTRL : 4.3 validarDatosYEmpresa(JWT, puntuacion)
+
+  CTRL -> VAL : 4.4 obtenerValoracionPropia(valoracionId, pacienteId)
+  activate VAL
+  VAL --> CTRL : valoracionExistente / noEncontrada
+  deactivate VAL
+
+  alt [Valoración encontrada y datos válidos]
+    CTRL -> VAL : 4.5 actualizarSinDuplicar(valoracionId, puntuacion, comentario?)
+    activate VAL
+    VAL --> CTRL : valoracionActualizada
+    deactivate VAL
+
+    CTRL --> UI : 4.6 valoracionActualizada(200, mensajeConfirmacion)
+    UI -> UI : 4.7 mostrarConfirmacionYActualizarLista()
+  else [No encontrada (404), inválida (422) o error]
+    CTRL --> UI : 4.8 errorOperacion(404 / 422 / 500)
+    UI -> UI : 4.9 mostrarErrorYPermitirReintentar()
+  end
+  deactivate CTRL
+end
+
+deactivate UI
+@enduml

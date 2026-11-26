@@ -13,6 +13,13 @@ from app.modules.gestion_historial_clinico.schemas.schemas import (
 )
 from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 from app.modules.gestion_usuarios_seguridad.repositories.repository import registrar_bitacora
+from app.modules.gestion_usuarios_seguridad.schemas.valoracion_clinica import (
+    MOTIVO_CONSULTA_FINALIZADA,
+    MOTIVO_RECETA_EMITIDA,
+)
+from app.modules.gestion_usuarios_seguridad.services.valoracion_clinica_service import (
+    disparar_aviso_valoracion_post_atencion,
+)
 
 
 def consultar_historial_clinico(db: Session, paciente_id: int) -> HistorialClinicoRespuesta:
@@ -235,6 +242,11 @@ def registrar_consulta_clinica(
             entidad_afectada=ENTIDAD_CONSULTA_CLINICA,
             id_registro_afectado=consulta.id,
             descripcion="Consulta clínica registrada",
+        )
+        disparar_aviso_valoracion_post_atencion(
+            db,
+            consulta_clinica_id=consulta.id,
+            motivo_disparo=MOTIVO_CONSULTA_FINALIZADA,
         )
         db.commit()
         db.refresh(consulta)
@@ -601,6 +613,11 @@ def registrar_receta(
             entidad_afectada=ENTIDAD_RECETA,
             id_registro_afectado=receta.id,
             descripcion="Receta registrada",
+        )
+        disparar_aviso_valoracion_post_atencion(
+            db,
+            consulta_clinica_id=consulta.id,
+            motivo_disparo=MOTIVO_RECETA_EMITIDA,
         )
         db.commit()
         # Se relee con selectinload para devolver los detalles ya ordenados.

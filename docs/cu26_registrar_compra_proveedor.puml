@@ -1,0 +1,196 @@
+@startuml CU26_Registrar_Compra_Proveedor
+
+title CU26 - Registrar compra a proveedor
+
+hide methods
+hide stereotypes
+skinparam linetype ortho
+skinparam shadowing false
+skinparam backgroundColor #F7FAFC
+skinparam entity {
+  BackgroundColor #FFFFFF
+  BorderColor #2B6CB0
+  FontColor #1A202C
+  HeaderBackgroundColor #DBEAFE
+}
+
+legend right
+  |= Símbolo |= Significado |
+  | **PK** | Clave primaria |
+  | **FK** | Clave foránea |
+  | **UK** | Restricción única |
+  | **NN** | No admite NULL |
+  | **AI** | Identidad/autoincremental |
+  | **NULL** | Campo opcional |
+endlegend
+
+package "Catálogos" {
+  entity categoria {
+    * id : BIGINT <<PK, AI>>
+    --
+    * nombre : VARCHAR(100) <<NN, UK normalizada>>
+    descripcion : TEXT <<NULL>>
+    * estado : BOOLEAN <<NN, DEFAULT true>>
+    * fecha_creacion : TIMESTAMPTZ <<NN, DEFAULT now()>>
+  }
+
+  entity producto {
+    * id : BIGINT <<PK, AI>>
+    --
+    * categoria_id : BIGINT <<FK, NN>>
+    * codigo : VARCHAR(50) <<NN, UK>>
+    * nombre : VARCHAR(160) <<NN>>
+    descripcion : TEXT <<NULL>>
+    * unidad_medida : VARCHAR(30) <<NN, DEFAULT 'UNIDAD'>>
+    * stock_minimo : INTEGER <<NN, DEFAULT 0>>
+    * estado : BOOLEAN <<NN, DEFAULT true>>
+    * fecha_creacion : TIMESTAMPTZ <<NN, DEFAULT now()>>
+    * fecha_actualizacion : TIMESTAMPTZ <<NN, DEFAULT now()>>
+  }
+
+  entity proveedores {
+    * id : INTEGER <<PK, SERIAL>>
+    --
+    * razon_social : VARCHAR(150) <<NN>>
+    nit : VARCHAR(30) <<NULL, UK>>
+    telefono : VARCHAR(20) <<NULL>>
+    correo : VARCHAR(100) <<NULL>>
+    direccion : VARCHAR(255) <<NULL>>
+    contacto : VARCHAR(100) <<NULL>>
+    estado : BOOLEAN <<NULL>>
+  }
+}
+
+package "Compras e inventario" {
+  entity compra {
+    * id : BIGINT <<PK, AI>>
+    --
+    * proveedor_id : INTEGER <<FK, NN>>
+    * usuario_id : BIGINT <<FK, NN>>
+    numero_documento : VARCHAR(80) <<NULL>>
+    * fecha_compra : TIMESTAMPTZ <<NN, DEFAULT now()>>
+    fecha_recepcion : TIMESTAMPTZ <<NULL>>
+    * moneda : VARCHAR(3) <<NN, DEFAULT 'BOB'>>
+    * estado : VARCHAR(20) <<NN, DEFAULT 'BORRADOR'>>
+    observaciones : TEXT <<NULL>>
+    * fecha_creacion : TIMESTAMPTZ <<NN, DEFAULT now()>>
+    * fecha_actualizacion : TIMESTAMPTZ <<NN, DEFAULT now()>>
+    --
+    UK (proveedor_id, numero_documento)
+  }
+
+  entity detalle_compra {
+    * id : BIGINT <<PK, AI>>
+    --
+    * compra_id : BIGINT <<FK, NN>>
+    * lote_id : BIGINT <<FK, NN>>
+    * cantidad : INTEGER <<NN, > 0>>
+    * costo_unitario : NUMERIC(12,2) <<NN, >= 0>>
+    observaciones : TEXT <<NULL>>
+    --
+    UK (compra_id, lote_id)
+  }
+
+  entity lote {
+    * id : BIGINT <<PK, AI>>
+    --
+    * producto_id : BIGINT <<FK, NN>>
+    * numero_lote : VARCHAR(80) <<NN>>
+    fecha_fabricacion : DATE <<NULL>>
+    fecha_vencimiento : DATE <<NULL>>
+    observaciones : TEXT <<NULL>>
+    * estado : BOOLEAN <<NN, DEFAULT true>>
+    * fecha_creacion : TIMESTAMPTZ <<NN, DEFAULT now()>>
+    --
+    UK (producto_id, numero_lote)
+  }
+
+  entity inventario {
+    * id : BIGINT <<PK, AI>>
+    --
+    * lote_id : BIGINT <<FK, NN, UK>>
+    * stock_actual : INTEGER <<NN, DEFAULT 0>>
+    * stock_reservado : INTEGER <<NN, DEFAULT 0>>
+    * fecha_actualizacion : TIMESTAMPTZ <<NN, DEFAULT now()>>
+  }
+
+  entity movimiento_inventario {
+    * id : BIGINT <<PK, AI>>
+    --
+    * inventario_id : BIGINT <<FK, NN>>
+    usuario_id : BIGINT <<FK, NULL>>
+    * tipo : VARCHAR(32) <<NN>>
+    * cantidad : INTEGER <<NN, > 0>>
+    * stock_anterior : INTEGER <<NN>>
+    * stock_posterior : INTEGER <<NN>>
+    * fecha_hora : TIMESTAMPTZ <<NN, DEFAULT now()>>
+    observaciones : TEXT <<NULL>>
+    referencia_tipo : VARCHAR(40) <<NULL>>
+    referencia_id : BIGINT <<NULL>>
+    --
+    UK parcial (referencia_tipo, referencia_id)
+  }
+}
+
+package "Seguridad y auditoría" {
+  entity usuario {
+    * id : BIGINT <<PK>>
+    --
+    * correo : VARCHAR(150) <<NN>>
+    * password_hash : VARCHAR(255) <<NN>>
+    * estado : BOOLEAN <<NN>>
+    * fecha_creacion : TIMESTAMPTZ <<NN>>
+    * rol_id : BIGINT <<FK, NN>>
+  }
+
+  entity bitacora {
+    * id : BIGINT <<PK>>
+    --
+    usuario_id : BIGINT <<FK, NULL>>
+    * fecha_hora : TIMESTAMPTZ <<NN>>
+    ip : INET <<NULL>>
+    * accion : VARCHAR(100) <<NN>>
+    entidad_afectada : VARCHAR(100) <<NULL>>
+    id_registro_afectado : BIGINT <<NULL>>
+    descripcion : TEXT <<NULL>>
+  }
+}
+
+categoria ||--o{ producto : clasifica
+producto ||--o{ lote : posee
+lote ||--o| inventario : "tiene stock en"
+
+proveedores ||--o{ compra : suministra
+usuario ||--o{ compra : registra
+compra ||--|{ detalle_compra : contiene
+lote ||--o{ detalle_compra : se compra como
+
+inventario ||--o{ movimiento_inventario : genera
+usuario |o--o{ movimiento_inventario : ejecuta
+usuario |o--o{ bitacora : origina
+
+compra .. bitacora : "referencia lógica:\nentidad_afectada='compra'\nid_registro_afectado=compra.id"
+detalle_compra .. movimiento_inventario : "referencia lógica:\ntipo='ENTRADA_COMPRA'\nreferencia_tipo='DETALLE_COMPRA'\nreferencia_id=detalle_compra.id"
+
+note right of compra
+  En este caso de uso se registra directamente como RECIBIDA.
+  fecha_recepcion debe ser igual o posterior a fecha_compra.
+  Estados permitidos: BORRADOR, CONFIRMADA, RECIBIDA y ANULADA.
+end note
+
+note bottom of inventario
+  stock_actual >= 0
+  stock_reservado >= 0
+  stock_reservado <= stock_actual
+end note
+
+note bottom of detalle_compra
+  subtotal = cantidad * costo_unitario
+  El subtotal y el total se calculan en el servidor;
+  no existen como columnas persistidas.
+end note
+
+note "Cada empresa utiliza una base tenant independiente.\nPor eso estas tablas no contienen empresa_id;\nla empresa se determina mediante el token autenticado." as TENANT
+TENANT .. compra
+
+@enduml

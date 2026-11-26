@@ -40,6 +40,10 @@ from app.modules.gestion_usuarios_seguridad.schemas.schemas import (
     EmpresaPublicaRespuesta,
 )
 
+from app.modules.gestion_usuarios_seguridad.api.valoracion_clinica import (
+    router as valoracion_clinica_router,
+)
+
 from app.modules.gestion_usuarios_seguridad.services import (
     auth_service,
     bitacora_service,
@@ -56,6 +60,8 @@ router = APIRouter(
     prefix="/seguridad",
     tags=["Usuarios y Seguridad"],
 )
+
+router.include_router(valoracion_clinica_router)
 
 
 # =========================================================

@@ -10,6 +10,12 @@ from app.modules.gestion_pagos.models.models import NotificacionPago, Pago, Pago
 from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 
 
+# Motivo terminal: la notificacion solo podria reasignarse reutilizando su
+# clave de idempotencia con un destinatario distinto. El worker nunca la vuelve
+# a reclamar y la fila queda para revision manual.
+ERROR_DESTINATARIO_NO_REASIGNABLE = "DEMO_DESTINATARIO_NO_REASIGNABLE"
+
+
 def obtener_pago_por_clave(db: Session, clave: str, *, bloquear: bool = False):
     stmt = select(Pago).options(selectinload(Pago.detalles)).where(
         Pago.clave_idempotencia == clave,
@@ -60,6 +66,7 @@ def conflictos_por_servicio(db: Session, servicio_ids: Iterable[int]):
         .where(
             PagoDetalle.servicio_realizado_id.in_(ids),
             or_(
+                Pago.estado == "APROBADO",
                 Pago.estado == "PENDIENTE",
                 (Pago.pasarela == "STRIPE") & (Pago.estado == "RECHAZADO"),
             ),
@@ -67,13 +74,25 @@ def conflictos_por_servicio(db: Session, servicio_ids: Iterable[int]):
     ).all()
     resultado = {}
     for servicio_id, pasarela, estado in filas:
-        conflicto = (
-            "INTENTO_STRIPE_POTENCIALMENTE_COBRABLE"
-            if pasarela == "STRIPE"
-            else "PAGO_MANUAL_PENDIENTE"
-        )
-        # Stripe tiene prioridad informativa sobre un pendiente manual.
-        if servicio_id not in resultado or pasarela == "STRIPE":
+        if estado == "APROBADO":
+            conflicto = "PAGO_APROBADO_EXISTENTE"
+        else:
+            conflicto = (
+                "INTENTO_STRIPE_POTENCIALMENTE_COBRABLE"
+                if pasarela == "STRIPE"
+                else "PAGO_MANUAL_PENDIENTE"
+            )
+        # Un pago aprobado siempre prevalece; entre pendientes, Stripe aporta
+        # el conflicto más fuerte porque todavía podría confirmarse por webhook.
+        actual = resultado.get(servicio_id)
+        if (
+            actual is None
+            or conflicto == "PAGO_APROBADO_EXISTENTE"
+            or (
+                actual == "PAGO_MANUAL_PENDIENTE"
+                and conflicto == "INTENTO_STRIPE_POTENCIALMENTE_COBRABLE"
+            )
+        ):
             resultado[servicio_id] = conflicto
     return resultado
 
@@ -218,8 +237,25 @@ def obtener_notificacion_por_proveedor_id(db: Session, proveedor_id: str, *, blo
     return db.scalar(stmt)
 
 
-def reclamar_notificacion(db: Session, ahora: datetime, bloqueado_hasta: datetime):
+def reclamar_notificacion(
+    db: Session,
+    ahora: datetime,
+    bloqueado_hasta: datetime,
+    *,
+    sin_destinatario_permitido: bool = False,
+):
     dentro_ventana_idempotencia = ahora - timedelta(hours=24)
+    # Una notificacion sin destinatario nunca se entrego al proveedor: fue
+    # creada para un paciente sin correo valido. Solo el worker en modo
+    # demostracion puede adoptarla, porque ya existe un destinatario unico al
+    # que redirigirla; sin ese destinatario se conserva el comportamiento
+    # anterior (requiere reintento manual explicito).
+    filtro_destinatario = NotificacionPago.destinatario.is_not(None)
+    if sin_destinatario_permitido:
+        filtro_destinatario = or_(
+            filtro_destinatario,
+            NotificacionPago.destinatario.is_(None),
+        )
     stmt = (
         select(NotificacionPago)
         .where(
@@ -250,8 +286,14 @@ def reclamar_notificacion(db: Session, ahora: datetime, bloqueado_hasta: datetim
                 & (NotificacionPago.intentos == 1)
                 & (NotificacionPago.fecha_actualizacion >= dentro_ventana_idempotencia),
             ),
-            NotificacionPago.destinatario.is_not(None),
+            filtro_destinatario,
             NotificacionPago.intentos < 8,
+            # Una fila marcada como no reasignable no se reintenta sola: la
+            # clave de idempotencia ya pudo usarse con otro destinatario.
+            or_(
+                NotificacionPago.ultimo_error.is_(None),
+                NotificacionPago.ultimo_error != ERROR_DESTINATARIO_NO_REASIGNABLE,
+            ),
         )
         .order_by(NotificacionPago.id.asc())
         .limit(1)

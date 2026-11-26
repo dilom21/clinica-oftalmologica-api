@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Res
 from sqlalchemy.orm import Session
 
 from app.core.dependencies import (
+<<<<<<< HEAD
     ACCION_ESCRITURA, ACCION_LECTURA, get_db, get_tenant_claims, requerir_permiso,
 )
 from app.modules.gestion_inventario_proveedores.schemas.schemas import (
@@ -11,6 +12,22 @@ from app.modules.gestion_inventario_proveedores.schemas.schemas import (
     ProveedorRespuesta, ProveedoresPagina,
 )
 from app.modules.gestion_inventario_proveedores.services import service
+=======
+    ACCION_ESCRITURA,
+    ACCION_LECTURA,
+    get_db,
+    get_tenant_claims,
+    requerir_permiso,
+)
+from app.modules.gestion_inventario_proveedores.schemas.proveedor import (
+    ProveedorActualizar,
+    ProveedorCrear,
+    ProveedorOperacion,
+    ProveedorRespuesta,
+    ProveedoresPagina,
+)
+from app.modules.gestion_inventario_proveedores.services import proveedor as service
+>>>>>>> main
 from app.modules.gestion_usuarios_seguridad.models.models import Usuario
 
 
@@ -18,7 +35,12 @@ def _exigir_bearer(request: Request):
     esquema, _, token = request.headers.get("Authorization", "").partition(" ")
     if esquema.lower() != "bearer" or not token.strip():
         raise HTTPException(
+<<<<<<< HEAD
             401, "Se requiere una sesión válida",
+=======
+            401,
+            "Se requiere una sesión válida",
+>>>>>>> main
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -28,8 +50,17 @@ router = APIRouter(
     tags=["Gestionar proveedores"],
     dependencies=[Depends(_exigir_bearer), Depends(get_tenant_claims)],
 )
+<<<<<<< HEAD
 permiso_lectura = requerir_permiso("Gestionar proveedores", ACCION_LECTURA)
 permiso_escritura = requerir_permiso("Gestionar proveedores", ACCION_ESCRITURA)
+=======
+permiso_lectura = requerir_permiso(
+    "Gestionar proveedores", ACCION_LECTURA
+)
+permiso_escritura = requerir_permiso(
+    "Gestionar proveedores", ACCION_ESCRITURA
+)
+>>>>>>> main
 IdProveedor = Annotated[int, Path(gt=0, le=2**31 - 1)]
 
 
@@ -61,7 +92,14 @@ def registrar_proveedor(
     usuario: Usuario = Depends(permiso_escritura),
 ):
     return service.crear(
+<<<<<<< HEAD
         db, datos, usuario, request.client.host if request.client else None,
+=======
+        db,
+        datos,
+        usuario,
+        request.client.host if request.client else None,
+>>>>>>> main
     )
 
 
@@ -75,8 +113,17 @@ def actualizar_proveedor(
     usuario: Usuario = Depends(permiso_escritura),
 ):
     return service.actualizar(
+<<<<<<< HEAD
         db, proveedor_id, datos, usuario,
         request.client.host if request.client else None, confirmar=confirmar,
+=======
+        db,
+        proveedor_id,
+        datos,
+        usuario,
+        request.client.host if request.client else None,
+        confirmar=confirmar,
+>>>>>>> main
     )
 
 
@@ -89,7 +136,17 @@ def dar_baja_proveedor(
     usuario: Usuario = Depends(permiso_escritura),
 ):
     service.dar_baja(
+<<<<<<< HEAD
         db, proveedor_id, usuario,
         request.client.host if request.client else None, confirmar=confirmar,
     )
     return Response(status_code=204)
+=======
+        db,
+        proveedor_id,
+        usuario,
+        request.client.host if request.client else None,
+        confirmar=confirmar,
+    )
+    return Response(status_code=204)
+>>>>>>> main

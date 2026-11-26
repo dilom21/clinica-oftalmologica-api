@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """Mapeo del esquema existente; este módulo no ejecuta DDL."""
 
 from sqlalchemy import Boolean, Integer, String
@@ -18,3 +19,10 @@ class Proveedor(Base):
     direccion: Mapped[str | None] = mapped_column(String(255))
     contacto: Mapped[str | None] = mapped_column(String(100))
     estado: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=True)
+=======
+"""Compatibilidad con la ruta de importación original de CU28."""
+
+from .proveedor import Proveedor
+
+__all__ = ["Proveedor"]
+>>>>>>> main

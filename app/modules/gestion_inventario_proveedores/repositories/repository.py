@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """Persistencia de proveedores; la transacción pertenece al servicio."""
 
 from sqlalchemy import func, or_, select
@@ -54,3 +55,10 @@ def actualizar(db: Session, proveedor: Proveedor, cambios: dict):
         setattr(proveedor, campo, valor)
     db.flush()
     return proveedor
+=======
+"""Compatibilidad con la ruta de importación original de CU28."""
+
+from .proveedor import actualizar, crear, existe_nit, listar, obtener_por_id
+
+__all__ = ["actualizar", "crear", "existe_nit", "listar", "obtener_por_id"]
+>>>>>>> main

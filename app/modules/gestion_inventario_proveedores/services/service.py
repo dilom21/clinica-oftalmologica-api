@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 """CU28: reglas y auditoría atómicas en la sesión de la clínica activa."""
 
 from fastapi import HTTPException
@@ -142,3 +143,10 @@ def dar_baja(
         db, proveedor_id, ProveedorActualizar(estado=False), usuario, ip,
         confirmar=True,
     )
+=======
+"""Compatibilidad con la ruta de importación original de CU28."""
+
+from .proveedor import actualizar, consultar, crear, dar_baja, listar
+
+__all__ = ["actualizar", "consultar", "crear", "dar_baja", "listar"]
+>>>>>>> main

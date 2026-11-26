@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, StrictBool, field_validator
 
 
@@ -65,3 +66,22 @@ class ProveedoresPagina(BaseModel):
 class ProveedorOperacion(BaseModel):
     mensaje: str
     proveedor: ProveedorRespuesta
+=======
+"""Compatibilidad con la ruta de importación original de CU28."""
+
+from .proveedor import (
+    ProveedorActualizar,
+    ProveedorCrear,
+    ProveedorOperacion,
+    ProveedorRespuesta,
+    ProveedoresPagina,
+)
+
+__all__ = [
+    "ProveedorActualizar",
+    "ProveedorCrear",
+    "ProveedorOperacion",
+    "ProveedorRespuesta",
+    "ProveedoresPagina",
+]
+>>>>>>> main

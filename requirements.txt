@@ -30,6 +30,7 @@ uvicorn==0.52.3
 wheel==0.47.0
 pwdlib[argon2]==0.3.1
 openai==3.26.0
+httpx==0.28.1
 httpx2==2.13.1
 httpcore2==2.13.1
 jiter==0.17.0
