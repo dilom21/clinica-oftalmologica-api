@@ -40,7 +40,7 @@ gcloud services enable \
   iamcredentials.googleapis.com \
   sts.googleapis.com \
   cloudresourcemanager.googleapis.com \
-  firebasecloudmessaging.googleapis.com \
+  fcm.googleapis.com \
   --project=clinica-oftalmologica-24ff7
 ```
 
