@@ -5,3 +5,5 @@ __pycache__/
 .env.*.local
 certbot/
 private-backups/
+secrets/
+.env.fcm-worker
