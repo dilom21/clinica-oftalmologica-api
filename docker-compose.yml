@@ -56,6 +56,9 @@ services:
     env_file:
       - path: ${FCM_WORKER_ENV_FILE:-.env.fcm-worker}
         required: true
+    build:
+      context: .
+      dockerfile: Dockerfile
     command: ["python", "-m", "app.modules.notificaciones_push.worker_runner"]
     environment:
       GOOGLE_APPLICATION_CREDENTIALS: /run/google-wif/gcp-wif-credentials.json
