@@ -210,3 +210,109 @@ def test_401_403_siguen_siendo_error_global_no_token_invalido(status):
 
     assert resultado.clasificacion == fcm.ERROR_CONFIGURACION
     assert resultado.token_invalido is False
+
+class RespuestaHttpFalsa:
+    def __init__(self, payload, status_code=200):
+        self.status_code = status_code
+        self.headers = {}
+        self._payload = payload
+
+    def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
+        return self._payload
+
+
+ID_FCM_CONVENCIONAL = "projects/demo/messages/mensaje-1"
+ID_FCM_CON_PORCENTAJE = (
+    "projects/myproject-b5ae1/messages/"
+    "0:1500415314455276%31bd1c9631bd1c96"
+)
+
+
+@pytest.mark.parametrize(
+    "mensaje_id",
+    [ID_FCM_CONVENCIONAL, ID_FCM_CON_PORCENTAJE],
+)
+def test_sanitizar_acepta_ids_fcm_http_v1_validos(mensaje_id):
+    assert fcm.sanitizar_mensaje_id(mensaje_id) == mensaje_id
+
+
+@pytest.mark.parametrize(
+    "mensaje_id",
+    [
+        None,
+        123,
+        "",
+        "projects/demo/messages/",
+        "projects//messages/123",
+        "projects/demo/messages/id/extra",
+        "projects/demo/messages/id con espacios",
+        " projects/demo/messages/id",
+        "projects/demo/messages/id ",
+        "projects/demo/messages/id\n",
+        "projects/../messages/123",
+        "projects/demo/messages/..",
+        "projects/demo/messages/id?query=1",
+        "projects/demo/messages/id\\\\otro",
+        "projects/demo/messages/" + ("x" * 256),
+    ],
+)
+def test_sanitizar_rechaza_ids_fcm_invalidos_o_inseguros(mensaje_id):
+    assert fcm.sanitizar_mensaje_id(mensaje_id) is None
+
+
+@pytest.mark.parametrize(
+    "mensaje_id",
+    [ID_FCM_CONVENCIONAL, ID_FCM_CON_PORCENTAJE],
+)
+def test_http_2xx_con_id_fcm_valido_se_clasifica_aceptado(mensaje_id):
+    respuesta = RespuestaHttpFalsa({"name": mensaje_id})
+
+    resultado = fcm.FcmHttpV1()._clasificar(respuesta)
+
+    assert resultado.clasificacion == fcm.ACEPTADO
+    assert resultado.codigo == "ACEPTADO"
+    assert resultado.aceptado is True
+    assert resultado.mensaje_id == mensaje_id
+
+
+@pytest.mark.parametrize("status_code", [200, 201, 204])
+def test_http_2xx_sin_identificador_sigue_siendo_reintentable(status_code):
+    respuesta = RespuestaHttpFalsa({}, status_code=status_code)
+
+    resultado = fcm.FcmHttpV1()._clasificar(respuesta)
+
+    assert resultado.clasificacion == fcm.REINTENTABLE
+    assert resultado.codigo == "RESPUESTA_SIN_ID"
+    assert resultado.aceptado is False
+    assert resultado.mensaje_id is None
+
+
+def test_http_2xx_con_json_invalido_sigue_siendo_reintentable():
+    respuesta = RespuestaHttpFalsa(ValueError("JSON inválido"))
+
+    resultado = fcm.FcmHttpV1()._clasificar(respuesta)
+
+    assert resultado.clasificacion == fcm.REINTENTABLE
+    assert resultado.codigo == "RESPUESTA_SIN_ID"
+    assert resultado.aceptado is False
+
+
+@pytest.mark.parametrize(
+    "mensaje_id",
+    [
+        "projects/demo/messages/id con espacios",
+        "projects/demo/messages/id/extra",
+        "projects/../messages/id",
+    ],
+)
+def test_http_2xx_con_identificador_invalido_no_se_acepta(mensaje_id):
+    respuesta = RespuestaHttpFalsa({"name": mensaje_id})
+
+    resultado = fcm.FcmHttpV1()._clasificar(respuesta)
+
+    assert resultado.clasificacion == fcm.REINTENTABLE
+    assert resultado.codigo == "RESPUESTA_SIN_ID"
+    assert resultado.aceptado is False
+    assert resultado.mensaje_id is None

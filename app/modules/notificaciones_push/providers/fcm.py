@@ -65,7 +65,9 @@ _CODIGOS_TOKEN_NO_REGISTRADO = frozenset({
 })
 
 _RE_CODIGO = re.compile(r"[^A-Z0-9_]+")
-_RE_MENSAJE_ID = re.compile(r"^[A-Za-z0-9._:/-]{1,255}$")
+_RE_MENSAJE_ID = re.compile(
+    r"^projects/[A-Za-z0-9._:-]{1,100}/messages/[A-Za-z0-9._:%-]+$"
+)
 _LONGITUD_CODIGO = 60
 _LONGITUD_ERROR = 100
 
@@ -190,11 +192,19 @@ def sanitizar_codigo_error(valor: object, por_defecto: str = "PROVEEDOR_ERROR") 
 
 
 def sanitizar_mensaje_id(valor: object) -> str | None:
-    """Solo acepta identificadores opacos imprimibles y acotados."""
+    """Valida el nombre de recurso FCM HTTP v1 sin decodificar su ID opaco.
+
+    FCM devuelve projects/{project}/messages/{message_id}. El segmento
+    final admite el caracter % (incluido en el ejemplo oficial de HTTP v1);
+    se conserva literalmente y nunca se interpreta ni decodifica como URL.
+    """
     if not isinstance(valor, str):
         return None
-    limpio = valor.strip()
-    if not _RE_MENSAJE_ID.fullmatch(limpio):
+    limpio = valor
+    if len(limpio) > 255 or not _RE_MENSAJE_ID.fullmatch(limpio):
+        return None
+    _, proyecto, _, mensaje = limpio.split("/")
+    if proyecto in {".", ".."} or mensaje in {".", ".."}:
         return None
     return limpio
 

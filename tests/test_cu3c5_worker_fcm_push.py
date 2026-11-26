@@ -493,14 +493,21 @@ def test_evento_de_cita_encola_entregas_en_la_misma_transaccion(db, monkeypatch)
 # --------------------------------------------------------------------------- #
 # 2. Worker: exito, preferencias y dispositivos
 # --------------------------------------------------------------------------- #
-def test_worker_registra_aceptacion_y_provider_message_id(db):
+@pytest.mark.parametrize(
+    "mensaje_id",
+    [
+        "projects/demo/messages/123",
+        "projects/myproject-b5ae1/messages/0:1500415314455276%31bd1c9631bd1c96",
+    ],
+)
+def test_worker_registra_aceptacion_y_provider_message_id(db, mensaje_id):
     _dispositivo(db)
     notificacion = _notificacion(db)
     entrega = _entrega(
         db, notificacion_id=notificacion.id, dispositivo_id=1,
     )
     db.commit()
-    cliente = ClienteFalso(_aceptado("projects/demo/messages/123"))
+    cliente = ClienteFalso(_aceptado(mensaje_id))
 
     resultado = _ejecutar(db, _proveedor(cliente))
 
@@ -508,11 +515,13 @@ def test_worker_registra_aceptacion_y_provider_message_id(db):
     actualizada = db.get(NotificacionEntrega, entrega.id)
     db.refresh(actualizada)
     assert actualizada.estado == "ACEPTADO_POR_FCM"
-    assert actualizada.proveedor_mensaje_id == "projects/demo/messages/123"
+    assert actualizada.proveedor_mensaje_id == mensaje_id
     assert actualizada.intentos == 1
     assert actualizada.fecha_aceptado is not None
     assert actualizada.lease_token is None
     assert actualizada.bloqueado_hasta is None
+    assert actualizada.proximo_intento is None
+    assert actualizada.codigo_ultimo_error is None
     assert len(cliente.llamadas) == 1
 
 
@@ -531,6 +540,10 @@ def test_worker_no_marca_aceptado_sin_respuesta_valida(db):
     assert actualizada.estado == "PENDIENTE"
     assert actualizada.proveedor_mensaje_id is None
     assert actualizada.codigo_ultimo_error == "RESPUESTA_SIN_ID"
+    assert actualizada.intentos == 1
+    assert actualizada.proximo_intento == AHORA + timedelta(seconds=30)
+    assert actualizada.lease_token is None
+    assert actualizada.bloqueado_hasta is None
 
 
 def test_worker_revalida_preferencia_despues_del_encolado(db):
