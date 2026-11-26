@@ -218,6 +218,8 @@ class RespuestaHttpFalsa:
         self._payload = payload
 
     def json(self):
+        if isinstance(self._payload, Exception):
+            raise self._payload
         return self._payload
 
 
@@ -246,7 +248,7 @@ def test_sanitizar_acepta_ids_fcm_http_v1_validos(mensaje_id):
         "projects//messages/123",
         "projects/demo/messages/id/extra",
         "projects/demo/messages/id con espacios",
-        "projects/demo/messages/id\\n",
+        "projects/demo/messages/id\n",
         "projects/../messages/123",
         "projects/demo/messages/..",
         "projects/demo/messages/id?query=1",
@@ -273,8 +275,9 @@ def test_http_2xx_con_id_fcm_valido_se_clasifica_aceptado(mensaje_id):
     assert resultado.mensaje_id == mensaje_id
 
 
-def test_http_2xx_sin_identificador_sigue_siendo_reintentable():
-    respuesta = RespuestaHttpFalsa({})
+@pytest.mark.parametrize("status_code", [200, 201, 204])
+def test_http_2xx_sin_identificador_sigue_siendo_reintentable(status_code):
+    respuesta = RespuestaHttpFalsa({}, status_code=status_code)
 
     resultado = fcm.FcmHttpV1()._clasificar(respuesta)
 
@@ -282,6 +285,16 @@ def test_http_2xx_sin_identificador_sigue_siendo_reintentable():
     assert resultado.codigo == "RESPUESTA_SIN_ID"
     assert resultado.aceptado is False
     assert resultado.mensaje_id is None
+
+
+def test_http_2xx_con_json_invalido_sigue_siendo_reintentable():
+    respuesta = RespuestaHttpFalsa(ValueError("JSON inválido"))
+
+    resultado = fcm.FcmHttpV1()._clasificar(respuesta)
+
+    assert resultado.clasificacion == fcm.REINTENTABLE
+    assert resultado.codigo == "RESPUESTA_SIN_ID"
+    assert resultado.aceptado is False
 
 
 @pytest.mark.parametrize(
