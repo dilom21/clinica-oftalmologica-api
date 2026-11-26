@@ -150,8 +150,10 @@ umask 077
 cp .env.fcm-worker.example .env.fcm-worker
 chmod 600 .env.fcm-worker
 mkdir -p secrets/fcm-wif
-chmod 700 secrets secrets/fcm-wif
-chmod 600 secrets/fcm-wif/gcp-wif-credentials.json
+# Dockerfile ejecuta el proceso como UID/GID 10001 (clinic).
+sudo chown -R 10001:10001 secrets/fcm-wif
+sudo chmod 0500 secrets/fcm-wif
+sudo chmod 0400 secrets/fcm-wif/gcp-wif-credentials.json
 ```
 
 La configuración actual de `app/core/config.py` valida también DATABASE_URL, JWT, URL de restablecimiento y variables Gmail al importar el backend. Aunque Gmail no forma parte del trabajo del worker FCM, la plantilla incluye esos valores porque son obligatorios por la validación global vigente. No usar valores ficticios en producción.
@@ -164,7 +166,7 @@ APP_ENV_FILE=.env.fcm-worker FCM_WORKER_ENV_FILE=.env.fcm-worker docker compose 
 docker compose ps
 ```
 
-El worker FCM usa el perfil opt-in `fcm`, un env_file dedicado, el JSON montado en solo lectura y no publica puertos. El worker de pagos/Resend no se modifica.
+El worker FCM usa el perfil opt-in `fcm`, un env_file dedicado, el JSON montado en solo lectura y no publica puertos. El Dockerfile ejecuta la aplicación como UID/GID `10001:10001`; por eso el directorio montado y el archivo deben ser legibles por ese UID (directorio `0500`, archivo `0400`, propiedad `10001:10001`). El worker de pagos/Resend no se modifica.
 
 ## 9. Validar ADC y luego iniciar el worker
 
